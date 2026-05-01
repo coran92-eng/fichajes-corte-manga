@@ -1,0 +1,12 @@
+{
+  "name": "fichaje-corte-manga",
+  "version": "1.0.0",
+  "description": "App de fichajes con Turso y Vercel",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "dependencies": {
+    "@libsql/client": "^0.6.0"
+  }
+}

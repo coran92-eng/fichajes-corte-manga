@@ -1,0 +1,474 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#2563eb">
+    <title>Horas por Semana - Fichaje</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js"></script>
+    <script>
+        function verificarSesion() {
+            const token = sessionStorage.getItem('admin_session');
+            const loginTime = sessionStorage.getItem('login_time');
+            if (!token || !loginTime) return false;
+            const ochoHoras = 8 * 60 * 60 * 1000;
+            if (Date.now() - parseInt(loginTime) > ochoHoras) {
+                sessionStorage.removeItem('admin_session');
+                sessionStorage.removeItem('login_time');
+                return false;
+            }
+            return true;
+        }
+        if (!verificarSesion()) {
+            window.location.href = 'login.html';
+        }
+    </script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            padding: 30px;
+            max-width: 1100px;
+            margin: 0 auto;
+        }
+
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 30px;
+            flex-wrap: wrap;
+            gap: 15px;
+        }
+
+        .header h1 { color: #1f2937; font-size: 26px; }
+
+        button {
+            padding: 10px 18px;
+            border: none;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .btn-volver { background: #6b7280; color: white; }
+        .btn-volver:hover { background: #4b5563; }
+
+        .filtros {
+            background: #f9fafb;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 25px;
+            display: flex;
+            gap: 20px;
+            align-items: flex-end;
+            flex-wrap: wrap;
+        }
+
+        .filtro-grupo { display: flex; flex-direction: column; gap: 5px; }
+
+        .filtro-grupo label {
+            font-size: 12px;
+            font-weight: 600;
+            color: #6b7280;
+        }
+
+        .filtro-grupo select, .filtro-grupo input {
+            padding: 8px 12px;
+            border: 2px solid #e5e7eb;
+            border-radius: 6px;
+            font-size: 14px;
+            font-family: inherit;
+        }
+
+        .filtro-grupo select:focus, .filtro-grupo input:focus {
+            outline: none;
+            border-color: #2563eb;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        thead { background: #f3f4f6; }
+
+        th, td {
+            padding: 12px 14px;
+            text-align: left;
+            border-bottom: 1px solid #e5e7eb;
+            font-size: 14px;
+        }
+
+        th { font-weight: 600; color: #374151; }
+
+        tbody tr:hover { background: #f9fafb; }
+
+        .horas-badge {
+            display: inline-block;
+            padding: 4px 10px;
+            border-radius: 20px;
+            font-weight: 700;
+            font-size: 13px;
+        }
+
+        .horas-normal { background: #d1fae5; color: #065f46; }
+        .horas-extra  { background: #dbeafe; color: #1e40af; }
+        .horas-baja   { background: #fee2e2; color: #7f1d1d; }
+
+        .mono { font-family: 'Courier New', monospace; font-weight: 600; color: #1f2937; }
+
+        .semana-label { color: #6b7280; font-size: 13px; }
+
+        .empty {
+            text-align: center;
+            padding: 50px 20px;
+            color: #6b7280;
+            font-size: 16px;
+        }
+
+        .resumen-cards {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 15px;
+            margin-bottom: 25px;
+        }
+
+        .card {
+            background: #f3f4f6;
+            border-radius: 8px;
+            padding: 15px;
+            text-align: center;
+        }
+
+        .card-value { font-size: 22px; font-weight: bold; color: #2563eb; margin-bottom: 4px; }
+        .card-label { font-size: 12px; color: #6b7280; }
+
+        @media (max-width: 768px) {
+            .container { padding: 15px; }
+            th, td { padding: 8px 10px; font-size: 12px; }
+            .filtros { flex-direction: column; }
+        }
+
+        @media (prefers-color-scheme: dark) {
+            body { background: #111827; }
+            .container { background: #1f2937; color: #e5e7eb; }
+            .header h1 { color: #e5e7eb; }
+            th { color: #e5e7eb; }
+            thead { background: #374151; }
+            tbody tr:hover { background: #2d3748; }
+            .filtros { background: #374151; }
+            .filtro-grupo select, .filtro-grupo input {
+                background: #4b5563; color: #e5e7eb; border-color: #6b7280;
+            }
+            .card { background: #374151; }
+            td { color: #d1d5db; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>⏱️ Horas por Semana</h1>
+            <button class="btn-volver" onclick="window.location.href='admin.html'">← Volver a Reportes</button>
+        </div>
+
+        <div class="resumen-cards" id="resumenCards"></div>
+
+        <div class="filtros">
+            <div class="filtro-grupo">
+                <label for="filtroEmpleado">Empleado</label>
+                <select id="filtroEmpleado">
+                    <option value="">Todos</option>
+                </select>
+            </div>
+            <div class="filtro-grupo">
+                <label for="filtroSemanaDesde">Desde semana</label>
+                <input type="week" id="filtroSemanaDesde">
+            </div>
+            <div class="filtro-grupo">
+                <label for="filtroSemanaHasta">Hasta semana</label>
+                <input type="week" id="filtroSemanaHasta">
+            </div>
+        </div>
+
+        <div id="tablaContainer">
+            <div class="empty" id="emptyMsg">Cargando datos...</div>
+        </div>
+    </div>
+
+    <script>
+        const STORAGE_KEY = 'fichajes_data';
+
+        function obtenerFichajes() {
+            try {
+                const encrypted = localStorage.getItem(STORAGE_KEY);
+                if (!encrypted) return [];
+                const decrypted = CryptoJS.AES.decrypt(encrypted, 'fichaje_key').toString(CryptoJS.enc.Utf8);
+                return JSON.parse(decrypted) || [];
+            } catch (e) {
+                try {
+                    const data = JSON.parse(localStorage.getItem(STORAGE_KEY));
+                    if (Array.isArray(data)) return data;
+                } catch {}
+                return [];
+            }
+        }
+
+        // Retorna la clave ISO de semana: "2025-W12"
+        function getSemanaISO(fechaStr) {
+            const d = new Date(fechaStr + 'T12:00:00');
+            const dayOfWeek = d.getDay() || 7; // lunes=1 ... domingo=7
+            d.setDate(d.getDate() + 4 - dayOfWeek);
+            const yearStart = new Date(d.getFullYear(), 0, 1);
+            const weekNum = Math.ceil((((d - yearStart) / 86400000) + 1) / 7);
+            return `${d.getFullYear()}-W${String(weekNum).padStart(2, '0')}`;
+        }
+
+        // Etiqueta legible de semana: "Semana 12 (17/03 – 23/03/2025)"
+        function etiquetaSemana(semanaISO) {
+            const [year, week] = semanaISO.split('-W');
+            const simple = new Date(parseInt(year), 0, 1 + (parseInt(week) - 1) * 7);
+            const dayOfWeek = simple.getDay() || 7;
+            const lunes = new Date(simple);
+            lunes.setDate(simple.getDate() - dayOfWeek + 1);
+            const domingo = new Date(lunes);
+            domingo.setDate(lunes.getDate() + 6);
+            const fmt = (d) => d.toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit' });
+            return `Sem. ${week} (${fmt(lunes)} – ${fmt(domingo)}/${year})`;
+        }
+
+        function timeToMs(horaStr) {
+            const [h, m, s] = horaStr.split(':').map(Number);
+            return ((h * 60 + m) * 60 + (s || 0)) * 1000;
+        }
+
+        function msToHoras(ms) {
+            if (ms < 0) ms = 0;
+            const totalMin = Math.round(ms / 60000);
+            const h = Math.floor(totalMin / 60);
+            const m = totalMin % 60;
+            return `${h}h ${String(m).padStart(2, '0')}m`;
+        }
+
+        function calcularHorasSemana(fichajesEmpleado) {
+            // Agrupar por (empleado, semana, día)
+            const porDia = {};
+            fichajesEmpleado.forEach(f => {
+                const key = f.fecha;
+                if (!porDia[key]) porDia[key] = [];
+                porDia[key].push(f);
+            });
+
+            let totalTrabajadoMs = 0;
+            let totalDescansoMs = 0;
+            let primeraEntrada = null;
+            let ultimaSalida = null;
+
+            Object.values(porDia).forEach(fichajesDia => {
+                fichajesDia.sort((a, b) => timeToMs(a.hora) - timeToMs(b.hora));
+
+                let entradaMs = null;
+                let descansoIniMs = null;
+                let descansoTotalDiaMs = 0;
+
+                fichajesDia.forEach(f => {
+                    const ms = timeToMs(f.hora);
+                    if (f.tipo === 'entrada') {
+                        entradaMs = ms;
+                        if (!primeraEntrada || f.fecha + f.hora < primeraEntrada) {
+                            primeraEntrada = f.fecha + ' ' + f.hora;
+                        }
+                    } else if (f.tipo === 'salida') {
+                        if (entradaMs !== null) {
+                            totalTrabajadoMs += (ms - entradaMs);
+                        }
+                        if (!ultimaSalida || f.fecha + f.hora > ultimaSalida) {
+                            ultimaSalida = f.fecha + ' ' + f.hora;
+                        }
+                    } else if (f.tipo === 'inicio_descanso') {
+                        descansoIniMs = ms;
+                    } else if (f.tipo === 'fin_descanso') {
+                        if (descansoIniMs !== null) {
+                            descansoTotalDiaMs += (ms - descansoIniMs);
+                            descansoIniMs = null;
+                        }
+                    }
+                });
+
+                totalDescansoMs += descansoTotalDiaMs;
+            });
+
+            const horasNetoMs = totalTrabajadoMs - totalDescansoMs;
+
+            return {
+                horasTotales: msToHoras(totalTrabajadoMs),
+                horasNeto: msToHoras(horasNetoMs > 0 ? horasNetoMs : 0),
+                descanso: msToHoras(totalDescansoMs),
+                primeraEntrada: primeraEntrada ? primeraEntrada.split(' ')[1] : '–',
+                ultimaSalida: ultimaSalida ? ultimaSalida.split(' ')[1] : '–',
+                horasNetoMs
+            };
+        }
+
+        function procesarDatos(fichajes) {
+            // Agrupar por empleado → semana
+            const agrupado = {};
+            fichajes.forEach(f => {
+                const semana = getSemanaISO(f.fecha);
+                const key = `${f.empleado}||${semana}`;
+                if (!agrupado[key]) agrupado[key] = { empleado: f.empleado, semana, fichajes: [] };
+                agrupado[key].fichajes.push(f);
+            });
+
+            return Object.values(agrupado).map(grupo => {
+                const calc = calcularHorasSemana(grupo.fichajes);
+                return {
+                    empleado: grupo.empleado,
+                    semana: grupo.semana,
+                    etiqueta: etiquetaSemana(grupo.semana),
+                    ...calc
+                };
+            }).sort((a, b) => {
+                if (a.semana !== b.semana) return b.semana.localeCompare(a.semana);
+                return a.empleado.localeCompare(b.empleado);
+            });
+        }
+
+        function renderTabla(filas) {
+            if (filas.length === 0) {
+                document.getElementById('tablaContainer').innerHTML =
+                    '<div class="empty">No hay datos para los filtros seleccionados</div>';
+                return;
+            }
+
+            const html = `
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Empleado</th>
+                            <th>Semana</th>
+                            <th>Horas Totales</th>
+                            <th>Descanso</th>
+                            <th>Horas Netas</th>
+                            <th>Primera Entrada</th>
+                            <th>Última Salida</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${filas.map(f => {
+                            const badgeClass = f.horasNetoMs >= 40 * 3600000 ? 'horas-extra'
+                                             : f.horasNetoMs >= 20 * 3600000 ? 'horas-normal'
+                                             : 'horas-baja';
+                            return `
+                                <tr>
+                                    <td><strong>${f.empleado}</strong></td>
+                                    <td class="semana-label">${f.etiqueta}</td>
+                                    <td class="mono">${f.horasTotales}</td>
+                                    <td class="mono" style="color:#f59e0b">${f.descanso}</td>
+                                    <td><span class="horas-badge ${badgeClass}">${f.horasNetas || f.horasNeto}</span></td>
+                                    <td class="mono">${f.primeraEntrada}</td>
+                                    <td class="mono">${f.ultimaSalida}</td>
+                                </tr>
+                            `;
+                        }).join('')}
+                    </tbody>
+                </table>
+            `;
+            document.getElementById('tablaContainer').innerHTML = html;
+        }
+
+        function renderResumen(filas) {
+            if (filas.length === 0) return;
+            const totalHorasMs = filas.reduce((s, f) => s + f.horasNetoMs, 0);
+            const empleadosUnicos = new Set(filas.map(f => f.empleado)).size;
+            const semanasUnicas = new Set(filas.map(f => f.semana)).size;
+            const promedio = filas.length > 0 ? totalHorasMs / filas.length : 0;
+
+            document.getElementById('resumenCards').innerHTML = `
+                <div class="card">
+                    <div class="card-value">${empleadosUnicos}</div>
+                    <div class="card-label">Empleados</div>
+                </div>
+                <div class="card">
+                    <div class="card-value">${semanasUnicas}</div>
+                    <div class="card-label">Semanas</div>
+                </div>
+                <div class="card">
+                    <div class="card-value">${msToHoras(totalHorasMs)}</div>
+                    <div class="card-label">Total Horas Netas</div>
+                </div>
+                <div class="card">
+                    <div class="card-value">${msToHoras(promedio)}</div>
+                    <div class="card-label">Promedio / Empleado / Semana</div>
+                </div>
+            `;
+        }
+
+        let todasLasFilas = [];
+
+        function aplicarFiltros() {
+            const empleadoFiltro = document.getElementById('filtroEmpleado').value;
+            const desdeStr = document.getElementById('filtroSemanaDesde').value;
+            const hastaStr = document.getElementById('filtroSemanaHasta').value;
+
+            let filtradas = todasLasFilas;
+
+            if (empleadoFiltro) {
+                filtradas = filtradas.filter(f => f.empleado === empleadoFiltro);
+            }
+            if (desdeStr) {
+                filtradas = filtradas.filter(f => f.semana >= desdeStr.replace('W0', 'W').replace('-W', '-W'));
+            }
+            if (hastaStr) {
+                filtradas = filtradas.filter(f => f.semana <= hastaStr.replace('W0', 'W').replace('-W', '-W'));
+            }
+
+            renderTabla(filtradas);
+            renderResumen(filtradas);
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            const fichajes = obtenerFichajes();
+
+            if (fichajes.length === 0) {
+                document.getElementById('tablaContainer').innerHTML =
+                    '<div class="empty">No hay registros de fichaje aún</div>';
+                document.getElementById('resumenCards').innerHTML = '';
+                return;
+            }
+
+            todasLasFilas = procesarDatos(fichajes);
+
+            // Poblar select de empleados
+            const empleados = [...new Set(todasLasFilas.map(f => f.empleado))].sort();
+            const sel = document.getElementById('filtroEmpleado');
+            empleados.forEach(e => {
+                const opt = document.createElement('option');
+                opt.value = e;
+                opt.textContent = e;
+                sel.appendChild(opt);
+            });
+
+            renderTabla(todasLasFilas);
+            renderResumen(todasLasFilas);
+
+            document.getElementById('filtroEmpleado').addEventListener('change', aplicarFiltros);
+            document.getElementById('filtroSemanaDesde').addEventListener('change', aplicarFiltros);
+            document.getElementById('filtroSemanaHasta').addEventListener('change', aplicarFiltros);
+        });
+    </script>
+</body>
+</html>

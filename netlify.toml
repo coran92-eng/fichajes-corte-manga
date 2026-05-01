@@ -1,0 +1,11 @@
+[build]
+  command = ""
+  publish = "."
+
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
+
+[context.production]
+  environment = { NETLIFY_SKIP_CACHE = "true" }

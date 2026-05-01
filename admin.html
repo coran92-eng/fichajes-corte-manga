@@ -1,0 +1,1431 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#2563eb">
+    <title>Reportes - Fichaje</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js"></script>
+    <script>
+        // Verificar sesión antes de cargar
+        if (!verificarSesion()) {
+            window.location.href = 'login.html';
+        }
+
+        // Modo oscuro
+        const prefiereOscuro = window.matchMedia('(prefers-color-scheme: dark)').matches;
+        if (prefiereOscuro) {
+            document.body.style.background = '#1f2937';
+            document.documentElement.setAttribute('data-theme', 'dark');
+        }
+
+        function verificarSesion() {
+            const token = sessionStorage.getItem('admin_session');
+            const loginTime = sessionStorage.getItem('login_time');
+
+            if (!token || !loginTime) {
+                return false;
+            }
+
+            // Sesión válida por 8 horas
+            const tiempoDecorrido = Date.now() - parseInt(loginTime);
+            const ochoHoras = 8 * 60 * 60 * 1000;
+
+            if (tiempoDecorrido > ochoHoras) {
+                sessionStorage.removeItem('admin_session');
+                sessionStorage.removeItem('login_time');
+                return false;
+            }
+
+            return true;
+        }
+    </script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            padding: 30px;
+            max-width: 1000px;
+            margin: 0 auto;
+        }
+
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 30px;
+            flex-wrap: wrap;
+            gap: 15px;
+        }
+
+        .header h1 {
+            color: #1f2937;
+            font-size: 28px;
+        }
+
+        .header-buttons {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        button {
+            padding: 12px 20px;
+            border: none;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        .btn-volver {
+            background: #6b7280;
+            color: white;
+        }
+
+        .btn-volver:hover {
+            background: #4b5563;
+        }
+
+        .btn-export {
+            background: #10b981;
+            color: white;
+        }
+
+        .btn-export:hover {
+            background: #059669;
+        }
+
+        .btn-limpiar {
+            background: #ef4444;
+            color: white;
+        }
+
+        .btn-limpiar:hover {
+            background: #dc2626;
+        }
+
+        .btn-logout {
+            background: #8b5cf6;
+            color: white;
+        }
+
+        .btn-logout:hover {
+            background: #7c3aed;
+        }
+
+        .tabs {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+            border-bottom: 2px solid #e5e7eb;
+            overflow-x: auto;
+            padding-bottom: 0;
+            flex-wrap: wrap;
+        }
+
+        .tab-btn {
+            padding: 12px 20px;
+            background: none;
+            border: none;
+            color: #6b7280;
+            font-weight: 600;
+            cursor: pointer;
+            border-bottom: 3px solid transparent;
+            margin-bottom: -2px;
+            white-space: nowrap;
+            transition: all 0.3s;
+        }
+
+        .tab-btn.active {
+            color: #2563eb;
+            border-bottom-color: #2563eb;
+        }
+
+        .tab-btn:hover {
+            color: #1f2937;
+        }
+
+        .tab-content {
+            display: none;
+        }
+
+        .tab-content.active {
+            display: block;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 20px;
+        }
+
+        thead {
+            background: #f3f4f6;
+        }
+
+        th, td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid #e5e7eb;
+            font-size: 14px;
+        }
+
+        th {
+            font-weight: 600;
+            color: #374151;
+        }
+
+        tbody tr:hover {
+            background: #f9fafb;
+        }
+
+        .fecha {
+            color: #6b7280;
+            font-size: 13px;
+        }
+
+        .hora {
+            font-family: 'Courier New', monospace;
+            font-weight: 600;
+            color: #1f2937;
+        }
+
+        .tipo {
+            display: inline-block;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+
+        .tipo.entrada {
+            background: #d1fae5;
+            color: #065f46;
+        }
+
+        .tipo.salida {
+            background: #fee2e2;
+            color: #7f1d1d;
+        }
+
+        .tipo.inicio_descanso {
+            background: #fef3c7;
+            color: #92400e;
+        }
+
+        .tipo.fin_descanso {
+            background: #dbeafe;
+            color: #0c2d6b;
+        }
+
+        .aviso-descanso {
+            background: #fef3c7;
+            border-left: 4px solid #f59e0b;
+            padding: 12px;
+            margin-bottom: 15px;
+            border-radius: 4px;
+            display: none;
+        }
+
+        .aviso-descanso.visible {
+            display: block;
+        }
+
+        .aviso-titulo {
+            font-weight: 600;
+            color: #92400e;
+            margin-bottom: 5px;
+        }
+
+        .aviso-detalle {
+            font-size: 13px;
+            color: #78350f;
+        }
+
+        .duracion-descanso {
+            font-size: 12px;
+            font-weight: 600;
+            color: #f59e0b;
+        }
+
+        .empty {
+            text-align: center;
+            padding: 40px 20px;
+            color: #6b7280;
+        }
+
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-bottom: 30px;
+        }
+
+        .stat-card {
+            background: #f3f4f6;
+            padding: 15px;
+            border-radius: 8px;
+            text-align: center;
+        }
+
+        .stat-value {
+            font-size: 24px;
+            font-weight: bold;
+            color: #2563eb;
+            margin-bottom: 5px;
+        }
+
+        .stat-label {
+            font-size: 13px;
+            color: #6b7280;
+        }
+
+        .message {
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            display: none;
+        }
+
+        .message.success {
+            background: #d1fae5;
+            color: #065f46;
+            display: block;
+        }
+
+        .message.error {
+            background: #fee2e2;
+            color: #7f1d1d;
+            display: block;
+        }
+
+        /* Modo Oscuro */
+        @media (prefers-color-scheme: dark) {
+            body {
+                background: #111827;
+            }
+
+            .container {
+                background: #1f2937;
+                color: #e5e7eb;
+            }
+
+            .header h1 {
+                color: #e5e7eb;
+            }
+
+            th, label {
+                color: #e5e7eb;
+            }
+
+            table {
+                color: #d1d5db;
+            }
+
+            thead {
+                background: #374151;
+            }
+
+            tbody tr:hover {
+                background: #2d3748;
+            }
+
+            input, select {
+                background: #374151;
+                color: #e5e7eb;
+                border-color: #4b5563;
+            }
+
+            input:focus, select:focus {
+                border-color: #60a5fa;
+                box-shadow: 0 0 0 3px rgba(96, 165, 250, 0.1);
+            }
+        }
+
+        /* Búsqueda y Filtros */
+        .filtros {
+            background: #f9fafb;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+        }
+
+        @media (prefers-color-scheme: dark) {
+            .filtros {
+                background: #374151;
+            }
+        }
+
+        .filtro-grupo {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+
+        .filtro-grupo label {
+            font-size: 12px;
+            font-weight: 600;
+            color: #6b7280;
+        }
+
+        @media (prefers-color-scheme: dark) {
+            .filtro-grupo label {
+                color: #9ca3af;
+            }
+        }
+
+        .filtro-grupo input {
+            padding: 8px;
+            font-size: 14px;
+        }
+
+        .btn-limpiar-filtros {
+            align-self: flex-end;
+            background: #6b7280;
+            color: white;
+            padding: 8px 16px;
+            border: none;
+            border-radius: 6px;
+            font-size: 12px;
+            cursor: pointer;
+        }
+
+        .btn-limpiar-filtros:hover {
+            background: #4b5563;
+        }
+
+        /* Modal de confirmación */
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.7);
+            z-index: 1000;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .modal.visible {
+            display: flex;
+        }
+
+        .modal-content {
+            background: white;
+            padding: 30px;
+            border-radius: 12px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            max-width: 400px;
+            text-align: center;
+        }
+
+        @media (prefers-color-scheme: dark) {
+            .modal-content {
+                background: #1f2937;
+                color: #e5e7eb;
+            }
+        }
+
+        .modal-titulo {
+            font-size: 18px;
+            font-weight: bold;
+            margin-bottom: 10px;
+            color: #1f2937;
+        }
+
+        @media (prefers-color-scheme: dark) {
+            .modal-titulo {
+                color: #e5e7eb;
+            }
+        }
+
+        .modal-mensaje {
+            font-size: 14px;
+            color: #6b7280;
+            margin-bottom: 20px;
+        }
+
+        @media (prefers-color-scheme: dark) {
+            .modal-mensaje {
+                color: #d1d5db;
+            }
+        }
+
+        .modal-botones {
+            display: flex;
+            gap: 10px;
+            justify-content: center;
+        }
+
+        .modal-botones button {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 6px;
+            font-weight: 600;
+            cursor: pointer;
+            flex: 1;
+        }
+
+        .btn-modal-cancel {
+            background: #e5e7eb;
+            color: #1f2937;
+        }
+
+        .btn-modal-cancel:hover {
+            background: #d1d5db;
+        }
+
+        .btn-modal-confirmar {
+            background: #ef4444;
+            color: white;
+        }
+
+        .btn-modal-confirmar:hover {
+            background: #dc2626;
+        }
+
+        /* Panel de configuración */
+        .panel-config {
+            display: none;
+            background: #f0f9ff;
+            border: 2px solid #bae6fd;
+            border-radius: 10px;
+            padding: 20px;
+            margin-bottom: 25px;
+        }
+
+        .panel-config.visible { display: block; }
+
+        .panel-config h3 { color: #0c4a6e; font-size: 16px; margin-bottom: 15px; }
+
+        .config-fila {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            margin-bottom: 15px;
+        }
+
+        .config-fila label {
+            font-size: 12px;
+            font-weight: 600;
+            color: #0369a1;
+        }
+
+        .config-fila input {
+            padding: 10px 14px;
+            border: 2px solid #bae6fd;
+            border-radius: 8px;
+            font-size: 13px;
+            font-family: monospace;
+            width: 100%;
+        }
+
+        .config-fila input:focus {
+            outline: none;
+            border-color: #0284c7;
+        }
+
+        .config-botones { display: flex; gap: 10px; flex-wrap: wrap; }
+
+        .btn-guardar-config { background: #0284c7; color: white; }
+        .btn-guardar-config:hover { background: #0369a1; }
+
+        .btn-test-webhook { background: #6b7280; color: white; }
+        .btn-test-webhook:hover { background: #4b5563; }
+
+        .btn-sync { background: #10b981; color: white; }
+        .btn-sync:hover { background: #059669; }
+        .btn-sync:disabled { opacity: 0.6; cursor: not-allowed; }
+
+        .webhook-estado {
+            font-size: 12px;
+            margin-top: 8px;
+            padding: 6px 10px;
+            border-radius: 6px;
+            display: none;
+        }
+        .webhook-estado.ok { background: #d1fae5; color: #065f46; display: block; }
+        .webhook-estado.error { background: #fee2e2; color: #7f1d1d; display: block; }
+        .webhook-estado.loading { background: #dbeafe; color: #1e40af; display: block; }
+
+        @media (prefers-color-scheme: dark) {
+            .panel-config { background: #1e3a5f; border-color: #1e40af; }
+            .panel-config h3 { color: #93c5fd; }
+            .config-fila label { color: #60a5fa; }
+            .config-fila input { background: #1f2937; color: #e5e7eb; border-color: #1e40af; }
+        }
+
+        /* Panel de empleados */
+        .panel-empleados {
+            display: none;
+            background: #f9fafb;
+            border: 2px solid #e5e7eb;
+            border-radius: 10px;
+            padding: 20px;
+            margin-bottom: 25px;
+        }
+
+        .panel-empleados.visible {
+            display: block;
+        }
+
+        .panel-empleados h3 {
+            color: #1f2937;
+            font-size: 16px;
+            margin-bottom: 15px;
+        }
+
+        .empleados-lista {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-bottom: 15px;
+            min-height: 36px;
+        }
+
+        .empleado-tag {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            background: white;
+            border: 2px solid #e5e7eb;
+            border-radius: 20px;
+            padding: 5px 12px;
+            font-size: 14px;
+            font-weight: 600;
+            color: #374151;
+        }
+
+        .empleado-tag button {
+            background: none;
+            border: none;
+            color: #ef4444;
+            cursor: pointer;
+            font-size: 14px;
+            padding: 0;
+            line-height: 1;
+            font-weight: bold;
+            transition: color 0.2s;
+        }
+
+        .empleado-tag button:hover {
+            color: #b91c1c;
+        }
+
+        .form-nuevo-empleado {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        .form-nuevo-empleado input {
+            flex: 1;
+            min-width: 180px;
+            padding: 10px 14px;
+            border: 2px solid #e5e7eb;
+            border-radius: 8px;
+            font-size: 14px;
+            font-family: inherit;
+        }
+
+        .form-nuevo-empleado input:focus {
+            outline: none;
+            border-color: #2563eb;
+        }
+
+        .btn-agregar-empleado {
+            background: #10b981;
+            color: white;
+            padding: 10px 18px;
+            white-space: nowrap;
+        }
+
+        .btn-agregar-empleado:hover {
+            background: #059669;
+        }
+
+        .btn-empleados {
+            background: #f59e0b;
+            color: white;
+        }
+
+        .btn-empleados:hover {
+            background: #d97706;
+        }
+
+        @media (prefers-color-scheme: dark) {
+            .panel-empleados {
+                background: #374151;
+                border-color: #4b5563;
+            }
+            .panel-empleados h3 { color: #e5e7eb; }
+            .empleado-tag {
+                background: #1f2937;
+                border-color: #4b5563;
+                color: #e5e7eb;
+            }
+            .form-nuevo-empleado input {
+                background: #4b5563;
+                color: #e5e7eb;
+                border-color: #6b7280;
+            }
+        }
+
+        @media (max-width: 768px) {
+            .container {
+                padding: 20px;
+            }
+
+            .header {
+                flex-direction: column;
+                align-items: flex-start;
+            }
+
+            table {
+                font-size: 12px;
+            }
+
+            th, td {
+                padding: 8px;
+            }
+
+            .tipo {
+                font-size: 11px;
+                padding: 3px 6px;
+            }
+
+            .filtros {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>📊 Reportes de Fichaje</h1>
+            <div class="header-buttons">
+                <button class="btn-export" id="btnExportarExcel" aria-label="Exportar todos los registros a archivo Excel">📥 Exportar a Excel</button>
+                <button class="btn-export" id="btnHorasSemana" style="background:#8b5cf6" aria-label="Ver horas por semana">⏱️ Horas por Semana</button>
+                <button class="btn-empleados" id="btnEmpleados" aria-label="Gestionar empleados">👥 Empleados</button>
+                <button class="btn-guardar-config" id="btnConfig" aria-label="Configuración">⚙️ Config</button>
+                <button class="btn-limpiar" id="btnLimpiar" aria-label="Eliminar todos los datos de forma permanente">🗑️ Limpiar datos</button>
+                <button class="btn-volver" id="btnVolver" aria-label="Volver a la página de fichaje">← Volver a Fichaje</button>
+                <button class="btn-logout" id="btnLogout" aria-label="Cerrar sesión actual">🚪 Cerrar Sesión</button>
+            </div>
+        </div>
+
+        <div id="message" class="message" role="alert" aria-live="polite" aria-atomic="true"></div>
+
+        <!-- Panel de configuración -->
+        <div class="panel-config" id="panelConfig">
+            <h3>⚙️ Configuración</h3>
+            <div class="config-fila">
+                <label for="inputWebhook">URL de Google Apps Script (para sincronizar con Sheets)</label>
+                <input type="url" id="inputWebhook" placeholder="https://script.google.com/macros/s/.../exec">
+                <div class="webhook-estado" id="webhookEstado"></div>
+            </div>
+            <div class="config-botones">
+                <button class="btn-guardar-config" id="btnGuardarConfig">💾 Guardar URL</button>
+                <button class="btn-test-webhook" id="btnTestWebhook">🔗 Probar conexión</button>
+                <button class="btn-sync" id="btnSyncTodo">☁️ Sincronizar todo con Sheets</button>
+            </div>
+        </div>
+
+        <!-- Panel gestión de empleados -->
+        <div class="panel-empleados" id="panelEmpleados">
+            <h3>👥 Gestión de Empleados</h3>
+            <div class="empleados-lista" id="empleadosLista"></div>
+            <form class="form-nuevo-empleado" id="formNuevoEmpleado">
+                <input type="text" id="inputNuevoEmpleado" placeholder="Nombre del nuevo empleado" maxlength="40" autocomplete="off">
+                <button type="submit" class="btn-agregar-empleado">+ Añadir</button>
+            </form>
+        </div>
+
+        <div class="stats" id="stats"></div>
+
+        <!-- Filtros -->
+        <div class="filtros" role="search" aria-label="Filtros de búsqueda">
+            <div class="filtro-grupo">
+                <label for="filtroEmpleado">🔍 Buscar empleado</label>
+                <input type="text" id="filtroEmpleado" placeholder="Nombre..." aria-label="Filtrar por nombre de empleado">
+            </div>
+            <div class="filtro-grupo">
+                <label for="filtroFechaDesde">📅 Desde</label>
+                <input type="date" id="filtroFechaDesde" aria-label="Fecha inicial del filtro">
+            </div>
+            <div class="filtro-grupo">
+                <label for="filtroFechaHasta">📅 Hasta</label>
+                <input type="date" id="filtroFechaHasta" aria-label="Fecha final del filtro">
+            </div>
+            <button class="btn-limpiar-filtros" id="btnLimpiarFiltros" aria-label="Limpiar todos los filtros">Limpiar filtros</button>
+        </div>
+
+        <nav class="tabs" id="tabs" role="tablist" aria-label="Pestañas de reportes"></nav>
+
+        <div id="tabsContent" role="tabpanel"></div>
+    </div>
+
+    <!-- Modal de confirmación -->
+    <div class="modal" id="modalConfirmacion">
+        <div class="modal-content">
+            <div class="modal-titulo" id="modalTitulo"></div>
+            <div class="modal-mensaje" id="modalMensaje"></div>
+            <div class="modal-botones">
+                <button class="btn-modal-cancel" id="btnModalCancel">Cancelar</button>
+                <button class="btn-modal-confirmar" id="btnModalConfirmar">Confirmar</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const STORAGE_KEY = 'fichajes_data';
+        const EMPLEADOS_KEY = 'empleados_list';
+        const EMPLEADOS_DEFAULT = ['Albert','Maikel','Carlos','Jecko','Pol','Sonia','Nacho','Claudia'];
+
+        let callbackModal = null;
+
+        document.addEventListener('DOMContentLoaded', () => {
+            cargarDatos();
+            configurarBotones();
+            configurarFiltros();
+            configurarModal();
+            verificarRespaldos();
+            inicializarEmpleados();
+            configurarPanelConfig();
+        });
+
+        // ── Configuración / Webhook ───────────────────────────────────
+
+        const WEBHOOK_KEY = 'sheets_webhook_url';
+
+        function configurarPanelConfig() {
+            const url = localStorage.getItem(WEBHOOK_KEY) || '';
+            document.getElementById('inputWebhook').value = url;
+
+            document.getElementById('btnConfig').addEventListener('click', () => {
+                document.getElementById('panelConfig').classList.toggle('visible');
+                document.getElementById('panelEmpleados').classList.remove('visible');
+            });
+
+            document.getElementById('btnGuardarConfig').addEventListener('click', () => {
+                const url = document.getElementById('inputWebhook').value.trim();
+                if (url && !url.startsWith('https://script.google.com')) {
+                    mostrarEstadoWebhook('⚠ La URL no parece de Google Apps Script', 'error');
+                    return;
+                }
+                localStorage.setItem(WEBHOOK_KEY, url);
+                mostrarEstadoWebhook('✓ URL guardada correctamente', 'ok');
+            });
+
+            document.getElementById('btnTestWebhook').addEventListener('click', async () => {
+                const url = document.getElementById('inputWebhook').value.trim();
+                if (!url) {
+                    mostrarEstadoWebhook('⚠ Introduce una URL primero', 'error');
+                    return;
+                }
+                mostrarEstadoWebhook('⏳ Probando conexión...', 'loading');
+                try {
+                    await fetch(url, {
+                        method: 'POST',
+                        mode: 'no-cors',
+                        headers: { 'Content-Type': 'text/plain' },
+                        body: JSON.stringify({ test: true, empleado: 'TEST', tipo: 'test', fecha: new Date().toISOString().split('T')[0], hora: '00:00:00', timestamp: Date.now() })
+                    });
+                    mostrarEstadoWebhook('✓ Conexión correcta — revisa tu hoja de Sheets', 'ok');
+                } catch (e) {
+                    mostrarEstadoWebhook('✗ Error de conexión: ' + e.message, 'error');
+                }
+            });
+
+            document.getElementById('btnSyncTodo').addEventListener('click', async () => {
+                const url = localStorage.getItem(WEBHOOK_KEY);
+                if (!url) {
+                    mostrarEstadoWebhook('⚠ Guarda primero la URL del webhook', 'error');
+                    return;
+                }
+                const fichajes = obtenerFichajasDesencriptados();
+                if (fichajes.length === 0) {
+                    mostrarEstadoWebhook('⚠ No hay fichajes almacenados', 'error');
+                    return;
+                }
+                const btn = document.getElementById('btnSyncTodo');
+                btn.disabled = true;
+                btn.textContent = '⏳ Sincronizando...';
+                mostrarEstadoWebhook(`⏳ Enviando ${fichajes.length} fichajes...`, 'loading');
+
+                let enviados = 0, errores = 0;
+                for (const f of fichajes) {
+                    try {
+                        await fetch(url, {
+                            method: 'POST',
+                            mode: 'no-cors',
+                            headers: { 'Content-Type': 'text/plain' },
+                            body: JSON.stringify(f)
+                        });
+                        enviados++;
+                    } catch (e) {
+                        errores++;
+                    }
+                    // Pausa pequeña para no saturar el script
+                    await new Promise(r => setTimeout(r, 150));
+                }
+
+                btn.disabled = false;
+                btn.textContent = '☁️ Sincronizar todo con Sheets';
+                if (errores === 0) {
+                    mostrarEstadoWebhook(`✓ ${enviados} fichajes enviados a Sheets`, 'ok');
+                } else {
+                    mostrarEstadoWebhook(`⚠ ${enviados} enviados, ${errores} fallaron`, 'error');
+                }
+            });
+        }
+
+        function mostrarEstadoWebhook(texto, tipo) {
+            const el = document.getElementById('webhookEstado');
+            el.textContent = texto;
+            el.className = `webhook-estado ${tipo}`;
+        }
+
+        // ── Gestión de empleados ──────────────────────────────────────
+
+        function obtenerListaEmpleados() {
+            return JSON.parse(localStorage.getItem(EMPLEADOS_KEY)) || EMPLEADOS_DEFAULT;
+        }
+
+        function guardarListaEmpleados(lista) {
+            localStorage.setItem(EMPLEADOS_KEY, JSON.stringify(lista));
+        }
+
+        function inicializarEmpleados() {
+            if (!localStorage.getItem(EMPLEADOS_KEY)) {
+                guardarListaEmpleados(EMPLEADOS_DEFAULT);
+            }
+            renderEmpleados();
+        }
+
+        function renderEmpleados() {
+            const lista = obtenerListaEmpleados();
+            const contenedor = document.getElementById('empleadosLista');
+            if (lista.length === 0) {
+                contenedor.innerHTML = '<span style="color:#9ca3af;font-size:13px">Sin empleados</span>';
+                return;
+            }
+            contenedor.innerHTML = lista.map(emp => `
+                <div class="empleado-tag">
+                    ${emp}
+                    <button type="button" title="Eliminar ${emp}" onclick="confirmarEliminarEmpleado('${emp.replace(/'/g, "\\'")}')">✕</button>
+                </div>
+            `).join('');
+        }
+
+        function confirmarEliminarEmpleado(nombre) {
+            mostrarModal(
+                '👤 Eliminar empleado',
+                `¿Eliminar a "${nombre}" de la lista? Sus fichajes anteriores se conservarán.`,
+                () => {
+                    const lista = obtenerListaEmpleados().filter(e => e !== nombre);
+                    guardarListaEmpleados(lista);
+                    renderEmpleados();
+                    mostrarMensaje(`✓ "${nombre}" eliminado`, 'success');
+                }
+            );
+        }
+
+        function configurarFormEmpleados() {
+            document.getElementById('formNuevoEmpleado').addEventListener('submit', (e) => {
+                e.preventDefault();
+                const input = document.getElementById('inputNuevoEmpleado');
+                const nombre = input.value.trim();
+
+                if (!nombre) return;
+
+                const lista = obtenerListaEmpleados();
+                if (lista.some(e => e.toLowerCase() === nombre.toLowerCase())) {
+                    mostrarMensaje(`⚠ "${nombre}" ya existe`, 'error');
+                    return;
+                }
+
+                lista.push(nombre);
+                guardarListaEmpleados(lista);
+                renderEmpleados();
+                input.value = '';
+                mostrarMensaje(`✓ "${nombre}" añadido`, 'success');
+            });
+        }
+
+        function obtenerFichajasDesencriptados() {
+            try {
+                const encrypted = localStorage.getItem(STORAGE_KEY);
+                if (!encrypted) return [];
+
+                const decrypted = CryptoJS.AES.decrypt(encrypted, 'fichaje_key').toString(CryptoJS.enc.Utf8);
+                return JSON.parse(decrypted) || [];
+            } catch (e) {
+                // Si hay datos sin encriptar (versión antigua), devolverlos como están
+                try {
+                    const data = JSON.parse(localStorage.getItem(STORAGE_KEY));
+                    if (Array.isArray(data)) {
+                        // Migrar a encriptado
+                        const encrypted = CryptoJS.AES.encrypt(
+                            JSON.stringify(data),
+                            'fichaje_key'
+                        ).toString();
+                        localStorage.setItem(STORAGE_KEY, encrypted);
+                        return data;
+                    }
+                } catch {}
+                return [];
+            }
+        }
+
+        function cargarDatos() {
+            const fichajes = obtenerFichajasDesencriptados();
+
+            if (fichajes.length === 0) {
+                document.getElementById('tabsContent').innerHTML =
+                    '<div class="empty"><p>No hay registros de fichaje aún</p></div>';
+                return;
+            }
+
+            // Agrupar por empleado
+            const porEmpleado = {};
+            fichajes.forEach(f => {
+                if (!porEmpleado[f.empleado]) {
+                    porEmpleado[f.empleado] = [];
+                }
+                porEmpleado[f.empleado].push(f);
+            });
+
+            // Ordenar por empleado
+            const empleados = Object.keys(porEmpleado).sort();
+
+            // Crear estadísticas
+            mostrarEstadisticas(fichajes, empleados);
+
+            // Crear pestañas (incluir "Cronológico" al inicio)
+            crearPestanas(['Cronológico', ...empleados]);
+
+            // Crear contenido de pestañas
+            crearContenidoCronologico(fichajes);
+            crearContenidoPestanas(porEmpleado, empleados);
+
+            // Detectar y mostrar descansos largos
+            detectarDescansosLargos(porEmpleado);
+        }
+
+        function crearContenidoCronologico(fichajes) {
+            // Ordenar todos los fichajes por fecha y hora (más reciente primero)
+            const ordenados = fichajes
+                .slice()
+                .sort((a, b) => {
+                    const fechaA = new Date(a.fecha + ' ' + a.hora);
+                    const fechaB = new Date(b.fecha + ' ' + b.hora);
+                    return fechaB - fechaA;
+                });
+
+            const filas = ordenados
+                .map(f => `
+                    <tr>
+                        <td class="fecha">${f.fecha}</td>
+                        <td class="hora">${f.hora}</td>
+                        <td><strong>${f.empleado}</strong></td>
+                        <td>
+                            <span class="tipo ${f.tipo}">
+                                ${getTipoLabel(f.tipo)}
+                            </span>
+                        </td>
+                    </tr>
+                `)
+                .join('');
+
+            const html = `
+                <div class="tab-content active" data-tab="Cronológico">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Fecha</th>
+                                <th>Hora</th>
+                                <th>Empleado</th>
+                                <th>Tipo</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${filas}
+                        </tbody>
+                    </table>
+                </div>
+            `;
+
+            const tabsContent = document.getElementById('tabsContent');
+            tabsContent.innerHTML = html;
+        }
+
+        function detectarDescansosLargos(porEmpleado) {
+            const avisoHTML = document.createElement('div');
+            avisoHTML.className = 'aviso-descanso';
+            let tieneAvisos = false;
+
+            let contenidoAvisos = '<div class="aviso-titulo">⚠️ Descansos que exceden 20 minutos:</div>';
+
+            Object.keys(porEmpleado).forEach(empleado => {
+                const fichajes = porEmpleado[empleado]
+                    .sort((a, b) => new Date(a.fecha + ' ' + a.hora) - new Date(b.fecha + ' ' + b.hora));
+
+                for (let i = 0; i < fichajes.length - 1; i++) {
+                    const actual = fichajes[i];
+                    if (actual.tipo === 'inicio_descanso') {
+                        const siguiente = fichajes[i + 1];
+                        if (siguiente && siguiente.tipo === 'fin_descanso') {
+                            const inicio = new Date(actual.fecha + ' ' + actual.hora);
+                            const fin = new Date(siguiente.fecha + ' ' + siguiente.hora);
+                            const duracion = (fin - inicio) / (1000 * 60); // en minutos
+
+                            if (duracion > 20) {
+                                tieneAvisos = true;
+                                const minutos = Math.round(duracion);
+                                contenidoAvisos += `
+                                    <div class="aviso-detalle">
+                                        <strong>${empleado}</strong>:
+                                        ${actual.hora} - ${siguiente.hora}
+                                        (<span class="duracion-descanso">${minutos} min</span>)
+                                    </div>
+                                `;
+                            }
+                        }
+                    }
+                }
+            });
+
+            if (tieneAvisos) {
+                avisoHTML.innerHTML = contenidoAvisos;
+                avisoHTML.classList.add('visible');
+                const containerInicio = document.querySelector('[data-tab="Cronológico"]');
+                if (containerInicio) {
+                    containerInicio.insertAdjacentElement('beforebegin', avisoHTML);
+                }
+            }
+        }
+
+        function mostrarEstadisticas(fichajes, empleados) {
+            const statsHtml = `
+                <div class="stat-card">
+                    <div class="stat-value">${fichajes.length}</div>
+                    <div class="stat-label">Total Registros</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value">${empleados.length}</div>
+                    <div class="stat-label">Empleados Activos</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value">${new Date().toLocaleDateString('es-ES')}</div>
+                    <div class="stat-label">Fecha de Hoy</div>
+                </div>
+            `;
+            document.getElementById('stats').innerHTML = statsHtml;
+        }
+
+        function crearPestanas(empleadosConCronologico) {
+            const tabsHtml = empleadosConCronologico
+                .map((emp, idx) =>
+                    `<button class="tab-btn ${idx === 0 ? 'active' : ''}" data-empleado="${emp}">
+                        ${emp === 'Cronológico' ? '📅 Cronológico' : emp}
+                    </button>`
+                )
+                .join('');
+
+            const tabsEl = document.getElementById('tabs');
+            tabsEl.innerHTML = tabsHtml;
+
+            tabsEl.querySelectorAll('.tab-btn').forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+                    document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+                    e.target.classList.add('active');
+                    document.querySelector(`[data-tab="${e.target.dataset.empleado}"]`).classList.add('active');
+                });
+            });
+        }
+
+        function crearContenidoPestanas(porEmpleado, empleados) {
+            const contentHtml = empleados
+                .map(emp => {
+                    const fichajes = porEmpleado[emp];
+                    const filas = fichajes
+                        .sort((a, b) => new Date(b.fecha + ' ' + b.hora) - new Date(a.fecha + ' ' + a.hora))
+                        .map(f => `
+                            <tr>
+                                <td class="fecha">${f.fecha}</td>
+                                <td class="hora">${f.hora}</td>
+                                <td>
+                                    <span class="tipo ${f.tipo}">
+                                        ${getTipoLabel(f.tipo)}
+                                    </span>
+                                </td>
+                            </tr>
+                        `)
+                        .join('');
+
+                    return `
+                        <div class="tab-content" data-tab="${emp}">
+                            <table>
+                                <thead>
+                                    <tr>
+                                        <th>Fecha</th>
+                                        <th>Hora</th>
+                                        <th>Tipo</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    ${filas}
+                                </tbody>
+                            </table>
+                        </div>
+                    `;
+                })
+                .join('');
+
+            document.getElementById('tabsContent').innerHTML += contentHtml;
+        }
+
+        function getTipoLabel(tipo) {
+            const labels = {
+                'entrada': 'Entrada',
+                'salida': 'Salida',
+                'inicio_descanso': 'Inicio Descanso',
+                'fin_descanso': 'Fin Descanso'
+            };
+            return labels[tipo] || tipo;
+        }
+
+        function configurarModal() {
+            document.getElementById('btnModalCancel').addEventListener('click', () => {
+                document.getElementById('modalConfirmacion').classList.remove('visible');
+            });
+
+            document.getElementById('btnModalConfirmar').addEventListener('click', () => {
+                if (callbackModal) {
+                    callbackModal();
+                }
+                document.getElementById('modalConfirmacion').classList.remove('visible');
+            });
+        }
+
+        function mostrarModal(titulo, mensaje, callback) {
+            document.getElementById('modalTitulo').textContent = titulo;
+            document.getElementById('modalMensaje').textContent = mensaje;
+            callbackModal = callback;
+            document.getElementById('modalConfirmacion').classList.add('visible');
+        }
+
+        function configurarFiltros() {
+            const filtroEmpleado = document.getElementById('filtroEmpleado');
+            const filtroDesde = document.getElementById('filtroFechaDesde');
+            const filtroHasta = document.getElementById('filtroFechaHasta');
+            const btnLimpiar = document.getElementById('btnLimpiarFiltros');
+
+            filtroEmpleado?.addEventListener('input', aplicarFiltros);
+            filtroDesde?.addEventListener('change', aplicarFiltros);
+            filtroHasta?.addEventListener('change', aplicarFiltros);
+            btnLimpiar?.addEventListener('click', limpiarFiltros);
+        }
+
+        function aplicarFiltros() {
+            const empleado = (document.getElementById('filtroEmpleado')?.value || '').toLowerCase();
+            const desde = document.getElementById('filtroFechaDesde')?.value;
+            const hasta = document.getElementById('filtroFechaHasta')?.value;
+
+            const filas = document.querySelectorAll('tbody tr');
+            filas.forEach(fila => {
+                let mostrar = true;
+
+                if (empleado) {
+                    const celdaEmpleado = fila.querySelector('td:nth-child(3)')?.textContent || '';
+                    mostrar = mostrar && celdaEmpleado.toLowerCase().includes(empleado);
+                }
+
+                if (desde || hasta) {
+                    const fecha = fila.querySelector('td:first-child')?.textContent.trim();
+                    if (desde && fecha < desde) mostrar = false;
+                    if (hasta && fecha > hasta) mostrar = false;
+                }
+
+                fila.style.display = mostrar ? '' : 'none';
+            });
+        }
+
+        function limpiarFiltros() {
+            document.getElementById('filtroEmpleado').value = '';
+            document.getElementById('filtroFechaDesde').value = '';
+            document.getElementById('filtroFechaHasta').value = '';
+            document.querySelectorAll('tbody tr').forEach(fila => fila.style.display = '');
+        }
+
+        function verificarRespaldos() {
+            const backups = JSON.parse(localStorage.getItem('backups')) || [];
+            const lastBackup = localStorage.getItem('last_backup');
+
+            if (lastBackup) {
+                const fecha = new Date(parseInt(lastBackup));
+                console.log('Último respaldo:', fecha.toLocaleString());
+            }
+        }
+
+        function configurarBotones() {
+            document.getElementById('btnVolver').addEventListener('click', () => {
+                window.location.href = 'index.html';
+            });
+
+            document.getElementById('btnHorasSemana').addEventListener('click', () => {
+                window.location.href = 'horas-semana.html';
+            });
+
+            document.getElementById('btnEmpleados').addEventListener('click', () => {
+                document.getElementById('panelEmpleados').classList.toggle('visible');
+                document.getElementById('panelConfig').classList.remove('visible');
+            });
+
+            configurarFormEmpleados();
+
+            document.getElementById('btnExportarExcel').addEventListener('click', () => {
+                mostrarModal(
+                    '📥 Exportar a Excel',
+                    '¿Descargar todos los registros en Excel?',
+                    exportarExcel
+                );
+            });
+
+            document.getElementById('btnLimpiar').addEventListener('click', () => {
+                mostrarModal(
+                    '🗑️ Eliminar datos',
+                    '⚠️ ADVERTENCIA: Esto eliminará TODOS los registros de forma permanente. Esta acción NO se puede deshacer. ¿Continuar?',
+                    limpiarDatos
+                );
+            });
+
+            document.getElementById('btnLogout').addEventListener('click', () => {
+                mostrarModal(
+                    '🚪 Cerrar sesión',
+                    '¿Deseas cerrar tu sesión?',
+                    logout
+                );
+            });
+        }
+
+        function logout() {
+            sessionStorage.removeItem('admin_session');
+            sessionStorage.removeItem('login_time');
+            window.location.href = 'login.html';
+        }
+
+        function exportarExcel() {
+            const fichajes = obtenerFichajasDesencriptados();
+
+            if (fichajes.length === 0) {
+                mostrarMensaje('✗ No hay datos para exportar', 'error');
+                return;
+            }
+
+            mostrarMensaje('⏳ Generando archivo Excel...', 'info');
+
+            // Crear un workbook
+            const workbook = XLSX.utils.book_new();
+
+            // Agrupar por empleado
+            const porEmpleado = {};
+            fichajes.forEach(f => {
+                if (!porEmpleado[f.empleado]) {
+                    porEmpleado[f.empleado] = [];
+                }
+                porEmpleado[f.empleado].push({
+                    Fecha: f.fecha,
+                    Hora: f.hora,
+                    Tipo: getTipoLabel(f.tipo)
+                });
+            });
+
+            // Crear una hoja por empleado
+            Object.keys(porEmpleado).sort().forEach(empleado => {
+                const datos = porEmpleado[empleado]
+                    .sort((a, b) => new Date(b.Fecha + ' ' + b.Hora) - new Date(a.Fecha + ' ' + a.Hora));
+
+                const worksheet = XLSX.utils.json_to_sheet(datos);
+
+                // Ajustar anchos de columna
+                worksheet['!cols'] = [
+                    { wch: 12 },
+                    { wch: 10 },
+                    { wch: 15 }
+                ];
+
+                XLSX.utils.book_append_sheet(workbook, worksheet, empleado.substring(0, 31));
+            });
+
+            // Crear una hoja de resumen
+            const resumen = Object.keys(porEmpleado).map(emp => ({
+                Empleado: emp,
+                'Total Registros': porEmpleado[emp].length,
+                'Último Registro': porEmpleado[emp][0].Hora
+            }));
+
+            const resumenSheet = XLSX.utils.json_to_sheet(resumen);
+            resumenSheet['!cols'] = [
+                { wch: 20 },
+                { wch: 15 },
+                { wch: 15 }
+            ];
+
+            XLSX.utils.book_append_sheet(workbook, resumenSheet, 'Resumen');
+
+            // Descargar
+            const fecha = new Date().toISOString().split('T')[0];
+            XLSX.writeFile(workbook, `Fichaje_${fecha}.xlsx`);
+
+            mostrarMensaje('✓ Archivo exportado correctamente', 'success');
+        }
+
+        function limpiarDatos() {
+            localStorage.removeItem(STORAGE_KEY);
+            localStorage.removeItem('last_backup');
+            localStorage.removeItem('backups');
+            mostrarMensaje('✓ Datos eliminados correctamente', 'success');
+            setTimeout(() => {
+                location.reload();
+            }, 1500);
+        }
+
+        function mostrarMensaje(texto, tipo) {
+            const msgEl = document.getElementById('message');
+            msgEl.textContent = texto;
+            msgEl.className = `message ${tipo}`;
+            setTimeout(() => {
+                msgEl.className = 'message';
+            }, 3000);
+        }
+    </script>
+</body>
+</html>

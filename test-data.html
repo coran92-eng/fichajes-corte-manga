@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cargar Datos de Prueba</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 600px;
+            margin: 50px auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+            margin-bottom: 20px;
+        }
+        p {
+            color: #666;
+            line-height: 1.6;
+            margin-bottom: 15px;
+        }
+        button {
+            background: #10b981;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 6px;
+            font-size: 16px;
+            cursor: pointer;
+            margin-right: 10px;
+            margin-bottom: 10px;
+        }
+        button:hover {
+            background: #059669;
+        }
+        button.danger {
+            background: #ef4444;
+        }
+        button.danger:hover {
+            background: #dc2626;
+        }
+        .message {
+            padding: 15px;
+            border-radius: 6px;
+            margin-top: 20px;
+            display: none;
+        }
+        .message.success {
+            background: #d1fae5;
+            color: #065f46;
+            display: block;
+        }
+        .message.info {
+            background: #dbeafe;
+            color: #0c2d6b;
+            display: block;
+        }
+        pre {
+            background: #f3f4f6;
+            padding: 15px;
+            border-radius: 6px;
+            overflow-x: auto;
+            font-size: 13px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🧪 Datos de Prueba</h1>
+
+        <p>
+            Esta página te permite cargar datos de ejemplo para probar la aplicación
+            sin tener que hacer registros manuales.
+        </p>
+
+        <p>
+            <strong>Esto cargará:</strong>
+        </p>
+        <ul>
+            <li>5 empleados diferentes</li>
+            <li>20 registros de fichaje de hoy y días anteriores</li>
+            <li>Variedad de entradas, salidas y descansos</li>
+        </ul>
+
+        <button onclick="cargarDatos()">✓ Cargar Datos de Ejemplo</button>
+        <button class="danger" onclick="limpiarDatos()">🗑️ Limpiar TODO</button>
+        <button onclick="irAlFichaje()">→ Ir a Fichaje</button>
+
+        <div id="message" class="message"></div>
+
+        <h2 style="margin-top: 30px;">Registros que se cargarán:</h2>
+        <pre id="preview"></pre>
+    </div>
+
+    <script>
+        const STORAGE_KEY = 'fichajes_data';
+
+        // Mostrar preview de datos
+        document.addEventListener('DOMContentLoaded', () => {
+            mostrarPreview();
+        });
+
+        function mostrarPreview() {
+            const datos = generarDatosEjemplo();
+            const preview = datos.map(d =>
+                `${d.empleado} | ${d.fecha} ${d.hora} | ${d.tipo}`
+            ).join('\n');
+
+            document.getElementById('preview').textContent = preview;
+        }
+
+        function generarDatosEjemplo() {
+            const empleados = [
+                'Albert',
+                'Maikel',
+                'Carlos',
+                'Jecko'
+            ];
+
+            const tipos = ['entrada', 'salida', 'inicio_descanso', 'fin_descanso'];
+            const datos = [];
+
+            let id = 1;
+            for (let dia = 5; dia >= 0; dia--) {
+                const fecha = new Date();
+                fecha.setDate(fecha.getDate() - dia);
+                const fechaStr = fecha.toISOString().split('T')[0];
+
+                empleados.forEach(empleado => {
+                    // Entrada
+                    datos.push({
+                        id: id++,
+                        empleado: empleado,
+                        tipo: 'entrada',
+                        fecha: fechaStr,
+                        hora: `0${9 + Math.floor(Math.random() * 2)}:${Math.floor(Math.random() * 60).toString().padStart(2, '0')}:00`,
+                        timestamp: new Date(fechaStr).getTime()
+                    });
+
+                    // Descanso inicio
+                    if (Math.random() > 0.3) {
+                        datos.push({
+                            id: id++,
+                            empleado: empleado,
+                            tipo: 'inicio_descanso',
+                            fecha: fechaStr,
+                            hora: `${13 + Math.floor(Math.random() * 2)}:${Math.floor(Math.random() * 60).toString().padStart(2, '0')}:00`,
+                            timestamp: new Date(fechaStr).getTime()
+                        });
+
+                        // Descanso fin
+                        datos.push({
+                            id: id++,
+                            empleado: empleado,
+                            tipo: 'fin_descanso',
+                            fecha: fechaStr,
+                            hora: `${14 + Math.floor(Math.random() * 2)}:${Math.floor(Math.random() * 60).toString().padStart(2, '0')}:00`,
+                            timestamp: new Date(fechaStr).getTime()
+                        });
+                    }
+
+                    // Salida
+                    datos.push({
+                        id: id++,
+                        empleado: empleado,
+                        tipo: 'salida',
+                        fecha: fechaStr,
+                        hora: `${22 + Math.floor(Math.random() * 2)}:${Math.floor(Math.random() * 60).toString().padStart(2, '0')}:00`,
+                        timestamp: new Date(fechaStr).getTime()
+                    });
+                });
+            }
+
+            return datos;
+        }
+
+        function cargarDatos() {
+            const datos = generarDatosEjemplo();
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(datos));
+
+            mostrarMensaje(
+                `✓ Se cargaron ${datos.length} registros de ejemplo. Abre Admin para verlos.`,
+                'success'
+            );
+
+            setTimeout(() => {
+                mostrarPreview();
+            }, 500);
+        }
+
+        function limpiarDatos() {
+            if (confirm('⚠️ ¿Eliminar TODOS los datos? No se puede deshacer.')) {
+                localStorage.removeItem(STORAGE_KEY);
+                mostrarMensaje('✓ Datos eliminados', 'success');
+            }
+        }
+
+        function irAlFichaje() {
+            window.location.href = 'index.html';
+        }
+
+        function mostrarMensaje(texto, tipo) {
+            const msgEl = document.getElementById('message');
+            msgEl.textContent = texto;
+            msgEl.className = `message ${tipo}`;
+        }
+    </script>
+</body>
+</html>

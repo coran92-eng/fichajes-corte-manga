@@ -1,0 +1,20 @@
+{
+  "empleados": [
+    "Albert",
+    "Maikel",
+    "Carlos",
+    "Jecko",
+    "Pol",
+    "Sonia",
+    "Nacho",
+    "Claudia"
+  ],
+  "restaurante": "Mi Restaurante",
+  "zona_horaria": "Europe/Madrid",
+  "colores": {
+    "entrada": "#10b981",
+    "salida": "#ef4444",
+    "inicio_descanso": "#f59e0b",
+    "fin_descanso": "#3b82f6"
+  }
+}
