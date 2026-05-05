@@ -8,6 +8,7 @@
     <title>Fichaje - Camareros</title>
     <link rel="manifest" href="manifest.json">
     <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 192 192'><rect fill='%232563eb' width='192' height='192'/><text x='96' y='120' font-size='80' fill='white' text-anchor='middle' font-weight='bold'>F</text></svg>">
+    <script src="https://unpkg.com/lucide@latest"></script>
     <style>
         * {
             margin: 0;
@@ -18,7 +19,7 @@
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            min-height: 100vh;
+            min-height: 100dvh;
             display: flex;
             align-items: center;
             justify-content: center;
@@ -51,9 +52,15 @@
         }
 
         .nfc-icon {
-            font-size: 40px;
-            margin-bottom: 10px;
+            width: 44px;
+            height: 44px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0 auto 10px;
+            color: #2563eb;
         }
+        .nfc-icon i { width: 40px; height: 40px; }
 
         .form-group {
             margin-bottom: 20px;
@@ -155,15 +162,27 @@
             box-shadow: 0 5px 15px rgba(59, 130, 246, 0.3);
         }
 
+        .admin-sep {
+            border-top: 1px solid #e5e7eb;
+            margin: 10px 0;
+        }
         .btn-admin {
             width: 100%;
-            background: #6b7280;
-            color: white;
-            margin-top: 10px;
+            background: none;
+            color: #6b7280;
+            border: 1px solid #e5e7eb;
+            margin-top: 0;
+            font-size: 13px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            padding: 10px 20px;
         }
-
         .btn-admin:hover {
-            background: #4b5563;
+            background: #f9fafb;
+            color: #374151;
+            border-color: #d1d5db;
         }
 
         .btn:disabled {
@@ -219,7 +238,7 @@
             font-weight: bold;
             color: #1f2937;
             margin: 10px 0;
-            font-family: 'Courier New', monospace;
+            font-family: ui-monospace, 'SF Mono', 'Cascadia Code', monospace;
         }
 
         .nfc-status {
@@ -240,6 +259,75 @@
             color: #7f1d1d;
         }
 
+        .centro-badge {
+            display: none;
+            background: #2563eb;
+            color: white;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 13px;
+            font-weight: 600;
+            margin-top: 6px;
+        }
+
+        /* Selector de centro */
+        #selectorCentro {
+            display: flex;
+            position: fixed;
+            inset: 0;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            z-index: 999;
+            align-items: center;
+            justify-content: center;
+            flex-direction: column;
+            gap: 20px;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.2s ease;
+        }
+        #selectorCentro.visible {
+            opacity: 1;
+            pointer-events: all;
+        }
+
+        #selectorCentro h2 {
+            color: white;
+            font-size: 24px;
+            text-align: center;
+        }
+
+        #selectorCentro p {
+            color: rgba(255,255,255,0.8);
+            font-size: 14px;
+            text-align: center;
+        }
+
+        #listaCentros {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            width: 100%;
+            max-width: 300px;
+        }
+
+        .btn-centro {
+            padding: 16px 24px;
+            background: white;
+            color: #2563eb;
+            border: none;
+            border-radius: 10px;
+            font-size: 18px;
+            font-weight: 700;
+            cursor: pointer;
+            transition: all 0.2s;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+        }
+
+        .btn-centro:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 25px rgba(0,0,0,0.3);
+        }
+
         @media (max-width: 480px) {
             .container {
                 padding: 20px;
@@ -255,13 +343,88 @@
                 font-size: 13px;
             }
         }
+
+        .estado-badge {
+            font-size: 13px;
+            font-weight: 600;
+            padding: 5px 14px;
+            border-radius: 20px;
+            margin: 8px auto 0;
+            display: inline-block;
+        }
+        .estado-badge.en-turno  { background: #d1fae5; color: #065f46; }
+        .estado-badge.en-descanso { background: #fef3c7; color: #92400e; }
+        .estado-badge.fuera     { background: #f3f4f6; color: #6b7280; }
+
+        .undo-toast {
+            position: fixed;
+            bottom: 24px;
+            left: 50%;
+            transform: translateX(-50%) translateY(120px);
+            background: #1f2937;
+            color: white;
+            padding: 12px 20px;
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            font-size: 14px;
+            font-weight: 600;
+            box-shadow: 0 8px 24px rgba(0,0,0,0.3);
+            transition: transform 0.3s cubic-bezier(0.34,1.56,0.64,1);
+            z-index: 500;
+            white-space: nowrap;
+        }
+        .undo-toast.visible { transform: translateX(-50%) translateY(0); }
+        .undo-btn {
+            background: none;
+            border: 1px solid rgba(255,255,255,0.4);
+            color: #60a5fa;
+            padding: 4px 12px;
+            border-radius: 6px;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background 0.2s;
+            text-transform: none;
+            letter-spacing: 0;
+        }
+        .undo-btn:hover { background: rgba(255,255,255,0.1); }
+
+        @media (prefers-color-scheme: dark) {
+            body { background: linear-gradient(135deg, #1e1b4b 0%, #312e81 100%); }
+            .container { background: #1f2937; }
+            .header h1 { color: #e5e7eb; }
+            .header p { color: #9ca3af; }
+            label { color: #d1d5db; }
+            input, select { background: #374151; color: #e5e7eb; border-color: #4b5563; }
+            input:focus, select:focus { border-color: #60a5fa; box-shadow: 0 0 0 3px rgba(96,165,250,0.1); }
+            .time-display { color: #e5e7eb; }
+            .last-action { background: #374151; color: #9ca3af; }
+            .last-action.has-data { background: #2d3748; color: #d1d5db; }
+            .admin-sep { border-color: #4b5563; }
+            .btn-admin { border-color: #4b5563; color: #9ca3af; }
+            .btn-admin:hover { background: #374151; color: #d1d5db; border-color: #6b7280; }
+            .nfc-status.supported { background: #064e3b; color: #6ee7b7; }
+            .estado-badge.fuera { background: #374151; color: #9ca3af; }
+            .nfc-icon { color: #60a5fa; }
+        }
     </style>
 </head>
 <body>
+    <!-- Selector de centro -->
+    <div id="selectorCentro">
+        <h2>Sistema de Fichaje</h2>
+        <p>Selecciona tu centro de trabajo</p>
+        <div id="listaCentros"></div>
+    </div>
+
     <div class="container">
         <div class="header">
-            <div class="nfc-icon">📱</div>
+            <div class="nfc-icon"><i data-lucide="smartphone" aria-hidden="true"></i></div>
             <h1>Sistema de Fichaje</h1>
+            <span class="centro-badge" id="centroBadge"></span>
+            <div class="estado-badge" id="estadoBadge" style="display:none"></div>
             <p>Selecciona tu nombre y registra tu entrada/salida</p>
         </div>
 
@@ -270,9 +433,10 @@
 
         <div class="form-group">
             <label for="empleado">Empleado</label>
-            <select id="empleado" required>
-                <option value="">-- Selecciona tu nombre --</option>
-            </select>
+            <input type="text" id="empleado" list="empleados-list"
+                   placeholder="Escribe o selecciona tu nombre..."
+                   autocomplete="off" required>
+            <datalist id="empleados-list"></datalist>
         </div>
 
         <div class="time-display" id="timeDisplay">--:--:--</div>
@@ -287,15 +451,27 @@
             <button class="btn-descanso-fin" id="btnDescansoFin">Fin Descanso</button>
         </div>
 
-        <button class="btn-admin" id="btnAdmin">📊 Ver Reportes</button>
+        <div class="admin-sep"></div>
+        <button class="btn-admin" id="btnAdmin">
+            <i data-lucide="bar-chart-2" aria-hidden="true" style="width:16px;height:16px"></i>
+            Ver Reportes
+        </button>
 
         <div class="last-action" id="lastAction">
             Aquí aparecerá tu último registro
         </div>
     </div>
 
+    <div class="undo-toast" id="undoToast" role="status" aria-live="polite">
+        <span id="undoMsg">Registro guardado</span>
+        <button id="btnUndo" class="undo-btn" type="button">Deshacer</button>
+    </div>
+
     <script type="module" src="app.js"></script>
     <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            if (typeof lucide !== 'undefined') lucide.createIcons();
+        });
         // Registrar Service Worker para offline (mantener fuera del módulo para scope global)
         if ('serviceWorker' in navigator) {
             navigator.serviceWorker.register('sw.js')

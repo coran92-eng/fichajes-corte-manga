@@ -1,4 +1,4 @@
-const CACHE_NAME = 'fichaje-v1';
+const CACHE_NAME = 'fichaje-v2';
 const urlsToCache = [
   '/',
   '/index.html',
@@ -38,6 +38,11 @@ self.addEventListener('activate', event => {
 
 // Interceptar peticiones
 self.addEventListener('fetch', event => {
+  // Las llamadas a la API y config siempre van a la red, nunca a caché
+  if (event.request.url.includes('/api/') || event.request.url.includes('config.json')) {
+    return;
+  }
+
   // Solo cachear GET requests
   if (event.request.method !== 'GET') {
     return;

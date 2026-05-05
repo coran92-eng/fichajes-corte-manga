@@ -1,14 +1,5 @@
 {
-  "empleados": [
-    "Albert",
-    "Maikel",
-    "Carlos",
-    "Jecko",
-    "Pol",
-    "Sonia",
-    "Nacho",
-    "Claudia"
-  ],
+  "centros": ["Corte de Manga", "La Sastreria BCN", "La Sastreria MDR"],
   "restaurante": "Mi Restaurante",
   "zona_horaria": "Europe/Madrid",
   "colores": {

@@ -7,38 +7,13 @@
     <title>Reportes - Fichaje</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
     <script>
-        // Verificar sesión antes de cargar
-        if (!verificarSesion()) {
-            window.location.href = 'login.html';
-        }
-
         // Modo oscuro
         const prefiereOscuro = window.matchMedia('(prefers-color-scheme: dark)').matches;
         if (prefiereOscuro) {
             document.body.style.background = '#1f2937';
             document.documentElement.setAttribute('data-theme', 'dark');
-        }
-
-        function verificarSesion() {
-            const token = sessionStorage.getItem('admin_session');
-            const loginTime = sessionStorage.getItem('login_time');
-
-            if (!token || !loginTime) {
-                return false;
-            }
-
-            // Sesión válida por 8 horas
-            const tiempoDecorrido = Date.now() - parseInt(loginTime);
-            const ochoHoras = 8 * 60 * 60 * 1000;
-
-            if (tiempoDecorrido > ochoHoras) {
-                sessionStorage.removeItem('admin_session');
-                sessionStorage.removeItem('login_time');
-                return false;
-            }
-
-            return true;
         }
     </script>
     <style>
@@ -51,7 +26,7 @@
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            min-height: 100vh;
+            min-height: 100dvh;
             padding: 20px;
         }
 
@@ -722,20 +697,112 @@
                 grid-template-columns: 1fr;
             }
         }
+
+        .header-buttons { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+        .header-buttons button { display: flex; align-items: center; gap: 6px; }
+        .overflow-menu { position: relative; }
+        .btn-overflow {
+            background: #f3f4f6;
+            color: #374151;
+            padding: 10px 12px;
+            border-radius: 8px;
+            border: none;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            font-weight: 600;
+            font-size: 14px;
+            transition: background 0.2s;
+        }
+        .btn-overflow:hover { background: #e5e7eb; }
+        .overflow-dropdown {
+            display: none;
+            position: absolute;
+            right: 0;
+            top: calc(100% + 8px);
+            background: white;
+            border: 1px solid #e5e7eb;
+            border-radius: 10px;
+            box-shadow: 0 8px 24px rgba(0,0,0,0.15);
+            min-width: 185px;
+            z-index: 200;
+            padding: 6px;
+        }
+        .overflow-dropdown.visible { display: block; }
+        .overflow-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            width: 100%;
+            padding: 10px 14px;
+            border-radius: 6px;
+            background: none;
+            color: #374151;
+            font-size: 14px;
+            font-weight: 600;
+            text-align: left;
+            border: none;
+            cursor: pointer;
+            transition: background 0.15s;
+        }
+        .overflow-item:hover { background: #f3f4f6; }
+        .overflow-item--danger { color: #ef4444; }
+        .overflow-item--danger:hover { background: #fee2e2; }
+        .overflow-separator { border-top: 1px solid #e5e7eb; margin: 4px 0; }
+        #tabsContent { overflow-x: auto; }
+
+        @media (prefers-color-scheme: dark) {
+            .stat-card { background: #374151; }
+            .stat-value { color: #60a5fa; }
+            .stat-label { color: #9ca3af; }
+            .btn-overflow { background: #374151; color: #e5e7eb; }
+            .btn-overflow:hover { background: #4b5563; }
+            .overflow-dropdown { background: #1f2937; border-color: #374151; }
+            .overflow-item { color: #d1d5db; }
+            .overflow-item:hover { background: #374151; }
+            .overflow-separator { border-color: #4b5563; }
+            .overflow-item--danger { color: #f87171; }
+            .overflow-item--danger:hover { background: #450a0a; }
+        }
     </style>
 </head>
 <body>
     <div class="container">
         <div class="header">
-            <h1>📊 Reportes de Fichaje</h1>
+            <h1>
+                <i data-lucide="bar-chart-2" aria-hidden="true" style="width:24px;height:24px;vertical-align:middle;margin-right:8px"></i>
+                Reportes de Fichaje
+            </h1>
             <div class="header-buttons">
-                <button class="btn-export" id="btnExportarExcel" aria-label="Exportar todos los registros a archivo Excel">📥 Exportar a Excel</button>
-                <button class="btn-export" id="btnHorasSemana" style="background:#8b5cf6" aria-label="Ver horas por semana">⏱️ Horas por Semana</button>
-                <button class="btn-empleados" id="btnEmpleados" aria-label="Gestionar empleados">👥 Empleados</button>
-                <button class="btn-guardar-config" id="btnConfig" aria-label="Configuración">⚙️ Config</button>
-                <button class="btn-limpiar" id="btnLimpiar" aria-label="Eliminar todos los datos de forma permanente">🗑️ Limpiar datos</button>
-                <button class="btn-volver" id="btnVolver" aria-label="Volver a la página de fichaje">← Volver a Fichaje</button>
-                <button class="btn-logout" id="btnLogout" aria-label="Cerrar sesión actual">🚪 Cerrar Sesión</button>
+                <button class="btn-export" id="btnExportarExcel" aria-label="Exportar a Excel">
+                    <i data-lucide="download" aria-hidden="true" style="width:15px;height:15px"></i> Exportar Excel
+                </button>
+                <button class="btn-export" id="btnHorasSemana" style="background:#8b5cf6" aria-label="Ver horas por semana">
+                    <i data-lucide="clock" aria-hidden="true" style="width:15px;height:15px"></i> Horas Semana
+                </button>
+                <button class="btn-empleados" id="btnEmpleados" aria-label="Gestionar empleados">
+                    <i data-lucide="users" aria-hidden="true" style="width:15px;height:15px"></i> Empleados
+                </button>
+                <div class="overflow-menu">
+                    <button class="btn-overflow" id="btnOverflow" aria-label="Más opciones" aria-haspopup="true" aria-expanded="false">
+                        <i data-lucide="more-horizontal" aria-hidden="true" style="width:18px;height:18px"></i>
+                    </button>
+                    <div class="overflow-dropdown" id="overflowDropdown" role="menu">
+                        <button class="overflow-item" id="btnConfig" role="menuitem">
+                            <i data-lucide="settings" aria-hidden="true" style="width:15px;height:15px"></i> Configuración
+                        </button>
+                        <button class="overflow-item" id="btnVolver" role="menuitem">
+                            <i data-lucide="arrow-left" aria-hidden="true" style="width:15px;height:15px"></i> Volver a Fichaje
+                        </button>
+                        <button class="overflow-item" id="btnLogout" role="menuitem">
+                            <i data-lucide="log-out" aria-hidden="true" style="width:15px;height:15px"></i> Cerrar Sesión
+                        </button>
+                        <div class="overflow-separator"></div>
+                        <button class="overflow-item overflow-item--danger" id="btnLimpiar" role="menuitem">
+                            <i data-lucide="trash-2" aria-hidden="true" style="width:15px;height:15px"></i> Limpiar datos
+                        </button>
+                    </div>
+                </div>
             </div>
         </div>
 
@@ -743,25 +810,28 @@
 
         <!-- Panel de configuración -->
         <div class="panel-config" id="panelConfig">
-            <h3>⚙️ Configuración</h3>
+            <h3><i data-lucide="settings" aria-hidden="true" style="width:16px;height:16px;vertical-align:middle;margin-right:6px"></i>Configuración</h3>
             <div class="config-fila">
                 <label for="inputWebhook">URL de Google Apps Script (para sincronizar con Sheets)</label>
                 <input type="url" id="inputWebhook" placeholder="https://script.google.com/macros/s/.../exec">
                 <div class="webhook-estado" id="webhookEstado"></div>
             </div>
             <div class="config-botones">
-                <button class="btn-guardar-config" id="btnGuardarConfig">💾 Guardar URL</button>
-                <button class="btn-test-webhook" id="btnTestWebhook">🔗 Probar conexión</button>
-                <button class="btn-sync" id="btnSyncTodo">☁️ Sincronizar todo con Sheets</button>
+                <button class="btn-guardar-config" id="btnGuardarConfig"><i data-lucide="save" aria-hidden="true" style="width:14px;height:14px"></i> Guardar URL</button>
+                <button class="btn-test-webhook" id="btnTestWebhook"><i data-lucide="link-2" aria-hidden="true" style="width:14px;height:14px"></i> Probar conexión</button>
+                <button class="btn-sync" id="btnSyncTodo"><i data-lucide="cloud" aria-hidden="true" style="width:14px;height:14px"></i> Sincronizar con Sheets</button>
             </div>
         </div>
 
         <!-- Panel gestión de empleados -->
         <div class="panel-empleados" id="panelEmpleados">
-            <h3>👥 Gestión de Empleados</h3>
+            <h3><i data-lucide="users" aria-hidden="true" style="width:16px;height:16px;vertical-align:middle;margin-right:6px"></i>Gestión de Empleados</h3>
             <div class="empleados-lista" id="empleadosLista"></div>
             <form class="form-nuevo-empleado" id="formNuevoEmpleado">
                 <input type="text" id="inputNuevoEmpleado" placeholder="Nombre del nuevo empleado" maxlength="40" autocomplete="off">
+                <select id="selectCentroEmpleado" style="flex:1;min-width:130px;padding:10px 14px;border:2px solid #e5e7eb;border-radius:8px;font-size:14px;font-family:inherit;">
+                    <option value="">Todos los centros</option>
+                </select>
                 <button type="submit" class="btn-agregar-empleado">+ Añadir</button>
             </form>
         </div>
@@ -771,15 +841,21 @@
         <!-- Filtros -->
         <div class="filtros" role="search" aria-label="Filtros de búsqueda">
             <div class="filtro-grupo">
-                <label for="filtroEmpleado">🔍 Buscar empleado</label>
+                <label for="filtroCentro"><i data-lucide="building-2" aria-hidden="true" style="width:14px;height:14px;vertical-align:middle;margin-right:4px"></i>Centro</label>
+                <select id="filtroCentro" aria-label="Filtrar por centro de trabajo">
+                    <option value="">Todos los centros</option>
+                </select>
+            </div>
+            <div class="filtro-grupo">
+                <label for="filtroEmpleado"><i data-lucide="search" aria-hidden="true" style="width:14px;height:14px;vertical-align:middle;margin-right:4px"></i>Buscar empleado</label>
                 <input type="text" id="filtroEmpleado" placeholder="Nombre..." aria-label="Filtrar por nombre de empleado">
             </div>
             <div class="filtro-grupo">
-                <label for="filtroFechaDesde">📅 Desde</label>
+                <label for="filtroFechaDesde"><i data-lucide="calendar" aria-hidden="true" style="width:14px;height:14px;vertical-align:middle;margin-right:4px"></i>Desde</label>
                 <input type="date" id="filtroFechaDesde" aria-label="Fecha inicial del filtro">
             </div>
             <div class="filtro-grupo">
-                <label for="filtroFechaHasta">📅 Hasta</label>
+                <label for="filtroFechaHasta"><i data-lucide="calendar" aria-hidden="true" style="width:14px;height:14px;vertical-align:middle;margin-right:4px"></i>Hasta</label>
                 <input type="date" id="filtroFechaHasta" aria-label="Fecha final del filtro">
             </div>
             <button class="btn-limpiar-filtros" id="btnLimpiarFiltros" aria-label="Limpiar todos los filtros">Limpiar filtros</button>
@@ -792,7 +868,7 @@
 
     <!-- Modal de confirmación -->
     <div class="modal" id="modalConfirmacion">
-        <div class="modal-content">
+        <div class="modal-content" tabindex="-1">
             <div class="modal-titulo" id="modalTitulo"></div>
             <div class="modal-mensaje" id="modalMensaje"></div>
             <div class="modal-botones">
@@ -803,629 +879,56 @@
     </div>
 
     <script>
-        const STORAGE_KEY = 'fichajes_data';
-        const EMPLEADOS_KEY = 'empleados_list';
-        const EMPLEADOS_DEFAULT = ['Albert','Maikel','Carlos','Jecko','Pol','Sonia','Nacho','Claudia'];
-
-        let callbackModal = null;
-
+    (function() {
         document.addEventListener('DOMContentLoaded', () => {
-            cargarDatos();
-            configurarBotones();
-            configurarFiltros();
-            configurarModal();
-            verificarRespaldos();
-            inicializarEmpleados();
-            configurarPanelConfig();
+            if (typeof lucide !== 'undefined') lucide.createIcons();
+
+            const btnOverflow = document.getElementById('btnOverflow');
+            const dropdown = document.getElementById('overflowDropdown');
+            if (btnOverflow && dropdown) {
+                btnOverflow.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    const open = dropdown.classList.toggle('visible');
+                    btnOverflow.setAttribute('aria-expanded', open ? 'true' : 'false');
+                });
+                document.addEventListener('click', () => {
+                    dropdown.classList.remove('visible');
+                    btnOverflow.setAttribute('aria-expanded', 'false');
+                });
+                document.addEventListener('keydown', (e) => {
+                    if (e.key === 'Escape') {
+                        dropdown.classList.remove('visible');
+                        btnOverflow.setAttribute('aria-expanded', 'false');
+                    }
+                });
+            }
+
+            const modal = document.getElementById('modalConfirmacion');
+            if (modal) {
+                function trapFocus(e) {
+                    if (e.key !== 'Tab') return;
+                    const focusable = Array.from(modal.querySelectorAll('button:not([disabled])'));
+                    const first = focusable[0];
+                    const last = focusable[focusable.length - 1];
+                    if (e.shiftKey) {
+                        if (document.activeElement === first) { e.preventDefault(); last.focus(); }
+                    } else {
+                        if (document.activeElement === last) { e.preventDefault(); first.focus(); }
+                    }
+                }
+                new MutationObserver(() => {
+                    if (modal.classList.contains('visible')) {
+                        const focusable = modal.querySelectorAll('button:not([disabled])');
+                        if (focusable.length) focusable[0].focus();
+                        modal.addEventListener('keydown', trapFocus);
+                    } else {
+                        modal.removeEventListener('keydown', trapFocus);
+                    }
+                }).observe(modal, { attributes: true, attributeFilter: ['class'] });
+            }
         });
-
-        // ── Configuración / Webhook ───────────────────────────────────
-
-        const WEBHOOK_KEY = 'sheets_webhook_url';
-
-        function configurarPanelConfig() {
-            const url = localStorage.getItem(WEBHOOK_KEY) || '';
-            document.getElementById('inputWebhook').value = url;
-
-            document.getElementById('btnConfig').addEventListener('click', () => {
-                document.getElementById('panelConfig').classList.toggle('visible');
-                document.getElementById('panelEmpleados').classList.remove('visible');
-            });
-
-            document.getElementById('btnGuardarConfig').addEventListener('click', () => {
-                const url = document.getElementById('inputWebhook').value.trim();
-                if (url && !url.startsWith('https://script.google.com')) {
-                    mostrarEstadoWebhook('⚠ La URL no parece de Google Apps Script', 'error');
-                    return;
-                }
-                localStorage.setItem(WEBHOOK_KEY, url);
-                mostrarEstadoWebhook('✓ URL guardada correctamente', 'ok');
-            });
-
-            document.getElementById('btnTestWebhook').addEventListener('click', async () => {
-                const url = document.getElementById('inputWebhook').value.trim();
-                if (!url) {
-                    mostrarEstadoWebhook('⚠ Introduce una URL primero', 'error');
-                    return;
-                }
-                mostrarEstadoWebhook('⏳ Probando conexión...', 'loading');
-                try {
-                    await fetch(url, {
-                        method: 'POST',
-                        mode: 'no-cors',
-                        headers: { 'Content-Type': 'text/plain' },
-                        body: JSON.stringify({ test: true, empleado: 'TEST', tipo: 'test', fecha: new Date().toISOString().split('T')[0], hora: '00:00:00', timestamp: Date.now() })
-                    });
-                    mostrarEstadoWebhook('✓ Conexión correcta — revisa tu hoja de Sheets', 'ok');
-                } catch (e) {
-                    mostrarEstadoWebhook('✗ Error de conexión: ' + e.message, 'error');
-                }
-            });
-
-            document.getElementById('btnSyncTodo').addEventListener('click', async () => {
-                const url = localStorage.getItem(WEBHOOK_KEY);
-                if (!url) {
-                    mostrarEstadoWebhook('⚠ Guarda primero la URL del webhook', 'error');
-                    return;
-                }
-                const fichajes = obtenerFichajasDesencriptados();
-                if (fichajes.length === 0) {
-                    mostrarEstadoWebhook('⚠ No hay fichajes almacenados', 'error');
-                    return;
-                }
-                const btn = document.getElementById('btnSyncTodo');
-                btn.disabled = true;
-                btn.textContent = '⏳ Sincronizando...';
-                mostrarEstadoWebhook(`⏳ Enviando ${fichajes.length} fichajes...`, 'loading');
-
-                let enviados = 0, errores = 0;
-                for (const f of fichajes) {
-                    try {
-                        await fetch(url, {
-                            method: 'POST',
-                            mode: 'no-cors',
-                            headers: { 'Content-Type': 'text/plain' },
-                            body: JSON.stringify(f)
-                        });
-                        enviados++;
-                    } catch (e) {
-                        errores++;
-                    }
-                    // Pausa pequeña para no saturar el script
-                    await new Promise(r => setTimeout(r, 150));
-                }
-
-                btn.disabled = false;
-                btn.textContent = '☁️ Sincronizar todo con Sheets';
-                if (errores === 0) {
-                    mostrarEstadoWebhook(`✓ ${enviados} fichajes enviados a Sheets`, 'ok');
-                } else {
-                    mostrarEstadoWebhook(`⚠ ${enviados} enviados, ${errores} fallaron`, 'error');
-                }
-            });
-        }
-
-        function mostrarEstadoWebhook(texto, tipo) {
-            const el = document.getElementById('webhookEstado');
-            el.textContent = texto;
-            el.className = `webhook-estado ${tipo}`;
-        }
-
-        // ── Gestión de empleados ──────────────────────────────────────
-
-        function obtenerListaEmpleados() {
-            return JSON.parse(localStorage.getItem(EMPLEADOS_KEY)) || EMPLEADOS_DEFAULT;
-        }
-
-        function guardarListaEmpleados(lista) {
-            localStorage.setItem(EMPLEADOS_KEY, JSON.stringify(lista));
-        }
-
-        function inicializarEmpleados() {
-            if (!localStorage.getItem(EMPLEADOS_KEY)) {
-                guardarListaEmpleados(EMPLEADOS_DEFAULT);
-            }
-            renderEmpleados();
-        }
-
-        function renderEmpleados() {
-            const lista = obtenerListaEmpleados();
-            const contenedor = document.getElementById('empleadosLista');
-            if (lista.length === 0) {
-                contenedor.innerHTML = '<span style="color:#9ca3af;font-size:13px">Sin empleados</span>';
-                return;
-            }
-            contenedor.innerHTML = lista.map(emp => `
-                <div class="empleado-tag">
-                    ${emp}
-                    <button type="button" title="Eliminar ${emp}" onclick="confirmarEliminarEmpleado('${emp.replace(/'/g, "\\'")}')">✕</button>
-                </div>
-            `).join('');
-        }
-
-        function confirmarEliminarEmpleado(nombre) {
-            mostrarModal(
-                '👤 Eliminar empleado',
-                `¿Eliminar a "${nombre}" de la lista? Sus fichajes anteriores se conservarán.`,
-                () => {
-                    const lista = obtenerListaEmpleados().filter(e => e !== nombre);
-                    guardarListaEmpleados(lista);
-                    renderEmpleados();
-                    mostrarMensaje(`✓ "${nombre}" eliminado`, 'success');
-                }
-            );
-        }
-
-        function configurarFormEmpleados() {
-            document.getElementById('formNuevoEmpleado').addEventListener('submit', (e) => {
-                e.preventDefault();
-                const input = document.getElementById('inputNuevoEmpleado');
-                const nombre = input.value.trim();
-
-                if (!nombre) return;
-
-                const lista = obtenerListaEmpleados();
-                if (lista.some(e => e.toLowerCase() === nombre.toLowerCase())) {
-                    mostrarMensaje(`⚠ "${nombre}" ya existe`, 'error');
-                    return;
-                }
-
-                lista.push(nombre);
-                guardarListaEmpleados(lista);
-                renderEmpleados();
-                input.value = '';
-                mostrarMensaje(`✓ "${nombre}" añadido`, 'success');
-            });
-        }
-
-        function obtenerFichajasDesencriptados() {
-            try {
-                const encrypted = localStorage.getItem(STORAGE_KEY);
-                if (!encrypted) return [];
-
-                const decrypted = CryptoJS.AES.decrypt(encrypted, 'fichaje_key').toString(CryptoJS.enc.Utf8);
-                return JSON.parse(decrypted) || [];
-            } catch (e) {
-                // Si hay datos sin encriptar (versión antigua), devolverlos como están
-                try {
-                    const data = JSON.parse(localStorage.getItem(STORAGE_KEY));
-                    if (Array.isArray(data)) {
-                        // Migrar a encriptado
-                        const encrypted = CryptoJS.AES.encrypt(
-                            JSON.stringify(data),
-                            'fichaje_key'
-                        ).toString();
-                        localStorage.setItem(STORAGE_KEY, encrypted);
-                        return data;
-                    }
-                } catch {}
-                return [];
-            }
-        }
-
-        function cargarDatos() {
-            const fichajes = obtenerFichajasDesencriptados();
-
-            if (fichajes.length === 0) {
-                document.getElementById('tabsContent').innerHTML =
-                    '<div class="empty"><p>No hay registros de fichaje aún</p></div>';
-                return;
-            }
-
-            // Agrupar por empleado
-            const porEmpleado = {};
-            fichajes.forEach(f => {
-                if (!porEmpleado[f.empleado]) {
-                    porEmpleado[f.empleado] = [];
-                }
-                porEmpleado[f.empleado].push(f);
-            });
-
-            // Ordenar por empleado
-            const empleados = Object.keys(porEmpleado).sort();
-
-            // Crear estadísticas
-            mostrarEstadisticas(fichajes, empleados);
-
-            // Crear pestañas (incluir "Cronológico" al inicio)
-            crearPestanas(['Cronológico', ...empleados]);
-
-            // Crear contenido de pestañas
-            crearContenidoCronologico(fichajes);
-            crearContenidoPestanas(porEmpleado, empleados);
-
-            // Detectar y mostrar descansos largos
-            detectarDescansosLargos(porEmpleado);
-        }
-
-        function crearContenidoCronologico(fichajes) {
-            // Ordenar todos los fichajes por fecha y hora (más reciente primero)
-            const ordenados = fichajes
-                .slice()
-                .sort((a, b) => {
-                    const fechaA = new Date(a.fecha + ' ' + a.hora);
-                    const fechaB = new Date(b.fecha + ' ' + b.hora);
-                    return fechaB - fechaA;
-                });
-
-            const filas = ordenados
-                .map(f => `
-                    <tr>
-                        <td class="fecha">${f.fecha}</td>
-                        <td class="hora">${f.hora}</td>
-                        <td><strong>${f.empleado}</strong></td>
-                        <td>
-                            <span class="tipo ${f.tipo}">
-                                ${getTipoLabel(f.tipo)}
-                            </span>
-                        </td>
-                    </tr>
-                `)
-                .join('');
-
-            const html = `
-                <div class="tab-content active" data-tab="Cronológico">
-                    <table>
-                        <thead>
-                            <tr>
-                                <th>Fecha</th>
-                                <th>Hora</th>
-                                <th>Empleado</th>
-                                <th>Tipo</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            ${filas}
-                        </tbody>
-                    </table>
-                </div>
-            `;
-
-            const tabsContent = document.getElementById('tabsContent');
-            tabsContent.innerHTML = html;
-        }
-
-        function detectarDescansosLargos(porEmpleado) {
-            const avisoHTML = document.createElement('div');
-            avisoHTML.className = 'aviso-descanso';
-            let tieneAvisos = false;
-
-            let contenidoAvisos = '<div class="aviso-titulo">⚠️ Descansos que exceden 20 minutos:</div>';
-
-            Object.keys(porEmpleado).forEach(empleado => {
-                const fichajes = porEmpleado[empleado]
-                    .sort((a, b) => new Date(a.fecha + ' ' + a.hora) - new Date(b.fecha + ' ' + b.hora));
-
-                for (let i = 0; i < fichajes.length - 1; i++) {
-                    const actual = fichajes[i];
-                    if (actual.tipo === 'inicio_descanso') {
-                        const siguiente = fichajes[i + 1];
-                        if (siguiente && siguiente.tipo === 'fin_descanso') {
-                            const inicio = new Date(actual.fecha + ' ' + actual.hora);
-                            const fin = new Date(siguiente.fecha + ' ' + siguiente.hora);
-                            const duracion = (fin - inicio) / (1000 * 60); // en minutos
-
-                            if (duracion > 20) {
-                                tieneAvisos = true;
-                                const minutos = Math.round(duracion);
-                                contenidoAvisos += `
-                                    <div class="aviso-detalle">
-                                        <strong>${empleado}</strong>:
-                                        ${actual.hora} - ${siguiente.hora}
-                                        (<span class="duracion-descanso">${minutos} min</span>)
-                                    </div>
-                                `;
-                            }
-                        }
-                    }
-                }
-            });
-
-            if (tieneAvisos) {
-                avisoHTML.innerHTML = contenidoAvisos;
-                avisoHTML.classList.add('visible');
-                const containerInicio = document.querySelector('[data-tab="Cronológico"]');
-                if (containerInicio) {
-                    containerInicio.insertAdjacentElement('beforebegin', avisoHTML);
-                }
-            }
-        }
-
-        function mostrarEstadisticas(fichajes, empleados) {
-            const statsHtml = `
-                <div class="stat-card">
-                    <div class="stat-value">${fichajes.length}</div>
-                    <div class="stat-label">Total Registros</div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-value">${empleados.length}</div>
-                    <div class="stat-label">Empleados Activos</div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-value">${new Date().toLocaleDateString('es-ES')}</div>
-                    <div class="stat-label">Fecha de Hoy</div>
-                </div>
-            `;
-            document.getElementById('stats').innerHTML = statsHtml;
-        }
-
-        function crearPestanas(empleadosConCronologico) {
-            const tabsHtml = empleadosConCronologico
-                .map((emp, idx) =>
-                    `<button class="tab-btn ${idx === 0 ? 'active' : ''}" data-empleado="${emp}">
-                        ${emp === 'Cronológico' ? '📅 Cronológico' : emp}
-                    </button>`
-                )
-                .join('');
-
-            const tabsEl = document.getElementById('tabs');
-            tabsEl.innerHTML = tabsHtml;
-
-            tabsEl.querySelectorAll('.tab-btn').forEach(btn => {
-                btn.addEventListener('click', (e) => {
-                    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-                    document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
-                    e.target.classList.add('active');
-                    document.querySelector(`[data-tab="${e.target.dataset.empleado}"]`).classList.add('active');
-                });
-            });
-        }
-
-        function crearContenidoPestanas(porEmpleado, empleados) {
-            const contentHtml = empleados
-                .map(emp => {
-                    const fichajes = porEmpleado[emp];
-                    const filas = fichajes
-                        .sort((a, b) => new Date(b.fecha + ' ' + b.hora) - new Date(a.fecha + ' ' + a.hora))
-                        .map(f => `
-                            <tr>
-                                <td class="fecha">${f.fecha}</td>
-                                <td class="hora">${f.hora}</td>
-                                <td>
-                                    <span class="tipo ${f.tipo}">
-                                        ${getTipoLabel(f.tipo)}
-                                    </span>
-                                </td>
-                            </tr>
-                        `)
-                        .join('');
-
-                    return `
-                        <div class="tab-content" data-tab="${emp}">
-                            <table>
-                                <thead>
-                                    <tr>
-                                        <th>Fecha</th>
-                                        <th>Hora</th>
-                                        <th>Tipo</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    ${filas}
-                                </tbody>
-                            </table>
-                        </div>
-                    `;
-                })
-                .join('');
-
-            document.getElementById('tabsContent').innerHTML += contentHtml;
-        }
-
-        function getTipoLabel(tipo) {
-            const labels = {
-                'entrada': 'Entrada',
-                'salida': 'Salida',
-                'inicio_descanso': 'Inicio Descanso',
-                'fin_descanso': 'Fin Descanso'
-            };
-            return labels[tipo] || tipo;
-        }
-
-        function configurarModal() {
-            document.getElementById('btnModalCancel').addEventListener('click', () => {
-                document.getElementById('modalConfirmacion').classList.remove('visible');
-            });
-
-            document.getElementById('btnModalConfirmar').addEventListener('click', () => {
-                if (callbackModal) {
-                    callbackModal();
-                }
-                document.getElementById('modalConfirmacion').classList.remove('visible');
-            });
-        }
-
-        function mostrarModal(titulo, mensaje, callback) {
-            document.getElementById('modalTitulo').textContent = titulo;
-            document.getElementById('modalMensaje').textContent = mensaje;
-            callbackModal = callback;
-            document.getElementById('modalConfirmacion').classList.add('visible');
-        }
-
-        function configurarFiltros() {
-            const filtroEmpleado = document.getElementById('filtroEmpleado');
-            const filtroDesde = document.getElementById('filtroFechaDesde');
-            const filtroHasta = document.getElementById('filtroFechaHasta');
-            const btnLimpiar = document.getElementById('btnLimpiarFiltros');
-
-            filtroEmpleado?.addEventListener('input', aplicarFiltros);
-            filtroDesde?.addEventListener('change', aplicarFiltros);
-            filtroHasta?.addEventListener('change', aplicarFiltros);
-            btnLimpiar?.addEventListener('click', limpiarFiltros);
-        }
-
-        function aplicarFiltros() {
-            const empleado = (document.getElementById('filtroEmpleado')?.value || '').toLowerCase();
-            const desde = document.getElementById('filtroFechaDesde')?.value;
-            const hasta = document.getElementById('filtroFechaHasta')?.value;
-
-            const filas = document.querySelectorAll('tbody tr');
-            filas.forEach(fila => {
-                let mostrar = true;
-
-                if (empleado) {
-                    const celdaEmpleado = fila.querySelector('td:nth-child(3)')?.textContent || '';
-                    mostrar = mostrar && celdaEmpleado.toLowerCase().includes(empleado);
-                }
-
-                if (desde || hasta) {
-                    const fecha = fila.querySelector('td:first-child')?.textContent.trim();
-                    if (desde && fecha < desde) mostrar = false;
-                    if (hasta && fecha > hasta) mostrar = false;
-                }
-
-                fila.style.display = mostrar ? '' : 'none';
-            });
-        }
-
-        function limpiarFiltros() {
-            document.getElementById('filtroEmpleado').value = '';
-            document.getElementById('filtroFechaDesde').value = '';
-            document.getElementById('filtroFechaHasta').value = '';
-            document.querySelectorAll('tbody tr').forEach(fila => fila.style.display = '');
-        }
-
-        function verificarRespaldos() {
-            const backups = JSON.parse(localStorage.getItem('backups')) || [];
-            const lastBackup = localStorage.getItem('last_backup');
-
-            if (lastBackup) {
-                const fecha = new Date(parseInt(lastBackup));
-                console.log('Último respaldo:', fecha.toLocaleString());
-            }
-        }
-
-        function configurarBotones() {
-            document.getElementById('btnVolver').addEventListener('click', () => {
-                window.location.href = 'index.html';
-            });
-
-            document.getElementById('btnHorasSemana').addEventListener('click', () => {
-                window.location.href = 'horas-semana.html';
-            });
-
-            document.getElementById('btnEmpleados').addEventListener('click', () => {
-                document.getElementById('panelEmpleados').classList.toggle('visible');
-                document.getElementById('panelConfig').classList.remove('visible');
-            });
-
-            configurarFormEmpleados();
-
-            document.getElementById('btnExportarExcel').addEventListener('click', () => {
-                mostrarModal(
-                    '📥 Exportar a Excel',
-                    '¿Descargar todos los registros en Excel?',
-                    exportarExcel
-                );
-            });
-
-            document.getElementById('btnLimpiar').addEventListener('click', () => {
-                mostrarModal(
-                    '🗑️ Eliminar datos',
-                    '⚠️ ADVERTENCIA: Esto eliminará TODOS los registros de forma permanente. Esta acción NO se puede deshacer. ¿Continuar?',
-                    limpiarDatos
-                );
-            });
-
-            document.getElementById('btnLogout').addEventListener('click', () => {
-                mostrarModal(
-                    '🚪 Cerrar sesión',
-                    '¿Deseas cerrar tu sesión?',
-                    logout
-                );
-            });
-        }
-
-        function logout() {
-            sessionStorage.removeItem('admin_session');
-            sessionStorage.removeItem('login_time');
-            window.location.href = 'login.html';
-        }
-
-        function exportarExcel() {
-            const fichajes = obtenerFichajasDesencriptados();
-
-            if (fichajes.length === 0) {
-                mostrarMensaje('✗ No hay datos para exportar', 'error');
-                return;
-            }
-
-            mostrarMensaje('⏳ Generando archivo Excel...', 'info');
-
-            // Crear un workbook
-            const workbook = XLSX.utils.book_new();
-
-            // Agrupar por empleado
-            const porEmpleado = {};
-            fichajes.forEach(f => {
-                if (!porEmpleado[f.empleado]) {
-                    porEmpleado[f.empleado] = [];
-                }
-                porEmpleado[f.empleado].push({
-                    Fecha: f.fecha,
-                    Hora: f.hora,
-                    Tipo: getTipoLabel(f.tipo)
-                });
-            });
-
-            // Crear una hoja por empleado
-            Object.keys(porEmpleado).sort().forEach(empleado => {
-                const datos = porEmpleado[empleado]
-                    .sort((a, b) => new Date(b.Fecha + ' ' + b.Hora) - new Date(a.Fecha + ' ' + a.Hora));
-
-                const worksheet = XLSX.utils.json_to_sheet(datos);
-
-                // Ajustar anchos de columna
-                worksheet['!cols'] = [
-                    { wch: 12 },
-                    { wch: 10 },
-                    { wch: 15 }
-                ];
-
-                XLSX.utils.book_append_sheet(workbook, worksheet, empleado.substring(0, 31));
-            });
-
-            // Crear una hoja de resumen
-            const resumen = Object.keys(porEmpleado).map(emp => ({
-                Empleado: emp,
-                'Total Registros': porEmpleado[emp].length,
-                'Último Registro': porEmpleado[emp][0].Hora
-            }));
-
-            const resumenSheet = XLSX.utils.json_to_sheet(resumen);
-            resumenSheet['!cols'] = [
-                { wch: 20 },
-                { wch: 15 },
-                { wch: 15 }
-            ];
-
-            XLSX.utils.book_append_sheet(workbook, resumenSheet, 'Resumen');
-
-            // Descargar
-            const fecha = new Date().toISOString().split('T')[0];
-            XLSX.writeFile(workbook, `Fichaje_${fecha}.xlsx`);
-
-            mostrarMensaje('✓ Archivo exportado correctamente', 'success');
-        }
-
-        function limpiarDatos() {
-            localStorage.removeItem(STORAGE_KEY);
-            localStorage.removeItem('last_backup');
-            localStorage.removeItem('backups');
-            mostrarMensaje('✓ Datos eliminados correctamente', 'success');
-            setTimeout(() => {
-                location.reload();
-            }, 1500);
-        }
-
-        function mostrarMensaje(texto, tipo) {
-            const msgEl = document.getElementById('message');
-            msgEl.textContent = texto;
-            msgEl.className = `message ${tipo}`;
-            setTimeout(() => {
-                msgEl.className = 'message';
-            }, 3000);
-        }
+    })();
     </script>
+    <script type="module" src="admin.js"></script>
 </body>
 </html>

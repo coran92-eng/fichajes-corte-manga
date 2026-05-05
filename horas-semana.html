@@ -6,6 +6,9 @@
     <meta name="theme-color" content="#2563eb">
     <title>Horas por Semana - Fichaje</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
     <script>
         function verificarSesion() {
             const token = sessionStorage.getItem('admin_session');
@@ -29,7 +32,7 @@
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            min-height: 100vh;
+            min-height: 100dvh;
             padding: 20px;
         }
 
@@ -125,7 +128,7 @@
         }
 
         .horas-normal { background: #d1fae5; color: #065f46; }
-        .horas-extra  { background: #dbeafe; color: #1e40af; }
+        .horas-extra  { background: #fef3c7; color: #92400e; }
         .horas-baja   { background: #fee2e2; color: #7f1d1d; }
 
         .mono { font-family: 'Courier New', monospace; font-weight: 600; color: #1f2937; }
@@ -137,6 +140,38 @@
             padding: 50px 20px;
             color: #6b7280;
             font-size: 16px;
+        }
+
+        #tablaContainer { overflow-x: auto; }
+
+        .btn-export {
+            background: #10b981;
+            color: white;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 10px 18px;
+            border: none;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        .btn-export:hover { background: #059669; }
+        .btn-volver {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .chart-wrapper {
+            background: #f9fafb;
+            border-radius: 10px;
+            padding: 20px;
+            margin-bottom: 25px;
+        }
+        @media (prefers-color-scheme: dark) {
+            .chart-wrapper { background: #374151; }
         }
 
         .resumen-cards {
@@ -175,17 +210,33 @@
             }
             .card { background: #374151; }
             td { color: #d1d5db; }
+            .mono { color: #e5e7eb; }
+            .semana-label { color: #9ca3af; }
         }
     </style>
 </head>
 <body>
     <div class="container">
         <div class="header">
-            <h1>⏱️ Horas por Semana</h1>
-            <button class="btn-volver" onclick="window.location.href='admin.html'">← Volver a Reportes</button>
+            <h1>
+                <i data-lucide="clock" aria-hidden="true" style="width:24px;height:24px;vertical-align:middle;margin-right:8px"></i>
+                Horas por Semana
+            </h1>
+            <div style="display:flex;gap:10px;align-items:center">
+                <button class="btn-export" id="btnExportSemana">
+                    <i data-lucide="download" aria-hidden="true" style="width:15px;height:15px"></i> Exportar Excel
+                </button>
+                <button class="btn-volver" onclick="window.location.href='admin.html'">
+                    <i data-lucide="arrow-left" aria-hidden="true" style="width:15px;height:15px"></i> Volver
+                </button>
+            </div>
         </div>
 
         <div class="resumen-cards" id="resumenCards"></div>
+
+        <div class="chart-wrapper">
+            <canvas id="horasChart"></canvas>
+        </div>
 
         <div class="filtros">
             <div class="filtro-grupo">
@@ -438,6 +489,57 @@
 
             renderTabla(filtradas);
             renderResumen(filtradas);
+            renderGrafico(filtradas);
+        }
+
+        let horasChartInstance = null;
+
+        function renderGrafico(filas) {
+            const canvas = document.getElementById('horasChart');
+            if (!canvas || typeof Chart === 'undefined' || filas.length === 0) return;
+
+            const semanasUnicas = [...new Set(filas.map(f => f.semana))].sort().slice(-8);
+            const empleadosUnicos = [...new Set(filas.map(f => f.empleado))].sort();
+            const colores = ['#2563eb','#10b981','#f59e0b','#ef4444','#8b5cf6','#ec4899','#06b6d4','#84cc16'];
+
+            const datasets = empleadosUnicos.map((emp, i) => ({
+                label: emp,
+                data: semanasUnicas.map(sem => {
+                    const fila = filas.find(f => f.empleado === emp && f.semana === sem);
+                    return fila ? Math.round(fila.horasNetoMs / 3600000 * 10) / 10 : 0;
+                }),
+                backgroundColor: colores[i % colores.length] + 'cc',
+                borderColor: colores[i % colores.length],
+                borderWidth: 1,
+                borderRadius: 4
+            }));
+
+            const labels = semanasUnicas.map(s => {
+                const fila = filas.find(f => f.semana === s);
+                return fila ? fila.etiqueta.replace('Sem. ', 'S') : s;
+            });
+
+            const isDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+            const textColor = isDark ? '#d1d5db' : '#374151';
+            const gridColor = isDark ? '#4b5563' : '#e5e7eb';
+
+            if (horasChartInstance) horasChartInstance.destroy();
+
+            horasChartInstance = new Chart(canvas, {
+                type: 'bar',
+                data: { labels, datasets },
+                options: {
+                    responsive: true,
+                    plugins: {
+                        legend: { labels: { color: textColor, font: { size: 13 } } },
+                        tooltip: { callbacks: { label: ctx => `${ctx.dataset.label}: ${ctx.parsed.y}h` } }
+                    },
+                    scales: {
+                        x: { ticks: { color: textColor }, grid: { color: gridColor } },
+                        y: { ticks: { color: textColor, callback: v => v + 'h' }, grid: { color: gridColor }, beginAtZero: true }
+                    }
+                }
+            });
         }
 
         document.addEventListener('DOMContentLoaded', () => {
@@ -468,6 +570,28 @@
             document.getElementById('filtroEmpleado').addEventListener('change', aplicarFiltros);
             document.getElementById('filtroSemanaDesde').addEventListener('change', aplicarFiltros);
             document.getElementById('filtroSemanaHasta').addEventListener('change', aplicarFiltros);
+
+            renderGrafico(todasLasFilas);
+
+            const btnExport = document.getElementById('btnExportSemana');
+            if (btnExport) {
+                btnExport.addEventListener('click', () => {
+                    if (!todasLasFilas || todasLasFilas.length === 0) return;
+                    const datos = todasLasFilas.map(f => ({
+                        Empleado: f.empleado,
+                        Semana: f.etiqueta,
+                        'Horas Totales': f.horasTotales,
+                        Descanso: f.descanso,
+                        'Horas Netas': f.horasNeto || f.horasNetas
+                    }));
+                    const ws = XLSX.utils.json_to_sheet(datos);
+                    const wb = XLSX.utils.book_new();
+                    XLSX.utils.book_append_sheet(wb, ws, 'Horas por Semana');
+                    XLSX.writeFile(wb, 'horas-semana.xlsx');
+                });
+            }
+
+            if (typeof lucide !== 'undefined') lucide.createIcons();
         });
     </script>
 </body>

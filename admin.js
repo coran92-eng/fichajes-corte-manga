@@ -1,54 +1,75 @@
-import { db, auth } from './firebase-config.js';
-import { onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.11.0/firebase-auth.js";
-import { collection, query, orderBy, onSnapshot, getDocs, writeBatch, doc } from "https://www.gstatic.com/firebasejs/10.11.0/firebase-firestore.js";
+// Firebase eliminado. Usamos fetch a Vercel API.
 
-const EMPLEADOS_KEY = 'empleados_list';
-const EMPLEADOS_DEFAULT = ['Albert','Maikel','Carlos','Jecko','Pol','Sonia','Nacho','Claudia'];
+let centrosDisponibles = [];
 
 let callbackModal = null;
 let fichajesGlobales = []; // Caché en memoria para filtros y exportación
 
 document.addEventListener('DOMContentLoaded', () => {
-    // Proteger ruta
-    onAuthStateChanged(auth, (user) => {
-        if (!user) {
-            window.location.href = 'login.html';
-        } else {
-            inicializarAdmin();
-        }
-    });
+    // Proteger ruta con token de sessionStorage
+    const token = sessionStorage.getItem('adminToken');
+    if (!token) {
+        window.location.href = 'login.html';
+    } else {
+        inicializarAdmin();
+    }
 });
 
-function inicializarAdmin() {
+async function inicializarAdmin() {
+    await cargarCentros();
     configurarBotones();
     configurarFiltros();
     configurarModal();
     inicializarEmpleados();
     cargarDatosEnTiempoReal();
-    
-    // Ocultar panel de webhook (ya no se usa con Firebase)
+
     const btnConfig = document.getElementById('btnConfig');
     if(btnConfig) btnConfig.style.display = 'none';
 }
 
+async function cargarCentros() {
+    try {
+        const res = await fetch('/config.json');
+        if (res.ok) {
+            const cfg = await res.json();
+            if (Array.isArray(cfg.centros)) centrosDisponibles = cfg.centros;
+        }
+    } catch {}
+
+    const optionsHtml = centrosDisponibles.map(c => `<option value="${c}">${c}</option>`).join('');
+
+    const filtroCentro = document.getElementById('filtroCentro');
+    if (filtroCentro) filtroCentro.innerHTML = '<option value="">Todos los centros</option>' + optionsHtml;
+
+    const selectCentroEmpleado = document.getElementById('selectCentroEmpleado');
+    if (selectCentroEmpleado) selectCentroEmpleado.innerHTML = '<option value="">Todos los centros</option>' + optionsHtml;
+}
+
+let autoRefreshInterval = null;
+
 function cargarDatosEnTiempoReal() {
     mostrarMensaje('Cargando registros...', 'info');
     
-    const q = query(collection(db, "fichajes"), orderBy("timestamp", "desc"));
-    
-    onSnapshot(q, (snapshot) => {
-        const fichajes = [];
-        snapshot.forEach((doc) => {
-            fichajes.push({ id: doc.id, ...doc.data() });
-        });
-        
-        fichajesGlobales = fichajes;
-        renderizarTablas(fichajes);
-        mostrarMensaje('✓ Registros sincronizados', 'success');
-    }, (error) => {
-        console.error("Error al obtener datos:", error);
-        mostrarMensaje('✗ Error al leer registros de Firebase', 'error');
-    });
+    const fetchData = async () => {
+        try {
+            const response = await fetch('/api/fichajes');
+            if (!response.ok) throw new Error('Error de servidor');
+            const fichajes = await response.json();
+            
+            fichajesGlobales = fichajes;
+            renderizarTablas(fichajes);
+            mostrarMensaje('✓ Registros sincronizados', 'success');
+        } catch (error) {
+            console.error("Error al obtener datos:", error);
+            mostrarMensaje('✗ Error al leer registros', 'error');
+        }
+    };
+
+    fetchData();
+
+    // Actualizar cada 30 segundos
+    if (autoRefreshInterval) clearInterval(autoRefreshInterval);
+    autoRefreshInterval = setInterval(fetchData, 30000);
 }
 
 function renderizarTablas(fichajes) {
@@ -77,75 +98,88 @@ function renderizarTablas(fichajes) {
 }
 
 // ── Gestión de empleados ──────────────────────────────────────
-function obtenerListaEmpleados() {
-    return JSON.parse(localStorage.getItem(EMPLEADOS_KEY)) || EMPLEADOS_DEFAULT;
-}
-
-function guardarListaEmpleados(lista) {
-    localStorage.setItem(EMPLEADOS_KEY, JSON.stringify(lista));
-}
-
 function inicializarEmpleados() {
-    if (!localStorage.getItem(EMPLEADOS_KEY)) {
-        guardarListaEmpleados(EMPLEADOS_DEFAULT);
-    }
     renderEmpleados();
 }
 
-function renderEmpleados() {
-    const lista = obtenerListaEmpleados();
+async function renderEmpleados() {
     const contenedor = document.getElementById('empleadosLista');
-    if (lista.length === 0) {
-        contenedor.innerHTML = '<span style="color:#9ca3af;font-size:13px">Sin empleados</span>';
-        return;
+    contenedor.innerHTML = '<span style="color:#9ca3af;font-size:13px">Cargando...</span>';
+    try {
+        const response = await fetch('/api/empleados');
+        if (!response.ok) throw new Error();
+        const raw = await response.json();
+        const lista = raw.map(e => typeof e === 'string' ? { nombre: e, centro: '' } : e);
+
+        if (lista.length === 0) {
+            contenedor.innerHTML = '<span style="color:#9ca3af;font-size:13px">Sin empleados</span>';
+            return;
+        }
+        contenedor.innerHTML = lista.map(({ nombre, centro }) => `
+            <div class="empleado-tag">
+                ${nombre}
+                ${centro ? `<span style="font-size:11px;color:#6b7280;font-weight:400">(${centro})</span>` : ''}
+                <button type="button" title="Eliminar ${nombre}" onclick="window.confirmarEliminarEmpleado('${nombre.replace(/'/g, "\\'")}')">✕</button>
+            </div>
+        `).join('');
+    } catch {
+        contenedor.innerHTML = '<span style="color:#ef4444;font-size:13px">Error al cargar empleados</span>';
     }
-    contenedor.innerHTML = lista.map(emp => `
-        <div class="empleado-tag">
-            ${emp}
-            <button type="button" title="Eliminar ${emp}" onclick="window.confirmarEliminarEmpleado('${emp.replace(/'/g, "\\'")}')">✕</button>
-        </div>
-    `).join('');
 }
 
 window.confirmarEliminarEmpleado = function(nombre) {
     mostrarModal(
         '👤 Eliminar empleado',
         `¿Eliminar a "${nombre}" de la lista? Sus fichajes anteriores se conservarán.`,
-        () => {
-            const lista = obtenerListaEmpleados().filter(e => e !== nombre);
-            guardarListaEmpleados(lista);
-            renderEmpleados();
-            mostrarMensaje(`✓ "${nombre}" eliminado`, 'success');
+        async () => {
+            try {
+                const response = await fetch('/api/empleados', {
+                    method: 'DELETE',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ nombre })
+                });
+                if (!response.ok) throw new Error();
+                renderEmpleados();
+                mostrarMensaje(`✓ "${nombre}" eliminado`, 'success');
+            } catch {
+                mostrarMensaje(`✗ Error al eliminar "${nombre}"`, 'error');
+            }
         }
     );
 };
 
 function configurarFormEmpleados() {
-    document.getElementById('formNuevoEmpleado').addEventListener('submit', (e) => {
+    document.getElementById('formNuevoEmpleado').addEventListener('submit', async (e) => {
         e.preventDefault();
         const input = document.getElementById('inputNuevoEmpleado');
         const nombre = input.value.trim();
-
+        const centro = document.getElementById('selectCentroEmpleado')?.value || '';
         if (!nombre) return;
 
-        const lista = obtenerListaEmpleados();
-        if (lista.some(e => e.toLowerCase() === nombre.toLowerCase())) {
-            mostrarMensaje(`⚠ "${nombre}" ya existe`, 'error');
-            return;
+        try {
+            const response = await fetch('/api/empleados', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ nombre, centro })
+            });
+            if (!response.ok) {
+                const data = await response.json();
+                mostrarMensaje(`⚠ ${data.error || 'Error al añadir'}`, 'error');
+                return;
+            }
+            input.value = '';
+            renderEmpleados();
+            mostrarMensaje(`✓ "${nombre}" añadido${centro ? ` a ${centro}` : ''}`, 'success');
+        } catch {
+            mostrarMensaje('✗ Error de conexión', 'error');
         }
-
-        lista.push(nombre);
-        guardarListaEmpleados(lista);
-        renderEmpleados();
-        input.value = '';
-        mostrarMensaje(`✓ "${nombre}" añadido`, 'success');
     });
 }
 
 function crearContenidoCronologico(fichajes) {
     const filas = fichajes
         .map(f => `
-            <tr>
+            <tr data-centro="${f.centro || ''}">
                 <td class="fecha">${f.fecha}</td>
                 <td class="hora">${f.hora}</td>
                 <td><strong>${f.empleado}</strong></td>
@@ -154,6 +188,7 @@ function crearContenidoCronologico(fichajes) {
                         ${getTipoLabel(f.tipo)}
                     </span>
                 </td>
+                ${f.centro ? `<td style="font-size:12px;color:#6b7280">${f.centro}</td>` : '<td></td>'}
             </tr>
         `)
         .join('');
@@ -337,30 +372,30 @@ function mostrarModal(titulo, mensaje, callback) {
 }
 
 function configurarFiltros() {
-    const filtroEmpleado = document.getElementById('filtroEmpleado');
-    const filtroDesde = document.getElementById('filtroFechaDesde');
-    const filtroHasta = document.getElementById('filtroFechaHasta');
-    const btnLimpiar = document.getElementById('btnLimpiarFiltros');
-
-    filtroEmpleado?.addEventListener('input', aplicarFiltros);
-    filtroDesde?.addEventListener('change', aplicarFiltros);
-    filtroHasta?.addEventListener('change', aplicarFiltros);
-    btnLimpiar?.addEventListener('click', limpiarFiltros);
+    document.getElementById('filtroCentro')?.addEventListener('change', aplicarFiltros);
+    document.getElementById('filtroEmpleado')?.addEventListener('input', aplicarFiltros);
+    document.getElementById('filtroFechaDesde')?.addEventListener('change', aplicarFiltros);
+    document.getElementById('filtroFechaHasta')?.addEventListener('change', aplicarFiltros);
+    document.getElementById('btnLimpiarFiltros')?.addEventListener('click', limpiarFiltros);
 }
 
 function aplicarFiltros() {
+    const centro = (document.getElementById('filtroCentro')?.value || '').toLowerCase();
     const empleado = (document.getElementById('filtroEmpleado')?.value || '').toLowerCase();
     const desde = document.getElementById('filtroFechaDesde')?.value;
     const hasta = document.getElementById('filtroFechaHasta')?.value;
 
-    const filas = document.querySelectorAll('tbody tr');
-    filas.forEach(fila => {
+    document.querySelectorAll('tbody tr').forEach(fila => {
         let mostrar = true;
 
+        if (centro) {
+            const celdaCentro = fila.dataset.centro || '';
+            mostrar = mostrar && celdaCentro.toLowerCase() === centro;
+        }
+
         if (empleado) {
-            // Empleado podría estar en la columna 3 (Cronológico) o no existir (pestañas individuales)
             const celdaEmpleado = fila.querySelector('td:nth-child(3)');
-            if (celdaEmpleado && celdaEmpleado.querySelector('.tipo') == null) {
+            if (celdaEmpleado && !celdaEmpleado.querySelector('.tipo')) {
                 mostrar = mostrar && celdaEmpleado.textContent.toLowerCase().includes(empleado);
             }
         }
@@ -376,6 +411,7 @@ function aplicarFiltros() {
 }
 
 function limpiarFiltros() {
+    document.getElementById('filtroCentro').value = '';
     document.getElementById('filtroEmpleado').value = '';
     document.getElementById('filtroFechaDesde').value = '';
     document.getElementById('filtroFechaHasta').value = '';
@@ -416,20 +452,15 @@ function configurarBotones() {
     document.getElementById('btnLogout').addEventListener('click', () => {
         mostrarModal(
             '🚪 Cerrar sesión',
-            '¿Deseas cerrar tu sesión de Firebase?',
-            logoutFirebase
+            '¿Deseas cerrar tu sesión?',
+            logout
         );
     });
 }
 
-async function logoutFirebase() {
-    try {
-        await signOut(auth);
-        window.location.href = 'login.html';
-    } catch (error) {
-        console.error("Error al hacer logout:", error);
-        mostrarMensaje('Error al cerrar sesión', 'error');
-    }
+function logout() {
+    sessionStorage.removeItem('adminToken');
+    window.location.href = 'login.html';
 }
 
 function exportarExcel() {
@@ -478,18 +509,15 @@ function exportarExcel() {
 }
 
 async function limpiarDatosFirebase() {
-    mostrarMensaje('⏳ Eliminando datos de Firebase...', 'info');
+    mostrarMensaje('⏳ Eliminando datos...', 'info');
     
     try {
-        const querySnapshot = await getDocs(collection(db, "fichajes"));
-        const batch = writeBatch(db);
+        const response = await fetch('/api/fichajes', { method: 'DELETE' });
+        if (!response.ok) throw new Error('No se pudieron eliminar');
         
-        querySnapshot.forEach((document) => {
-            batch.delete(doc(db, "fichajes", document.id));
-        });
-        
-        await batch.commit();
         mostrarMensaje('✓ Todos los registros fueron eliminados', 'success');
+        // Recargar datos (vacíos)
+        cargarDatosEnTiempoReal();
     } catch (error) {
         console.error("Error al limpiar datos:", error);
         mostrarMensaje('✗ Error al eliminar datos', 'error');

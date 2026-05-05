@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="theme-color" content="#2563eb">
     <title>Login - Reportes Fichaje</title>
+    <script src="https://unpkg.com/lucide@latest"></script>
     <style>
         * {
             margin: 0;
@@ -15,7 +16,7 @@
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            min-height: 100vh;
+            min-height: 100dvh;
             display: flex;
             align-items: center;
             justify-content: center;
@@ -37,9 +38,12 @@
         }
 
         .login-icon {
-            font-size: 50px;
             margin-bottom: 15px;
+            display: flex;
+            justify-content: center;
+            color: #2563eb;
         }
+        .login-icon i { width: 48px; height: 48px; }
 
         .login-header h1 {
             color: #1f2937;
@@ -161,12 +165,54 @@
                 font-size: 20px;
             }
         }
+
+        .password-wrapper {
+            position: relative;
+        }
+        .password-wrapper input {
+            padding-right: 48px;
+        }
+        .toggle-password {
+            position: absolute;
+            right: 12px;
+            top: 50%;
+            transform: translateY(-50%);
+            background: none;
+            border: none;
+            cursor: pointer;
+            color: #9ca3af;
+            padding: 4px;
+            display: flex;
+            align-items: center;
+            width: auto;
+            border-radius: 4px;
+            transition: color 0.2s;
+        }
+        .toggle-password i { width: 18px; height: 18px; }
+        .toggle-password:hover { color: #374151; }
+
+        @media (prefers-color-scheme: dark) {
+            body { background: linear-gradient(135deg, #1e1b4b 0%, #312e81 100%); }
+            .login-container { background: #1f2937; }
+            .login-header h1 { color: #e5e7eb; }
+            .login-header p { color: #9ca3af; }
+            label { color: #d1d5db; }
+            input { background: #374151; color: #e5e7eb; border-color: #4b5563; }
+            input:focus { border-color: #60a5fa; box-shadow: 0 0 0 3px rgba(96,165,250,0.1); }
+            .back-link a { color: #60a5fa; }
+            .hint { background: #374151; color: #9ca3af; }
+            .toggle-password { color: #6b7280; }
+            .toggle-password:hover { color: #d1d5db; }
+            .login-icon { color: #60a5fa; }
+        }
     </style>
 </head>
 <body>
     <div class="login-container">
         <div class="login-header">
-            <div class="login-icon">🔐</div>
+            <div class="login-icon">
+                <i data-lucide="lock" aria-hidden="true"></i>
+            </div>
             <h1>Reportes</h1>
             <p>Acceso a Administrador</p>
         </div>
@@ -187,13 +233,18 @@
 
             <div class="form-group">
                 <label for="password">Contraseña</label>
-                <input
-                    type="password"
-                    id="password"
-                    placeholder="••••••••"
-                    required
-                    autocomplete="current-password"
-                >
+                <div class="password-wrapper">
+                    <input
+                        type="password"
+                        id="password"
+                        placeholder="••••••••"
+                        required
+                        autocomplete="current-password"
+                    >
+                    <button type="button" id="togglePassword" class="toggle-password" aria-label="Mostrar contraseña">
+                        <i data-lucide="eye" id="toggleIcon" aria-hidden="true"></i>
+                    </button>
+                </div>
             </div>
 
             <button type="submit" class="btn-login">Ingresar</button>
@@ -208,6 +259,11 @@
         </div>
     </div>
 
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            if (typeof lucide !== 'undefined') lucide.createIcons();
+        });
+    </script>
     <script type="module" src="login.js"></script>
 </body>
 </html>

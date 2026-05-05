@@ -1,19 +1,29 @@
-import { auth } from './firebase-config.js';
-import { signInWithEmailAndPassword, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.11.0/firebase-auth.js";
-
 document.addEventListener('DOMContentLoaded', () => {
-    // Si ya tiene sesión válida de Firebase, redirige a admin
-    onAuthStateChanged(auth, (user) => {
-        if (user) {
-            window.location.href = 'admin.html';
-        }
-    });
+    // Si ya tiene sesión válida, redirige a admin
+    const token = sessionStorage.getItem('adminToken');
+    if (token) {
+        window.location.href = 'admin.html';
+    }
 
     // Configurar form
     document.getElementById('loginForm').addEventListener('submit', (e) => {
         e.preventDefault();
         intentarLogin();
     });
+
+    // Toggle mostrar/ocultar contraseña
+    const toggleBtn = document.getElementById('togglePassword');
+    if (toggleBtn) {
+        toggleBtn.addEventListener('click', () => {
+            const input = document.getElementById('password');
+            const icon = document.getElementById('toggleIcon');
+            const visible = input.type === 'text';
+            input.type = visible ? 'password' : 'text';
+            if (icon) icon.setAttribute('data-lucide', visible ? 'eye' : 'eye-off');
+            toggleBtn.setAttribute('aria-label', visible ? 'Mostrar contraseña' : 'Ocultar contraseña');
+            if (typeof lucide !== 'undefined') lucide.createIcons();
+        });
+    }
 });
 
 async function intentarLogin() {
@@ -29,22 +39,31 @@ async function intentarLogin() {
         deshabilitarBotones(true);
         mostrarMensaje('Autenticando...', 'info');
 
-        await signInWithEmailAndPassword(auth, email, password);
+        const response = await fetch('/api/auth', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ password })
+        });
+
+        if (!response.ok) {
+            throw new Error('Credenciales incorrectas');
+        }
+
+        const data = await response.json();
         
+        // Guardar token en sesión
+        sessionStorage.setItem('adminToken', data.token);
+
         mostrarMensaje('✓ Acceso correcto. Redirigiendo...', 'success');
-        // onAuthStateChanged se encargará de la redirección
+        setTimeout(() => {
+            window.location.href = 'admin.html';
+        }, 500);
         
     } catch (error) {
         console.error("Error en login:", error);
-        let mensaje = '✗ Credenciales incorrectas o error de conexión';
-        
-        if (error.code === 'auth/invalid-credential' || error.code === 'auth/user-not-found' || error.code === 'auth/wrong-password') {
-            mensaje = '✗ Correo o contraseña incorrectos';
-        } else if (error.code === 'auth/too-many-requests') {
-            mensaje = '🔒 Demasiados intentos fallidos. Intenta más tarde.';
-        }
-        
-        mostrarMensaje(mensaje, 'error');
+        mostrarMensaje('✗ Contraseña incorrecta o error de conexión', 'error');
         deshabilitarBotones(false);
     }
 }

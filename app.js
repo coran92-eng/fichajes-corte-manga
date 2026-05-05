@@ -1,41 +1,87 @@
-
-// Configuración de empleados (Por defecto, se puede cargar de Firestore luego)
 const EMPLEADOS_DEFAULT = [
-    'Albert', 'Maikel', 'Carlos', 'Jecko', 
+    'Albert', 'Maikel', 'Carlos', 'Jecko',
     'Pol', 'Sonia', 'Nacho', 'Claudia'
 ];
 
-const EMPLEADOS_KEY = 'empleados_list';
+const params = new URLSearchParams(window.location.search);
+const centroActual = params.get('centro');
 
-// Inicializar
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
+    if (!centroActual) {
+        await mostrarSelectorCentro();
+        return;
+    }
+
+    document.getElementById('centroBadge').textContent = centroActual;
+    document.getElementById('centroBadge').style.display = 'inline-block';
+
     inicializar();
     actualizarReloj();
     setInterval(actualizarReloj, 1000);
 });
 
+async function mostrarSelectorCentro() {
+    let centros = ['Centro 1', 'Centro 2', 'Centro 3'];
+    try {
+        const res = await fetch('/config.json');
+        if (res.ok) {
+            const cfg = await res.json();
+            if (Array.isArray(cfg.centros)) centros = cfg.centros;
+        }
+    } catch {}
+
+    const overlay = document.getElementById('selectorCentro');
+    const lista = document.getElementById('listaCentros');
+    lista.innerHTML = centros.map(c =>
+        `<button class="btn-centro" onclick="elegirCentro('${encodeURIComponent(c)}')">${c}</button>`
+    ).join('');
+    overlay.classList.add('visible');
+}
+
+window.elegirCentro = function(centro) {
+    window.location.href = `/?centro=${centro}`;
+};
+
 function inicializar() {
     cargarEmpleados();
     configurarNFC();
     configurarBotones();
-    
-    // Escuchar cambios en el selector para actualizar la última acción
     document.getElementById('empleado').addEventListener('change', actualizarUltimaAccion);
+    actualizarEstadoBotones(null);
 }
 
-function cargarEmpleados() {
+async function cargarEmpleados() {
     const select = document.getElementById('empleado');
-    const empleados = JSON.parse(localStorage.getItem(EMPLEADOS_KEY)) || EMPLEADOS_DEFAULT;
-
-    // Limpiar opciones previas excepto la primera
     select.innerHTML = '<option value="">-- Selecciona tu nombre --</option>';
 
-    empleados.forEach(empleado => {
-        const option = document.createElement('option');
-        option.value = empleado;
-        option.textContent = empleado;
-        select.appendChild(option);
-    });
+    let empleados = EMPLEADOS_DEFAULT.map(n => ({ nombre: n, centro: '' }));
+    try {
+        const url = centroActual ? `/api/empleados?centro=${encodeURIComponent(centroActual)}` : '/api/empleados';
+        const response = await fetch(url);
+        if (response.ok) {
+            const raw = await response.json();
+            empleados = raw.map(e => typeof e === 'string' ? { nombre: e, centro: '' } : e);
+        }
+    } catch (e) {
+        console.error('Error cargando empleados:', e);
+    }
+
+    const datalist = document.getElementById('empleados-list');
+    if (datalist) {
+        datalist.innerHTML = '';
+        empleados.forEach(({ nombre }) => {
+            const option = document.createElement('option');
+            option.value = nombre;
+            datalist.appendChild(option);
+        });
+    } else {
+        empleados.forEach(({ nombre }) => {
+            const option = document.createElement('option');
+            option.value = nombre;
+            option.textContent = nombre;
+            select.appendChild(option);
+        });
+    }
 }
 
 function actualizarReloj() {
@@ -62,14 +108,11 @@ async function iniciarLectorNFC() {
         const ndef = new NDEFReader();
         await ndef.scan();
         ndef.onreadingerror = () => mostrarMensaje('Error al leer NFC', 'error');
-        ndef.onreading = (event) => {
+        ndef.onreading = () => {
             mostrarMensaje('✓ NFC detectado', 'info');
             const empleado = document.getElementById('empleado').value;
-            if (empleado) {
-                document.getElementById('btnEntrada').focus();
-            } else {
-                mostrarMensaje('Por favor selecciona tu nombre', 'error');
-            }
+            if (!empleado) mostrarMensaje('Por favor selecciona tu nombre', 'error');
+            else document.getElementById('btnEntrada').focus();
         };
     } catch (error) {
         console.log('NFC no disponible:', error);
@@ -84,6 +127,31 @@ function configurarBotones() {
     document.getElementById('btnAdmin').addEventListener('click', () => {
         window.location.href = 'login.html';
     });
+
+    const btnUndo = document.getElementById('btnUndo');
+    if (btnUndo) {
+        btnUndo.addEventListener('click', async () => {
+            const toast = document.getElementById('undoToast');
+            toast.classList.remove('visible');
+            if (undoTimer) clearTimeout(undoTimer);
+            if (!ultimoFichaje) return;
+            try {
+                const res = await fetch(
+                    `/api/fichajes?id=${ultimoFichaje.timestamp}&empleado=${encodeURIComponent(ultimoFichaje.empleado)}`,
+                    { method: 'DELETE' }
+                );
+                if (res.ok) {
+                    mostrarMensaje('Registro deshecho', 'info');
+                    actualizarUltimaAccion();
+                } else {
+                    mostrarMensaje('No se pudo deshacer. Inténtalo de nuevo.', 'error');
+                }
+            } catch {
+                mostrarMensaje('Error al deshacer', 'error');
+            }
+            ultimoFichaje = null;
+        });
+    }
 }
 
 async function registrarFichaje(tipo) {
@@ -96,32 +164,26 @@ async function registrarFichaje(tipo) {
     }
 
     try {
-        // Deshabilitar botones mientras guarda
         btnElements.forEach(btn => btn.disabled = true);
-        
+
         const now = new Date();
         const fichaje = {
-            empleado: empleado,
-            tipo: tipo,
+            empleado,
+            tipo,
             fecha: now.toISOString().split('T')[0],
             hora: now.toTimeString().split(' ')[0],
-            timestamp: now.getTime()
+            timestamp: now.getTime(),
+            centro: centroActual || ''
         };
 
-        // Guardar via API de Vercel
         const response = await fetch('/api/fichajes', {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
+            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(fichaje)
         });
 
-        if (!response.ok) {
-            throw new Error('Error en la respuesta del servidor');
-        }
+        if (!response.ok) throw new Error('Error en la respuesta del servidor');
 
-        // Feedback visual y sonoro
         reproducirSonidoConfirmacion();
         if (navigator.vibrate) navigator.vibrate([100, 50, 100]);
 
@@ -131,14 +193,14 @@ async function registrarFichaje(tipo) {
             'inicio_descanso': '✓ Descanso iniciado',
             'fin_descanso': '✓ Descanso finalizado'
         };
-
         mostrarMensaje(mensajes[tipo], 'success');
-        
+        actualizarEstadoBotones(tipo);
+        mostrarUndoToast(tipo, fichaje);
+
     } catch (error) {
         console.error('Error al registrar:', error);
         mostrarMensaje('✗ Error al guardar. Intenta de nuevo.', 'error');
     } finally {
-        // Reactivar botones
         btnElements.forEach(btn => btn.disabled = false);
     }
 }
@@ -148,7 +210,7 @@ let pollingInterval = null;
 function actualizarUltimaAccion() {
     const empleado = document.getElementById('empleado').value;
     const lastActionEl = document.getElementById('lastAction');
-    
+
     if (pollingInterval) {
         clearInterval(pollingInterval);
         pollingInterval = null;
@@ -157,6 +219,7 @@ function actualizarUltimaAccion() {
     if (!empleado) {
         lastActionEl.innerHTML = 'Selecciona tu nombre para ver tu historial';
         lastActionEl.className = 'last-action';
+        actualizarEstadoBotones(null);
         return;
     }
 
@@ -165,31 +228,30 @@ function actualizarUltimaAccion() {
     const fetchUltimaAccion = async () => {
         try {
             const response = await fetch(`/api/fichajes?empleado=${encodeURIComponent(empleado)}&limit=1`);
-            if (!response.ok) throw new Error('Error al obtener datos');
+            if (!response.ok) throw new Error();
             const data = await response.json();
-            
+
             if (data.length > 0) {
-                const ultimoFichaje = data[0];
                 const tipos = {
                     'entrada': 'Entrada',
                     'salida': 'Salida',
                     'inicio_descanso': 'Inicio de Descanso',
                     'fin_descanso': 'Fin de Descanso'
                 };
-                lastActionEl.innerHTML = `<strong>Último registro:</strong><br>${tipos[ultimoFichaje.tipo]}<br>${ultimoFichaje.hora}`;
+                lastActionEl.innerHTML = `<strong>Último registro:</strong><br>${tipos[data[0].tipo]}<br>${data[0].hora}`;
                 lastActionEl.className = 'last-action has-data';
+                actualizarEstadoBotones(data[0].tipo);
             } else {
                 lastActionEl.innerHTML = 'No tienes registros aún';
                 lastActionEl.className = 'last-action';
+                actualizarEstadoBotones(null);
             }
-        } catch (error) {
-            console.error("Error al obtener última acción:", error);
+        } catch {
             lastActionEl.innerHTML = 'Error al cargar historial';
         }
     };
 
     fetchUltimaAccion();
-    // Refrescar cada 10 segundos
     pollingInterval = setInterval(fetchUltimaAccion, 10000);
 }
 
@@ -198,26 +260,93 @@ function reproducirSonidoConfirmacion() {
         const audioContext = new (window.AudioContext || window.webkitAudioContext)();
         const oscillator = audioContext.createOscillator();
         const gainNode = audioContext.createGain();
-
         oscillator.connect(gainNode);
         gainNode.connect(audioContext.destination);
-
         oscillator.frequency.value = 800;
         oscillator.type = 'sine';
-
         gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
         gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.1);
-
         oscillator.start(audioContext.currentTime);
         oscillator.stop(audioContext.currentTime + 0.1);
-    } catch (e) {}
+    } catch {}
 }
 
 function mostrarMensaje(texto, tipo) {
     const msgEl = document.getElementById('message');
     msgEl.textContent = texto;
     msgEl.className = `message ${tipo}`;
-    setTimeout(() => {
-        msgEl.className = 'message';
-    }, 3000);
+    setTimeout(() => { msgEl.className = 'message'; }, 3000);
+}
+
+let undoTimer = null;
+let ultimoFichaje = null;
+
+function mostrarUndoToast(tipo, fichaje) {
+    ultimoFichaje = fichaje;
+    const toast = document.getElementById('undoToast');
+    const msg = document.getElementById('undoMsg');
+    if (!toast || !msg) return;
+    const etiquetas = {
+        'entrada': 'Entrada registrada',
+        'salida': 'Salida registrada',
+        'inicio_descanso': 'Descanso iniciado',
+        'fin_descanso': 'Descanso finalizado'
+    };
+    msg.textContent = etiquetas[tipo] || 'Registro guardado';
+    toast.classList.add('visible');
+    if (undoTimer) clearTimeout(undoTimer);
+    undoTimer = setTimeout(() => toast.classList.remove('visible'), 8000);
+}
+
+function actualizarEstadoBotones(tipo) {
+    const btnEntrada = document.getElementById('btnEntrada');
+    const btnSalida = document.getElementById('btnSalida');
+    const btnDescansoIni = document.getElementById('btnDescansoIni');
+    const btnDescansoFin = document.getElementById('btnDescansoFin');
+    const badge = document.getElementById('estadoBadge');
+
+    if (!btnEntrada) return;
+
+    switch (tipo) {
+        case 'entrada':
+        case 'fin_descanso':
+            btnEntrada.disabled = true;
+            btnSalida.disabled = false;
+            btnDescansoIni.disabled = false;
+            btnDescansoFin.disabled = true;
+            if (badge) {
+                badge.className = 'estado-badge en-turno';
+                badge.textContent = '● En turno';
+                badge.style.display = 'inline-block';
+            }
+            break;
+        case 'inicio_descanso':
+            btnEntrada.disabled = true;
+            btnSalida.disabled = true;
+            btnDescansoIni.disabled = true;
+            btnDescansoFin.disabled = false;
+            if (badge) {
+                badge.className = 'estado-badge en-descanso';
+                badge.textContent = '● En descanso';
+                badge.style.display = 'inline-block';
+            }
+            break;
+        case 'salida':
+            btnEntrada.disabled = false;
+            btnSalida.disabled = true;
+            btnDescansoIni.disabled = true;
+            btnDescansoFin.disabled = true;
+            if (badge) {
+                badge.className = 'estado-badge fuera';
+                badge.textContent = '● Fuera de turno';
+                badge.style.display = 'inline-block';
+            }
+            break;
+        default:
+            btnEntrada.disabled = false;
+            btnSalida.disabled = true;
+            btnDescansoIni.disabled = true;
+            btnDescansoFin.disabled = true;
+            if (badge) badge.style.display = 'none';
+    }
 }
