@@ -42,7 +42,7 @@ async function cargarCentros() {
     if (filtroCentro) filtroCentro.innerHTML = '<option value="">Todos los centros</option>' + optionsHtml;
 
     const selectCentroEmpleado = document.getElementById('selectCentroEmpleado');
-    if (selectCentroEmpleado) selectCentroEmpleado.innerHTML = '<option value="">Todos los centros</option>' + optionsHtml;
+    if (selectCentroEmpleado) selectCentroEmpleado.innerHTML = '<option value="">Sin asignar</option>' + optionsHtml;
 }
 
 let autoRefreshInterval = null;
@@ -428,7 +428,9 @@ function configurarBotones() {
     });
 
     document.getElementById('btnEmpleados').addEventListener('click', () => {
-        document.getElementById('panelEmpleados').classList.toggle('visible');
+        const panel = document.getElementById('panelEmpleados');
+        panel.classList.toggle('visible');
+        if (panel.classList.contains('visible')) cargarCentros();
     });
 
     configurarFormEmpleados();
