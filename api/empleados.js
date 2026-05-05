@@ -32,11 +32,18 @@ export default async function handler(req, res) {
         result = await db.execute("SELECT nombre, centro FROM empleados ORDER BY nombre ASC");
       }
 
-      if (result.rows.length === 0 && !centro) {
-        for (const nombre of DEFAULTS) {
-          await db.execute({ sql: "INSERT OR IGNORE INTO empleados (nombre, centro) VALUES (?, '')", args: [nombre] });
+      if (result.rows.length === 0) {
+        if (centro) {
+          // No hay empleados para este centro, usar todos los empleados
+          result = await db.execute("SELECT nombre, centro FROM empleados ORDER BY nombre ASC");
         }
-        result = await db.execute("SELECT nombre, centro FROM empleados ORDER BY nombre ASC");
+        if (result.rows.length === 0) {
+          // Tabla vacía, insertar defaults
+          for (const nombre of DEFAULTS) {
+            await db.execute({ sql: "INSERT OR IGNORE INTO empleados (nombre, centro) VALUES (?, '')", args: [nombre] });
+          }
+          result = await db.execute("SELECT nombre, centro FROM empleados ORDER BY nombre ASC");
+        }
       }
 
       return res.status(200).json(result.rows.map(r => ({ nombre: r.nombre, centro: r.centro })));

@@ -60,7 +60,9 @@ async function cargarEmpleados() {
         const response = await fetch(url);
         if (response.ok) {
             const raw = await response.json();
-            empleados = raw.map(e => typeof e === 'string' ? { nombre: e, centro: '' } : e);
+            if (raw.length > 0) {
+                empleados = raw.map(e => typeof e === 'string' ? { nombre: e, centro: '' } : e);
+            }
         }
     } catch (e) {
         console.error('Error cargando empleados:', e);
