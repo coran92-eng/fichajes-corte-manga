@@ -102,12 +102,13 @@ function inicializarEmpleados() {
     renderEmpleados();
 }
 
-async function renderEmpleados() {
+async function renderEmpleados(intento = 0) {
     const contenedor = document.getElementById('empleadosLista');
+    if (!contenedor) return;
     contenedor.innerHTML = '<span style="color:#9ca3af;font-size:13px">Cargando...</span>';
     try {
         const response = await fetch('/api/empleados');
-        if (!response.ok) throw new Error();
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
         const raw = await response.json();
         const lista = raw.map(e => typeof e === 'string' ? { nombre: e, centro: '' } : e);
 
@@ -122,10 +123,15 @@ async function renderEmpleados() {
                 <button type="button" title="Eliminar ${nombre}" onclick="window.confirmarEliminarEmpleado('${nombre.replace(/'/g, "\\'")}')">✕</button>
             </div>
         `).join('');
-    } catch {
-        contenedor.innerHTML = '<span style="color:#ef4444;font-size:13px">Error al cargar empleados</span>';
+    } catch (err) {
+        if (intento < 2) {
+            await new Promise(r => setTimeout(r, 1500));
+            return renderEmpleados(intento + 1);
+        }
+        contenedor.innerHTML = '<span style="color:#ef4444;font-size:13px">Error al cargar empleados — <button onclick="window.renderEmpleados()" style="background:none;border:none;color:#2563eb;cursor:pointer;text-decoration:underline;font-size:13px;padding:0">Reintentar</button></span>';
     }
 }
+window.renderEmpleados = renderEmpleados;
 
 window.confirmarEliminarEmpleado = function(nombre) {
     mostrarModal(
@@ -430,7 +436,10 @@ function configurarBotones() {
     document.getElementById('btnEmpleados').addEventListener('click', () => {
         const panel = document.getElementById('panelEmpleados');
         panel.classList.toggle('visible');
-        if (panel.classList.contains('visible')) cargarCentros();
+        if (panel.classList.contains('visible')) {
+            cargarCentros();
+            renderEmpleados();
+        }
     });
 
     configurarFormEmpleados();
