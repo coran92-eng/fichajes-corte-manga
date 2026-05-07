@@ -151,11 +151,18 @@ function configurarEventos() {
     document.getElementById('selectCentro').addEventListener('change', onCentroChange);
     document.getElementById('selectSemana').addEventListener('change', onSemanaChange);
     document.getElementById('btnVolver').addEventListener('click', () => {
-        window.location.href = 'admin.html';
+        // Si es admin vuelve a admin.html; si es encargado vuelve al fichaje
+        if (sessionStorage.getItem('adminToken') === 'auth-token-fichaje-admin') {
+            window.location.href = 'admin.html';
+        } else {
+            window.location.href = 'index.html';
+        }
     });
     document.getElementById('btnLogout').addEventListener('click', () => {
+        sessionStorage.removeItem('encargadoToken');
+        sessionStorage.removeItem('encargadoNombre');
         sessionStorage.removeItem('adminToken');
-        window.location.href = 'login.html';
+        window.location.href = 'login-encargado.html';
     });
     document.getElementById('btnEnviar').addEventListener('click', enviarHorario);
 }

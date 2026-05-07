@@ -7,9 +7,11 @@
     <title>Horario de Turno - Fichaje</title>
     <script src="https://unpkg.com/lucide@latest"></script>
     <script>
-        // Auth check — runs before DOMContentLoaded
-        if (sessionStorage.getItem('adminToken') !== 'auth-token-fichaje-admin') {
-            window.location.href = 'login.html';
+        // Auth check — encargado token O admin token (el dueño también puede acceder)
+        const _enc = sessionStorage.getItem('encargadoToken') === 'auth-token-fichaje-encargado';
+        const _adm = sessionStorage.getItem('adminToken') === 'auth-token-fichaje-admin';
+        if (!_enc && !_adm) {
+            window.location.href = 'login-encargado.html';
         }
         // Modo oscuro
         const prefiereOscuro = window.matchMedia('(prefers-color-scheme: dark)').matches;
