@@ -140,6 +140,9 @@ function configurarBotones() {
     document.getElementById('btnAdmin').addEventListener('click', () => {
         window.location.href = 'login.html';
     });
+    document.getElementById('btnEncargado')?.addEventListener('click', () => {
+        window.location.href = 'login-encargado.html';
+    });
 
     const btnUndo = document.getElementById('btnUndo');
     if (btnUndo) {
