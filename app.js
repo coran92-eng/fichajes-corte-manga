@@ -328,20 +328,45 @@ async function cargarTurnoActual() {
         if (!res.ok) return;
         const fichajes = await res.json();
 
-        // Último fichaje por empleado (la API devuelve ORDER BY timestamp DESC)
-        const ultimo = {};
+        // Agrupar por empleado (API devuelve ORDER BY timestamp DESC)
+        const porEmpleado = {};
         fichajes.forEach(f => {
-            if (!ultimo[f.empleado]) ultimo[f.empleado] = f;
+            if (!porEmpleado[f.empleado]) porEmpleado[f.empleado] = [];
+            porEmpleado[f.empleado].push(f);
         });
 
-        const enTurno = Object.entries(ultimo)
-            .filter(([, f]) => f.tipo === 'entrada' || f.tipo === 'fin_descanso' || f.tipo === 'inicio_descanso')
-            .map(([nombre, f]) => ({
-                nombre,
-                estado: f.tipo === 'inicio_descanso' ? 'descanso' : 'activo'
-            }))
-            .sort((a, b) => a.nombre.localeCompare(b.nombre));
+        const enTurno = [];
 
+        Object.entries(porEmpleado).forEach(([nombre, registros]) => {
+            // Si el último movimiento es salida, está fuera
+            if (registros[0].tipo === 'salida') return;
+
+            // Buscar la última entrada para delimitar el turno actual
+            const idxEntrada = registros.findIndex(f => f.tipo === 'entrada');
+            if (idxEntrada === -1) return;
+
+            // Eventos del turno actual en orden cronológico
+            const turno = registros.slice(0, idxEntrada + 1).reverse();
+
+            const entrada = turno[0];
+            const descansos = [];
+            let descansoActivo = null;
+
+            for (const r of turno) {
+                if (r.tipo === 'inicio_descanso') {
+                    descansoActivo = { hora: r.hora, timestamp: Number(r.timestamp) };
+                } else if (r.tipo === 'fin_descanso' && descansoActivo) {
+                    const durMin = Math.round((Number(r.timestamp) - descansoActivo.timestamp) / 60000);
+                    descansos.push({ inicio: descansoActivo.hora, fin: r.hora, durMin });
+                    descansoActivo = null;
+                }
+            }
+
+            const estado = registros[0].tipo === 'inicio_descanso' ? 'descanso' : 'activo';
+            enTurno.push({ nombre, estado, entradaHora: entrada.hora, descansos, descansoActivo });
+        });
+
+        enTurno.sort((a, b) => a.nombre.localeCompare(b.nombre));
         renderizarTurnoPanel(enTurno);
     } catch {}
 }
@@ -359,13 +384,50 @@ function renderizarTurnoPanel(enTurno) {
 
     panel.style.display = 'block';
     countEl.textContent = `${enTurno.length} persona${enTurno.length !== 1 ? 's' : ''}`;
-    lista.innerHTML = enTurno.map(({ nombre, estado }) => `
-        <div class="turno-persona">
-            <span class="turno-dot turno-dot--${estado}"></span>
-            <span class="turno-nombre">${nombre}</span>
-            <span class="turno-badge turno-badge--${estado}">${estado === 'activo' ? 'Activo' : 'Descanso'}</span>
-        </div>
-    `).join('');
+
+    lista.innerHTML = enTurno.map(({ nombre, estado, entradaHora, descansos, descansoActivo }) => {
+        const minDescanso = descansoActivo
+            ? Math.round((Date.now() - descansoActivo.timestamp) / 60000)
+            : 0;
+        const warning = minDescanso > 20;
+        const variant = warning ? 'warning' : estado;
+
+        const badgeText = estado === 'activo'
+            ? 'Activo'
+            : warning
+                ? `⚠ Descanso ${minDescanso} min`
+                : `Descanso ${minDescanso} min`;
+
+        const descansosHtml = descansos.map(d => `
+            <div class="turno-linea">
+                <span class="turno-linea-label">Descanso</span>
+                <span class="turno-linea-val">${d.inicio.slice(0,5)} – ${d.fin.slice(0,5)}</span>
+                <span class="turno-linea-dur">${d.durMin} min</span>
+            </div>`).join('');
+
+        const descansoActivoHtml = descansoActivo ? `
+            <div class="turno-linea turno-linea--${warning ? 'warning' : ''}">
+                <span class="turno-linea-label">Descanso desde</span>
+                <span class="turno-linea-val">${descansoActivo.hora.slice(0,5)}</span>
+                <span class="turno-linea-dur${warning ? ' turno-linea-dur--warning' : ''}">${minDescanso} min${warning ? ' ⚠' : ''}</span>
+            </div>` : '';
+
+        return `
+            <div class="turno-card turno-card--${variant}">
+                <div class="turno-card-header">
+                    <span class="turno-dot turno-dot--${variant}"></span>
+                    <span class="turno-nombre">${nombre}</span>
+                    <span class="turno-badge turno-badge--${variant}">${badgeText}</span>
+                </div>
+                <div class="turno-detalle">
+                    <div class="turno-linea">
+                        <span class="turno-linea-label">Entrada</span>
+                        <span class="turno-linea-val">${entradaHora.slice(0,5)}</span>
+                    </div>
+                    ${descansosHtml}${descansoActivoHtml}
+                </div>
+            </div>`;
+    }).join('');
 }
 
 function actualizarEstadoBotones(tipo) {

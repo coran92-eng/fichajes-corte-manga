@@ -377,13 +377,24 @@
         .turno-lista {
             display: flex;
             flex-direction: column;
-            gap: 6px;
+            gap: 8px;
         }
 
-        .turno-persona {
+        .turno-card {
+            background: white;
+            border-radius: 8px;
+            padding: 10px 12px;
+            border-left: 3px solid #10b981;
+        }
+
+        .turno-card--descanso { border-left-color: #f59e0b; }
+        .turno-card--warning  { border-left-color: #ef4444; background: #fff7f7; }
+
+        .turno-card-header {
             display: flex;
             align-items: center;
             gap: 8px;
+            margin-bottom: 6px;
         }
 
         .turno-dot {
@@ -393,12 +404,13 @@
             flex-shrink: 0;
         }
 
-        .turno-dot--activo { background: #10b981; }
+        .turno-dot--activo  { background: #10b981; }
         .turno-dot--descanso { background: #f59e0b; }
+        .turno-dot--warning  { background: #ef4444; }
 
         .turno-nombre {
             font-size: 14px;
-            font-weight: 600;
+            font-weight: 700;
             color: #1f2937;
             flex: 1;
         }
@@ -408,18 +420,57 @@
             font-weight: 600;
             padding: 2px 8px;
             border-radius: 20px;
+            white-space: nowrap;
         }
 
-        .turno-badge--activo { background: #d1fae5; color: #065f46; }
+        .turno-badge--activo  { background: #d1fae5; color: #065f46; }
         .turno-badge--descanso { background: #fef3c7; color: #92400e; }
+        .turno-badge--warning  { background: #fee2e2; color: #b91c1c; }
+
+        .turno-detalle {
+            display: flex;
+            flex-direction: column;
+            gap: 3px;
+            padding-left: 16px;
+        }
+
+        .turno-linea {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 12px;
+        }
+
+        .turno-linea-label {
+            color: #9ca3af;
+            min-width: 90px;
+            font-weight: 500;
+        }
+
+        .turno-linea-val {
+            color: #374151;
+            font-family: ui-monospace, 'SF Mono', monospace;
+            font-weight: 600;
+        }
+
+        .turno-linea--warning .turno-linea-val { color: #b91c1c; }
+
+        .turno-linea-dur { color: #9ca3af; font-size: 11px; }
+        .turno-linea-dur--warning { color: #ef4444; font-weight: 700; }
 
         @media (prefers-color-scheme: dark) {
             .turno-panel { background: #022c22; border-color: #064e3b; }
             .turno-title { color: #6ee7b7; }
             .turno-count { color: #9ca3af; }
+            .turno-card { background: #1f2937; }
+            .turno-card--warning { background: #2d1515; }
             .turno-nombre { color: #e5e7eb; }
-            .turno-badge--activo { background: #064e3b; color: #6ee7b7; }
+            .turno-badge--activo  { background: #064e3b; color: #6ee7b7; }
             .turno-badge--descanso { background: #451a03; color: #fcd34d; }
+            .turno-badge--warning  { background: #450a0a; color: #f87171; }
+            .turno-linea-label { color: #6b7280; }
+            .turno-linea-val { color: #d1d5db; }
+            .turno-linea--warning .turno-linea-val { color: #f87171; }
         }
 
         .estado-badge {
