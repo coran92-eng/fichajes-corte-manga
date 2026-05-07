@@ -344,6 +344,84 @@
             }
         }
 
+        /* Panel turno activo */
+        .turno-panel {
+            background: #f0fdf4;
+            border: 1px solid #bbf7d0;
+            border-radius: 10px;
+            padding: 14px 16px;
+            margin-bottom: 20px;
+        }
+
+        .turno-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 10px;
+        }
+
+        .turno-title {
+            font-size: 13px;
+            font-weight: 700;
+            color: #065f46;
+            text-transform: uppercase;
+            letter-spacing: 0.4px;
+        }
+
+        .turno-count {
+            font-size: 12px;
+            color: #6b7280;
+            font-weight: 500;
+        }
+
+        .turno-lista {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+
+        .turno-persona {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .turno-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            flex-shrink: 0;
+        }
+
+        .turno-dot--activo { background: #10b981; }
+        .turno-dot--descanso { background: #f59e0b; }
+
+        .turno-nombre {
+            font-size: 14px;
+            font-weight: 600;
+            color: #1f2937;
+            flex: 1;
+        }
+
+        .turno-badge {
+            font-size: 11px;
+            font-weight: 600;
+            padding: 2px 8px;
+            border-radius: 20px;
+        }
+
+        .turno-badge--activo { background: #d1fae5; color: #065f46; }
+        .turno-badge--descanso { background: #fef3c7; color: #92400e; }
+
+        @media (prefers-color-scheme: dark) {
+            .turno-panel { background: #022c22; border-color: #064e3b; }
+            .turno-title { color: #6ee7b7; }
+            .turno-count { color: #9ca3af; }
+            .turno-nombre { color: #e5e7eb; }
+            .turno-badge--activo { background: #064e3b; color: #6ee7b7; }
+            .turno-badge--descanso { background: #451a03; color: #fcd34d; }
+        }
+
         .estado-badge {
             font-size: 13px;
             font-weight: 600;
@@ -444,6 +522,15 @@
         <div class="button-group">
             <button class="btn-entrada" id="btnEntrada">Entrada</button>
             <button class="btn-salida" id="btnSalida">Salida</button>
+        </div>
+
+        <!-- Panel turno activo (solo visible si hay centro seleccionado) -->
+        <div class="turno-panel" id="turnoPanel" style="display:none">
+            <div class="turno-header">
+                <span class="turno-title">En local ahora</span>
+                <span class="turno-count" id="turnoCount"></span>
+            </div>
+            <div class="turno-lista" id="turnoLista"></div>
         </div>
 
         <div class="button-group-descanso">

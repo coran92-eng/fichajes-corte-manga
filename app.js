@@ -46,8 +46,19 @@ function inicializar() {
     cargarEmpleados();
     configurarNFC();
     configurarBotones();
-    document.getElementById('empleado').addEventListener('change', actualizarUltimaAccion);
+
+    const inputEmpleado = document.getElementById('empleado');
+    inputEmpleado.addEventListener('change', actualizarUltimaAccion);
+
+    // Detectar selección en datalist antes de blur para no dejar el botón bloqueado
+    let debounceEmpleado = null;
+    inputEmpleado.addEventListener('input', () => {
+        clearTimeout(debounceEmpleado);
+        debounceEmpleado = setTimeout(actualizarUltimaAccion, 350);
+    });
+
     actualizarEstadoBotones(null);
+    if (centroActual) iniciarPanelTurno();
 }
 
 async function cargarEmpleados() {
@@ -169,10 +180,11 @@ async function registrarFichaje(tipo) {
         btnElements.forEach(btn => btn.disabled = true);
 
         const now = new Date();
+        const pad = n => String(n).padStart(2, '0');
         const fichaje = {
             empleado,
             tipo,
-            fecha: now.toISOString().split('T')[0],
+            fecha: `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`,
             hora: now.toTimeString().split(' ')[0],
             timestamp: now.getTime(),
             centro: centroActual || ''
@@ -198,6 +210,7 @@ async function registrarFichaje(tipo) {
         mostrarMensaje(mensajes[tipo], 'success');
         actualizarEstadoBotones(tipo);
         mostrarUndoToast(tipo, fichaje);
+        if (centroActual) cargarTurnoActual();
 
     } catch (error) {
         console.error('Error al registrar:', error);
@@ -298,6 +311,61 @@ function mostrarUndoToast(tipo, fichaje) {
     toast.classList.add('visible');
     if (undoTimer) clearTimeout(undoTimer);
     undoTimer = setTimeout(() => toast.classList.remove('visible'), 8000);
+}
+
+// ── Panel turno activo ────────────────────────────────────────
+let turnoRefreshInterval = null;
+
+function iniciarPanelTurno() {
+    cargarTurnoActual();
+    if (turnoRefreshInterval) clearInterval(turnoRefreshInterval);
+    turnoRefreshInterval = setInterval(cargarTurnoActual, 30000);
+}
+
+async function cargarTurnoActual() {
+    try {
+        const res = await fetch(`/api/fichajes?centro=${encodeURIComponent(centroActual)}`);
+        if (!res.ok) return;
+        const fichajes = await res.json();
+
+        // Último fichaje por empleado (la API devuelve ORDER BY timestamp DESC)
+        const ultimo = {};
+        fichajes.forEach(f => {
+            if (!ultimo[f.empleado]) ultimo[f.empleado] = f;
+        });
+
+        const enTurno = Object.entries(ultimo)
+            .filter(([, f]) => f.tipo === 'entrada' || f.tipo === 'fin_descanso' || f.tipo === 'inicio_descanso')
+            .map(([nombre, f]) => ({
+                nombre,
+                estado: f.tipo === 'inicio_descanso' ? 'descanso' : 'activo'
+            }))
+            .sort((a, b) => a.nombre.localeCompare(b.nombre));
+
+        renderizarTurnoPanel(enTurno);
+    } catch {}
+}
+
+function renderizarTurnoPanel(enTurno) {
+    const panel = document.getElementById('turnoPanel');
+    const lista = document.getElementById('turnoLista');
+    const countEl = document.getElementById('turnoCount');
+    if (!panel || !lista) return;
+
+    if (enTurno.length === 0) {
+        panel.style.display = 'none';
+        return;
+    }
+
+    panel.style.display = 'block';
+    countEl.textContent = `${enTurno.length} persona${enTurno.length !== 1 ? 's' : ''}`;
+    lista.innerHTML = enTurno.map(({ nombre, estado }) => `
+        <div class="turno-persona">
+            <span class="turno-dot turno-dot--${estado}"></span>
+            <span class="turno-nombre">${nombre}</span>
+            <span class="turno-badge turno-badge--${estado}">${estado === 'activo' ? 'Activo' : 'Descanso'}</span>
+        </div>
+    `).join('');
 }
 
 function actualizarEstadoBotones(tipo) {
