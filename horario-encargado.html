@@ -1,0 +1,527 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#2563eb">
+    <title>Horario de Turno - Fichaje</title>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <script>
+        // Auth check — runs before DOMContentLoaded
+        if (sessionStorage.getItem('adminToken') !== 'auth-token-fichaje-admin') {
+            window.location.href = 'login.html';
+        }
+        // Modo oscuro
+        const prefiereOscuro = window.matchMedia('(prefers-color-scheme: dark)').matches;
+        if (prefiereOscuro) {
+            document.body.style.background = '#1f2937';
+            document.documentElement.setAttribute('data-theme', 'dark');
+        }
+    </script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100dvh;
+            padding: 20px;
+        }
+
+        .container {
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            padding: 30px;
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 30px;
+            flex-wrap: wrap;
+            gap: 15px;
+        }
+
+        .header h1 {
+            color: #1f2937;
+            font-size: 28px;
+        }
+
+        .header-buttons {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+
+        .header-buttons button {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        button {
+            padding: 12px 20px;
+            border: none;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        .btn-volver {
+            background: #6b7280;
+            color: white;
+        }
+
+        .btn-volver:hover {
+            background: #4b5563;
+        }
+
+        .btn-logout {
+            background: #8b5cf6;
+            color: white;
+        }
+
+        .btn-logout:hover {
+            background: #7c3aed;
+        }
+
+        .btn-enviar {
+            background: #2563eb;
+            color: white;
+        }
+
+        .btn-enviar:hover {
+            background: #1d4ed8;
+        }
+
+        .btn-enviar:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
+        /* Selectores de filtro */
+        .filtros {
+            background: #f9fafb;
+            padding: 15px 20px;
+            border-radius: 8px;
+            margin-bottom: 24px;
+            display: flex;
+            gap: 20px;
+            align-items: flex-end;
+            flex-wrap: wrap;
+        }
+
+        .filtro-grupo {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+            flex: 1;
+            min-width: 200px;
+        }
+
+        .filtro-grupo label {
+            font-size: 12px;
+            font-weight: 600;
+            color: #6b7280;
+        }
+
+        .filtro-grupo select {
+            padding: 10px 14px;
+            border: 2px solid #e5e7eb;
+            border-radius: 8px;
+            font-size: 14px;
+            font-family: inherit;
+            background: white;
+            color: #1f2937;
+        }
+
+        .filtro-grupo select:focus {
+            outline: none;
+            border-color: #2563eb;
+            box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+        }
+
+        /* Info de semana */
+        .semana-info {
+            font-size: 12px;
+            color: #9ca3af;
+            margin-top: 4px;
+        }
+
+        /* Badge de estado */
+        .estado-semana {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 12px;
+            border-radius: 20px;
+            font-size: 13px;
+            font-weight: 600;
+        }
+
+        .estado-semana.pendiente {
+            background: #fef3c7;
+            color: #92400e;
+        }
+
+        .estado-semana.validado {
+            background: #d1fae5;
+            color: #065f46;
+        }
+
+        .estado-semana.rechazado {
+            background: #fee2e2;
+            color: #7f1d1d;
+        }
+
+        /* Wrapper de la tabla */
+        .horario-grid-wrapper {
+            overflow-x: auto;
+            margin-bottom: 24px;
+            border-radius: 8px;
+            border: 1px solid #e5e7eb;
+        }
+
+        /* Grid/tabla de horario */
+        .horario-grid {
+            width: 100%;
+            border-collapse: collapse;
+            min-width: 700px;
+        }
+
+        .horario-grid thead {
+            background: #f3f4f6;
+        }
+
+        .horario-grid th {
+            padding: 12px 10px;
+            text-align: center;
+            font-size: 13px;
+            font-weight: 600;
+            color: #374151;
+            border-bottom: 2px solid #e5e7eb;
+            white-space: nowrap;
+        }
+
+        .horario-grid th.col-empleado {
+            text-align: left;
+            padding-left: 16px;
+            min-width: 150px;
+        }
+
+        .horario-grid td {
+            padding: 8px 6px;
+            border-bottom: 1px solid #e5e7eb;
+            vertical-align: top;
+        }
+
+        .horario-grid td.td-empleado {
+            padding-left: 16px;
+            font-weight: 600;
+            font-size: 14px;
+            color: #1f2937;
+            vertical-align: middle;
+            white-space: nowrap;
+        }
+
+        .horario-grid tbody tr:hover {
+            background: #f9fafb;
+        }
+
+        /* Celda de horario por día */
+        .horario-cell {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+            align-items: center;
+            min-width: 100px;
+        }
+
+        .horario-cell input[type="time"] {
+            width: 90px;
+            padding: 5px 7px;
+            border: 1px solid #d1d5db;
+            border-radius: 6px;
+            font-size: 13px;
+            font-family: 'Courier New', monospace;
+            text-align: center;
+            background: white;
+            color: #1f2937;
+            transition: border-color 0.2s;
+        }
+
+        .horario-cell input[type="time"]:focus {
+            outline: none;
+            border-color: #2563eb;
+            box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.1);
+        }
+
+        .horario-cell.es-libre {
+            background: #f3f4f6;
+            border-radius: 6px;
+        }
+
+        .horario-cell.es-libre input[type="time"] {
+            display: none;
+        }
+
+        /* Toggle libre */
+        .libranza-toggle {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            font-size: 12px;
+            color: #6b7280;
+            font-weight: 500;
+            cursor: pointer;
+            user-select: none;
+        }
+
+        .libranza-toggle input[type="checkbox"] {
+            width: 14px;
+            height: 14px;
+            accent-color: #6b7280;
+            cursor: pointer;
+        }
+
+        /* Mensaje */
+        .message {
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            display: none;
+        }
+
+        .message.success {
+            background: #d1fae5;
+            color: #065f46;
+            display: block;
+        }
+
+        .message.error {
+            background: #fee2e2;
+            color: #7f1d1d;
+            display: block;
+        }
+
+        .message.info {
+            background: #dbeafe;
+            color: #1e40af;
+            display: block;
+        }
+
+        .message.warning {
+            background: #fef3c7;
+            color: #92400e;
+            display: block;
+        }
+
+        /* Barra inferior de acciones */
+        .acciones-footer {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            flex-wrap: wrap;
+            margin-top: 4px;
+        }
+
+        /* Placeholder vacío */
+        .empty-state {
+            text-align: center;
+            padding: 48px 20px;
+            color: #9ca3af;
+        }
+
+        .empty-state p {
+            font-size: 15px;
+            margin-top: 10px;
+        }
+
+        /* Modo Oscuro */
+        @media (prefers-color-scheme: dark) {
+            body {
+                background: #111827;
+            }
+
+            .container {
+                background: #1f2937;
+                color: #e5e7eb;
+            }
+
+            .header h1 {
+                color: #e5e7eb;
+            }
+
+            .filtros {
+                background: #374151;
+            }
+
+            .filtro-grupo label {
+                color: #9ca3af;
+            }
+
+            .filtro-grupo select {
+                background: #374151;
+                color: #e5e7eb;
+                border-color: #4b5563;
+            }
+
+            .filtro-grupo select:focus {
+                border-color: #60a5fa;
+                box-shadow: 0 0 0 3px rgba(96, 165, 250, 0.1);
+            }
+
+            .semana-info {
+                color: #6b7280;
+            }
+
+            .horario-grid-wrapper {
+                border-color: #374151;
+            }
+
+            .horario-grid thead {
+                background: #374151;
+            }
+
+            .horario-grid th {
+                color: #e5e7eb;
+                border-bottom-color: #4b5563;
+            }
+
+            .horario-grid td {
+                border-bottom-color: #374151;
+            }
+
+            .horario-grid td.td-empleado {
+                color: #e5e7eb;
+            }
+
+            .horario-grid tbody tr:hover {
+                background: #2d3748;
+            }
+
+            .horario-cell input[type="time"] {
+                background: #374151;
+                color: #e5e7eb;
+                border-color: #4b5563;
+            }
+
+            .horario-cell input[type="time"]:focus {
+                border-color: #60a5fa;
+                box-shadow: 0 0 0 2px rgba(96, 165, 250, 0.1);
+            }
+
+            .horario-cell.es-libre {
+                background: #2d3748;
+            }
+
+            .libranza-toggle {
+                color: #9ca3af;
+            }
+        }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            .container {
+                padding: 20px;
+            }
+
+            .header {
+                flex-direction: column;
+                align-items: flex-start;
+            }
+
+            .filtros {
+                flex-direction: column;
+                gap: 12px;
+            }
+
+            .filtro-grupo {
+                min-width: 100%;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>
+                <i data-lucide="calendar-clock" aria-hidden="true" style="width:26px;height:26px;vertical-align:middle;margin-right:8px"></i>
+                Horario de Turno
+            </h1>
+            <div class="header-buttons">
+                <button class="btn-volver" id="btnVolver" aria-label="Volver a administración">
+                    <i data-lucide="arrow-left" aria-hidden="true" style="width:15px;height:15px"></i> Volver
+                </button>
+                <button class="btn-logout" id="btnLogout" aria-label="Cerrar sesión">
+                    <i data-lucide="log-out" aria-hidden="true" style="width:15px;height:15px"></i> Cerrar sesión
+                </button>
+            </div>
+        </div>
+
+        <!-- Filtros: Centro y Semana -->
+        <div class="filtros">
+            <div class="filtro-grupo">
+                <label for="selectCentro">
+                    <i data-lucide="building-2" aria-hidden="true" style="width:13px;height:13px;vertical-align:middle;margin-right:4px"></i>
+                    Centro de trabajo
+                </label>
+                <select id="selectCentro" aria-label="Seleccionar centro">
+                    <option value="">-- Selecciona un centro --</option>
+                </select>
+            </div>
+            <div class="filtro-grupo">
+                <label for="selectSemana">
+                    <i data-lucide="calendar" aria-hidden="true" style="width:13px;height:13px;vertical-align:middle;margin-right:4px"></i>
+                    Semana
+                </label>
+                <select id="selectSemana" aria-label="Seleccionar semana">
+                    <option value="">-- Selecciona una semana --</option>
+                </select>
+                <span class="semana-info" id="semanaInfo"></span>
+            </div>
+            <div id="estadoSemanaWrapper" style="display:none;align-self:flex-end;padding-bottom:2px">
+                <span class="estado-semana" id="estadoSemana"></span>
+            </div>
+        </div>
+
+        <!-- Mensaje de estado -->
+        <div id="message" class="message" role="alert" aria-live="polite" aria-atomic="true"></div>
+
+        <!-- Tabla de horario (JS la renderiza) -->
+        <div id="tablaHorario" class="horario-grid-wrapper">
+            <div class="empty-state">
+                <i data-lucide="calendar-x" aria-hidden="true" style="width:40px;height:40px;color:#d1d5db"></i>
+                <p>Selecciona un centro y una semana para cargar el horario</p>
+            </div>
+        </div>
+
+        <!-- Acciones -->
+        <div class="acciones-footer">
+            <button class="btn-enviar" id="btnEnviar" disabled aria-label="Enviar horario para validación">
+                <i data-lucide="send" aria-hidden="true" style="width:15px;height:15px"></i> Enviar para validación
+            </button>
+        </div>
+    </div>
+
+    <script>
+    (function() {
+        document.addEventListener('DOMContentLoaded', () => {
+            if (typeof lucide !== 'undefined') lucide.createIcons();
+        });
+    })();
+    </script>
+    <script type="module" src="horario-encargado.js"></script>
+</body>
+</html>

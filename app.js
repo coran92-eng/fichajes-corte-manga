@@ -208,6 +208,19 @@ async function registrarFichaje(tipo) {
             'fin_descanso': '✓ Descanso finalizado'
         };
         mostrarMensaje(mensajes[tipo], 'success');
+
+        if (tipo === 'entrada' && horarioHoy) {
+            const toMin = t => { const [h, m] = t.split(':').map(Number); return h * 60 + m; };
+            const ahoraMin = now.getHours() * 60 + now.getMinutes();
+            const prevMin = toMin(horarioHoy.hora_entrada);
+            const diff = ahoraMin - prevMin;
+            if (diff > 5) {
+                setTimeout(() => mostrarMensaje(`⚠ ${diff} min tarde (horario: ${horarioHoy.hora_entrada})`, 'error'), 3100);
+            } else if (diff >= -60) {
+                setTimeout(() => mostrarMensaje(`✓ A tiempo (horario: ${horarioHoy.hora_entrada})`, 'success'), 3100);
+            }
+        }
+
         actualizarEstadoBotones(tipo);
         mostrarUndoToast(tipo, fichaje);
         if (centroActual) cargarTurnoActual();
@@ -221,6 +234,7 @@ async function registrarFichaje(tipo) {
 }
 
 let pollingInterval = null;
+let horarioHoy = null;
 
 function actualizarUltimaAccion() {
     const empleado = document.getElementById('empleado').value;
@@ -235,6 +249,7 @@ function actualizarUltimaAccion() {
         lastActionEl.innerHTML = 'Selecciona tu nombre para ver tu historial';
         lastActionEl.className = 'last-action';
         actualizarEstadoBotones(null);
+        cargarHorarioHoy('');
         return;
     }
 
@@ -256,10 +271,12 @@ function actualizarUltimaAccion() {
                 lastActionEl.innerHTML = `<strong>Último registro:</strong><br>${tipos[data[0].tipo]}<br>${data[0].hora}`;
                 lastActionEl.className = 'last-action has-data';
                 actualizarEstadoBotones(data[0].tipo);
+                cargarHorarioHoy(empleado);
             } else {
                 lastActionEl.innerHTML = 'No tienes registros aún';
                 lastActionEl.className = 'last-action';
                 actualizarEstadoBotones(null);
+                cargarHorarioHoy(empleado);
             }
         } catch {
             lastActionEl.innerHTML = 'Error al cargar historial';
@@ -268,6 +285,30 @@ function actualizarUltimaAccion() {
 
     fetchUltimaAccion();
     pollingInterval = setInterval(fetchUltimaAccion, 10000);
+}
+
+async function cargarHorarioHoy(empleado) {
+    horarioHoy = null;
+    const badge = document.getElementById('horarioBadge');
+    if (badge) badge.style.display = 'none';
+    if (!empleado) return;
+
+    const now = new Date();
+    const pad = n => String(n).padStart(2, '0');
+    const fecha = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+
+    try {
+        const res = await fetch(`/api/horarios?empleado=${encodeURIComponent(empleado)}&fecha=${fecha}&estado=validado`);
+        if (!res.ok) return;
+        const data = await res.json();
+        if (data.length === 0) return;
+
+        horarioHoy = data[0];
+        if (badge) {
+            badge.textContent = `Horario: ${horarioHoy.hora_entrada} – ${horarioHoy.hora_salida}`;
+            badge.style.display = 'inline-block';
+        }
+    } catch {}
 }
 
 function reproducirSonidoConfirmacion() {

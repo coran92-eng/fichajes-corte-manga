@@ -467,6 +467,17 @@ function configurarBotones() {
             logout
         );
     });
+
+    document.getElementById('btnHorarios')?.addEventListener('click', () => {
+        const panel = document.getElementById('panelHorarios');
+        panel.classList.toggle('visible');
+        if (panel.classList.contains('visible')) cargarHorarios();
+    });
+    document.getElementById('btnRecargarHorarios')?.addEventListener('click', cargarHorarios);
+    document.getElementById('filtroEstadoHorario')?.addEventListener('change', cargarHorarios);
+    document.getElementById('btnIrEncargado')?.addEventListener('click', () => {
+        window.location.href = 'horario-encargado.html';
+    });
 }
 
 function logout() {
@@ -543,3 +554,78 @@ function mostrarMensaje(texto, tipo) {
         msgEl.className = 'message';
     }, 3000);
 }
+
+async function cargarHorarios() {
+    const estado = document.getElementById('filtroEstadoHorario')?.value || 'pendiente';
+    const contenido = document.getElementById('horariosContenido');
+    if (!contenido) return;
+    contenido.innerHTML = '<p style="color:#9ca3af;font-size:13px">Cargando...</p>';
+
+    try {
+        const res = await fetch(`/api/horarios?estado=${encodeURIComponent(estado)}`);
+        if (!res.ok) throw new Error();
+        const horarios = await res.json();
+
+        if (horarios.length === 0) {
+            contenido.innerHTML = `<p style="color:#9ca3af;font-size:13px">No hay horarios con estado "${estado}".</p>`;
+            return;
+        }
+
+        // Group by semana → centro
+        const grupos = {};
+        horarios.forEach(h => {
+            const key = `${h.semana}||${h.centro}`;
+            if (!grupos[key]) grupos[key] = { semana: h.semana, centro: h.centro, filas: [] };
+            grupos[key].filas.push(h);
+        });
+
+        const diasSemana = ['Lun','Mar','Mié','Jue','Vie','Sáb','Dom'];
+        const html = Object.values(grupos).map(g => {
+            const filas = g.filas.map(h => {
+                const diaIdx = (new Date(h.fecha + 'T00:00:00').getDay() + 6) % 7;
+                return `<tr>
+                    <td><strong>${h.empleado}</strong></td>
+                    <td>${diasSemana[diaIdx]} ${h.fecha.slice(5)}</td>
+                    <td style="font-family:monospace">${h.hora_entrada} – ${h.hora_salida}</td>
+                    <td><span class="badge-estado badge-${h.estado}">${h.estado}</span></td>
+                </tr>`;
+            }).join('');
+
+            const acciones = estado === 'pendiente' ? `
+                <div class="horario-grupo-acciones">
+                    <button class="btn-validar" onclick="validarHorario('${g.semana}','${g.centro}','validado')">✓ Validar</button>
+                    <button class="btn-rechazar" onclick="validarHorario('${g.semana}','${g.centro}','rechazado')">✗ Rechazar</button>
+                </div>` : '';
+
+            return `<div class="horario-grupo">
+                <div class="horario-grupo-header">
+                    <span class="horario-grupo-titulo">📅 ${g.semana} • ${g.centro || 'Sin centro'}</span>
+                    ${acciones}
+                </div>
+                <table class="horario-tabla">
+                    <thead><tr><th>Empleado</th><th>Día</th><th>Horario</th><th>Estado</th></tr></thead>
+                    <tbody>${filas}</tbody>
+                </table>
+            </div>`;
+        }).join('');
+
+        contenido.innerHTML = html;
+    } catch {
+        contenido.innerHTML = '<p style="color:#ef4444;font-size:13px">Error al cargar horarios.</p>';
+    }
+}
+
+window.validarHorario = async function(semana, centro, estado) {
+    try {
+        const res = await fetch('/api/horarios', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ semana, centro, estado })
+        });
+        if (!res.ok) throw new Error();
+        mostrarMensaje(`✓ Semana ${estado === 'validado' ? 'validada' : 'rechazada'} correctamente`, 'success');
+        cargarHorarios();
+    } catch {
+        mostrarMensaje('✗ Error al actualizar el horario', 'error');
+    }
+};

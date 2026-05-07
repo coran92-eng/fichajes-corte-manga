@@ -764,6 +764,64 @@
             .overflow-item--danger { color: #f87171; }
             .overflow-item--danger:hover { background: #450a0a; }
         }
+
+        .panel-horarios {
+            display: none;
+            background: #f0f9ff;
+            border: 2px solid #bae6fd;
+            border-radius: 10px;
+            padding: 20px;
+            margin-bottom: 25px;
+        }
+        .panel-horarios.visible { display: block; }
+        .panel-horarios h3 { color: #0c4a6e; font-size: 16px; }
+
+        .horario-grupo {
+            background: white;
+            border-radius: 8px;
+            border: 1px solid #e5e7eb;
+            padding: 14px;
+            margin-bottom: 12px;
+        }
+        .horario-grupo-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 10px;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+        .horario-grupo-titulo {
+            font-weight: 700;
+            font-size: 14px;
+            color: #1f2937;
+        }
+        .horario-grupo-acciones { display: flex; gap: 8px; }
+        .btn-validar { background: #10b981; color: white; padding: 6px 14px; font-size: 12px; }
+        .btn-validar:hover { background: #059669; }
+        .btn-rechazar { background: #ef4444; color: white; padding: 6px 14px; font-size: 12px; }
+        .btn-rechazar:hover { background: #dc2626; }
+
+        .horario-tabla { width: 100%; border-collapse: collapse; font-size: 12px; }
+        .horario-tabla th, .horario-tabla td { padding: 6px 8px; border-bottom: 1px solid #f3f4f6; text-align: left; }
+        .horario-tabla thead { background: #f9fafb; }
+        .horario-tabla th { font-weight: 600; color: #6b7280; font-size: 11px; text-transform: uppercase; }
+
+        .badge-estado { display: inline-block; padding: 2px 8px; border-radius: 20px; font-size: 11px; font-weight: 600; }
+        .badge-pendiente { background: #fef3c7; color: #92400e; }
+        .badge-validado { background: #d1fae5; color: #065f46; }
+        .badge-rechazado { background: #fee2e2; color: #7f1d1d; }
+
+        @media (prefers-color-scheme: dark) {
+            .panel-horarios { background: #1e3a5f; border-color: #1e40af; }
+            .panel-horarios h3 { color: #93c5fd; }
+            .horario-grupo { background: #1f2937; border-color: #374151; }
+            .horario-grupo-titulo { color: #e5e7eb; }
+            .horario-tabla th { color: #9ca3af; }
+            .horario-tabla th, .horario-tabla td { border-color: #374151; }
+            .horario-tabla thead { background: #374151; }
+            #filtroEstadoHorario { background: #374151; color: #e5e7eb; border-color: #4b5563; }
+        }
     </style>
 </head>
 <body>
@@ -782,6 +840,9 @@
                 </button>
                 <button class="btn-empleados" id="btnEmpleados" aria-label="Gestionar empleados">
                     <i data-lucide="users" aria-hidden="true" style="width:15px;height:15px"></i> Empleados
+                </button>
+                <button class="btn-horarios" id="btnHorarios" aria-label="Gestionar horarios">
+                    <i data-lucide="calendar" aria-hidden="true" style="width:15px;height:15px"></i> Horarios
                 </button>
                 <div class="overflow-menu">
                     <button class="btn-overflow" id="btnOverflow" aria-label="Más opciones" aria-haspopup="true" aria-expanded="false">
@@ -834,6 +895,29 @@
                 </select>
                 <button type="submit" class="btn-agregar-empleado">+ Añadir</button>
             </form>
+        </div>
+
+        <!-- Panel gestión de horarios -->
+        <div class="panel-horarios" id="panelHorarios">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:15px;flex-wrap:wrap;gap:10px">
+                <h3 style="margin:0"><i data-lucide="calendar" aria-hidden="true" style="width:16px;height:16px;vertical-align:middle;margin-right:6px"></i>Horarios para validar</h3>
+                <div style="display:flex;gap:8px;align-items:center">
+                    <select id="filtroEstadoHorario" style="padding:6px 10px;border:1px solid #e5e7eb;border-radius:6px;font-size:13px">
+                        <option value="pendiente">Pendientes</option>
+                        <option value="validado">Validados</option>
+                        <option value="rechazado">Rechazados</option>
+                    </select>
+                    <button class="btn-horarios-reload" id="btnRecargarHorarios" style="background:#6b7280;color:white;padding:6px 12px;font-size:12px">↻ Recargar</button>
+                </div>
+            </div>
+            <div id="horariosContenido">
+                <p style="color:#9ca3af;font-size:13px">Selecciona un estado para ver los horarios.</p>
+            </div>
+            <div style="margin-top:12px">
+                <button class="btn-export" id="btnIrEncargado" style="background:#8b5cf6;font-size:13px">
+                    <i data-lucide="edit-3" style="width:14px;height:14px"></i> Crear horario
+                </button>
+            </div>
         </div>
 
         <div class="stats" id="stats"></div>

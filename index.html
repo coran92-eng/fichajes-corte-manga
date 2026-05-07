@@ -485,6 +485,20 @@
         .estado-badge.en-descanso { background: #fef3c7; color: #92400e; }
         .estado-badge.fuera     { background: #f3f4f6; color: #6b7280; }
 
+        .horario-badge {
+            font-size: 12px;
+            font-weight: 600;
+            padding: 4px 12px;
+            border-radius: 20px;
+            margin: 4px auto 0;
+            display: inline-block;
+            background: #dbeafe;
+            color: #1e40af;
+        }
+        @media (prefers-color-scheme: dark) {
+            .horario-badge { background: #1e3a5f; color: #93c5fd; }
+        }
+
         .undo-toast {
             position: fixed;
             bottom: 24px;
@@ -554,6 +568,7 @@
             <h1>Sistema de Fichaje</h1>
             <span class="centro-badge" id="centroBadge"></span>
             <div class="estado-badge" id="estadoBadge" style="display:none"></div>
+            <div class="horario-badge" id="horarioBadge" style="display:none"></div>
             <p>Selecciona tu nombre y registra tu entrada/salida</p>
         </div>
 
