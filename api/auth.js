@@ -4,7 +4,7 @@ export default function handler(req, res) {
   }
 
   const { password } = req.body;
-  const adminPassword = process.env.ADMIN_PASSWORD || "admin123";
+  const adminPassword = process.env.ADMIN_PASSWORD || "123456";
 
   if (password === adminPassword) {
     // En una app real usaríamos JWT o cookies firmadas, pero aquí simplificamos devolviendo un token
