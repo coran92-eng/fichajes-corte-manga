@@ -24,8 +24,9 @@ export default async function handler(req, res) {
       let result;
 
       if (centro) {
+        // Empleados del centro + los que no tengan centro asignado
         result = await db.execute({
-          sql: "SELECT nombre, centro FROM empleados WHERE centro = ? ORDER BY nombre ASC",
+          sql: "SELECT nombre, centro FROM empleados WHERE centro = ? OR centro = '' OR centro IS NULL ORDER BY nombre ASC",
           args: [centro]
         });
       } else {
