@@ -59,6 +59,17 @@ export default async function handler(req, res) {
       });
       return res.status(201).json({ success: true });
     }
+    else if (req.method === "PUT") {
+      const { nombre, centro = '' } = req.body;
+      if (!nombre || !nombre.trim()) {
+        return res.status(400).json({ error: "Nombre requerido" });
+      }
+      await db.execute({
+        sql: "UPDATE empleados SET centro = ? WHERE nombre = ?",
+        args: [centro, nombre.trim()]
+      });
+      return res.status(200).json({ success: true });
+    }
     else if (req.method === "DELETE") {
       const { nombre } = req.body;
       if (!nombre) {

@@ -116,13 +116,28 @@ async function renderEmpleados(intento = 0) {
             contenedor.innerHTML = '<span style="color:#9ca3af;font-size:13px">Sin empleados</span>';
             return;
         }
-        contenedor.innerHTML = lista.map(({ nombre, centro }) => `
+        const opcionesCentro = (sel) =>
+            `<option value=""${!sel ? ' selected' : ''}>Sin centro</option>` +
+            centrosDisponibles.map(c =>
+                `<option value="${c}"${c === sel ? ' selected' : ''}>${c}</option>`
+            ).join('');
+
+        contenedor.innerHTML = lista.map(({ nombre, centro }) => {
+            const nEsc = nombre.replace(/"/g, '&quot;');
+            return `
             <div class="empleado-tag">
                 ${nombre}
-                ${centro ? `<span style="font-size:11px;color:#6b7280;font-weight:400">(${centro})</span>` : ''}
+                <select class="empleado-centro" data-nombre="${nEsc}" title="Centro de ${nombre}">
+                    ${opcionesCentro(centro)}
+                </select>
                 <button type="button" title="Eliminar ${nombre}" onclick="window.confirmarEliminarEmpleado('${nombre.replace(/'/g, "\\'")}')">✕</button>
-            </div>
-        `).join('');
+            </div>`;
+        }).join('');
+
+        contenedor.querySelectorAll('.empleado-centro').forEach(sel => {
+            sel.addEventListener('change', () =>
+                window.asignarCentroEmpleado(sel.dataset.nombre, sel.value));
+        });
     } catch (err) {
         if (intento < 2) {
             await new Promise(r => setTimeout(r, 1500));
@@ -152,6 +167,21 @@ window.confirmarEliminarEmpleado = function(nombre) {
             }
         }
     );
+};
+
+window.asignarCentroEmpleado = async function(nombre, centro) {
+    try {
+        const response = await fetch('/api/empleados', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ nombre, centro })
+        });
+        if (!response.ok) throw new Error();
+        mostrarMensaje(`✓ "${nombre}" asignado a ${centro || 'sin centro'}`, 'success');
+    } catch {
+        mostrarMensaje(`✗ Error al asignar centro a "${nombre}"`, 'error');
+        renderEmpleados();
+    }
 };
 
 function configurarFormEmpleados() {
