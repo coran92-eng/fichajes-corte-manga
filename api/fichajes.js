@@ -36,7 +36,7 @@ export default async function handler(req, res) {
         args.push(empleado);
       }
       if (centro) {
-        conditions.push("centro = ?");
+        conditions.push("(centro = ? OR centro = '' OR centro IS NULL)");
         args.push(centro);
       }
 
