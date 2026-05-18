@@ -471,7 +471,7 @@ function iniciarPanelTurno() {
 async function cargarTurnoActual() {
     try {
         const res = await fetch(`/api/fichajes?centro=${encodeURIComponent(centroActual)}`);
-        if (!res.ok) return;
+        if (!res.ok) { renderizarTurnoPanel([]); return; }
         const fichajes = await res.json();
 
         // Agrupar por empleado (API devuelve ORDER BY timestamp DESC)
@@ -514,7 +514,9 @@ async function cargarTurnoActual() {
 
         enTurno.sort((a, b) => a.nombre.localeCompare(b.nombre));
         renderizarTurnoPanel(enTurno);
-    } catch {}
+    } catch {
+        renderizarTurnoPanel([]);
+    }
 }
 
 function renderizarTurnoPanel(enTurno) {
