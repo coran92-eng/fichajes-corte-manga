@@ -36,7 +36,7 @@ export default async function handler(req, res) {
         args.push(empleado);
       }
       if (centro) {
-        conditions.push("(centro = ? OR centro = '' OR centro IS NULL)");
+        conditions.push("(LOWER(TRIM(COALESCE(centro,''))) = LOWER(TRIM(?)) OR TRIM(COALESCE(centro,'')) = '')");
         args.push(centro);
       }
 
