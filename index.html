@@ -698,6 +698,7 @@
             <div class="estado-badge" id="estadoBadge" style="display:none"></div>
             <div class="horario-badge" id="horarioBadge" style="display:none"></div>
             <p>Selecciona tu nombre y registra tu entrada/salida</p>
+            <p id="buildStamp" style="font-size:11px;color:#9ca3af;margin-top:4px">HTML v7 · app.js: no cargado</p>
         </div>
 
         <div id="nfcStatus" class="nfc-status"></div>
@@ -805,7 +806,7 @@
         <button id="btnUndo" class="undo-btn" type="button">Deshacer</button>
     </div>
 
-    <script type="module" src="app.js?v=6"></script>
+    <script type="module" src="app.js?v=7"></script>
     <script>
         document.addEventListener('DOMContentLoaded', () => {
             if (typeof lucide !== 'undefined') lucide.createIcons();

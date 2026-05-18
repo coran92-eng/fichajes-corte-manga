@@ -7,6 +7,9 @@ const params = new URLSearchParams(window.location.search);
 const centroActual = params.get('centro');
 
 document.addEventListener('DOMContentLoaded', async () => {
+    const stamp = document.getElementById('buildStamp');
+    if (stamp) stamp.textContent = 'HTML v7 · app.js v7 OK';
+
     if (!centroActual) {
         await mostrarSelectorCentro();
         return;
