@@ -6,7 +6,7 @@ const EMPLEADOS_DEFAULT = [
 const params = new URLSearchParams(window.location.search);
 const centroActual = params.get('centro');
 
-let _dbgTrail = 'v8';
+let _dbgTrail = 'v9';
 function dbg(step) {
     _dbgTrail += '>' + step;
     const el = document.getElementById('buildStamp');
@@ -496,7 +496,14 @@ function iniciarPanelTurno() {
 async function cargarTurnoActual() {
     try {
         dbg('fetch');
-        const res = await fetch(`/api/fichajes?centro=${encodeURIComponent(centroActual)}`);
+        const desde = Date.now() - 36 * 60 * 60 * 1000;
+        const ctrl = new AbortController();
+        const to = setTimeout(() => ctrl.abort(), 8000);
+        const res = await fetch(
+            `/api/fichajes?centro=${encodeURIComponent(centroActual)}&desde=${desde}`,
+            { signal: ctrl.signal, cache: 'no-store' }
+        );
+        clearTimeout(to);
         dbg('http' + res.status);
         if (!res.ok) { renderizarTurnoPanel([]); return; }
         const fichajes = await res.json();
