@@ -475,6 +475,14 @@ function configurarBotones() {
     });
     document.getElementById('btnRecargarHorarios')?.addEventListener('click', cargarHorarios);
     document.getElementById('filtroEstadoHorario')?.addEventListener('change', cargarHorarios);
+
+    document.getElementById('btnSolicitudes')?.addEventListener('click', () => {
+        const panel = document.getElementById('panelSolicitudes');
+        panel.classList.toggle('visible');
+        if (panel.classList.contains('visible')) cargarSolicitudes();
+    });
+    document.getElementById('btnRecargarSolicitudes')?.addEventListener('click', cargarSolicitudes);
+    document.getElementById('filtroEstadoSolicitud')?.addEventListener('change', cargarSolicitudes);
     document.getElementById('btnIrEncargado')?.addEventListener('click', () => {
         window.location.href = 'horario-encargado.html';
     });
@@ -628,4 +636,93 @@ window.validarHorario = async function(semana, centro, estado) {
     } catch {
         mostrarMensaje('✗ Error al actualizar el horario', 'error');
     }
+};
+
+const SOL_TIPO_LABEL = {
+    crear: 'Añadir',
+    modificar: 'Cambiar hora',
+    eliminar: 'Eliminar',
+};
+
+function describirCambio(s) {
+    const tipoFichaje = getTipoLabel(s.tipo_fichaje);
+    const orig = s.hora_original || '—';
+    const prop = s.hora_propuesta || '—';
+    if (s.tipo_solicitud === 'crear') {
+        return `Añadir <strong>${tipoFichaje}</strong> a las <ins>${prop}</ins>`;
+    }
+    if (s.tipo_solicitud === 'eliminar') {
+        return `Eliminar <strong>${tipoFichaje}</strong> (${orig})`;
+    }
+    return `<strong>${tipoFichaje}</strong>: <del>${orig}</del> → <ins>${prop}</ins>`;
+}
+
+async function cargarSolicitudes() {
+    const estado = document.getElementById('filtroEstadoSolicitud')?.value || 'pendiente';
+    const contenido = document.getElementById('solicitudesContenido');
+    if (!contenido) return;
+    contenido.innerHTML = '<p style="color:#9ca3af;font-size:13px">Cargando...</p>';
+
+    try {
+        const res = await fetch(`/api/solicitudes?estado=${encodeURIComponent(estado)}`);
+        if (!res.ok) throw new Error();
+        const solicitudes = await res.json();
+
+        if (solicitudes.length === 0) {
+            contenido.innerHTML = `<p style="color:#9ca3af;font-size:13px">No hay solicitudes con estado "${estado}".</p>`;
+            return;
+        }
+
+        const filas = solicitudes.map(s => {
+            const acciones = s.estado === 'pendiente' ? `
+                <div class="horario-grupo-acciones">
+                    <button class="btn-validar" onclick="resolverSolicitud(${s.id},'aprobada')">✓ Aprobar</button>
+                    <button class="btn-rechazar" onclick="resolverSolicitud(${s.id},'rechazada')">✗ Rechazar</button>
+                </div>` : `<span class="badge-estado badge-${s.estado}">${s.estado}</span>`;
+            const nota = s.nota_admin ? `<div class="sol-motivo">Nota: ${s.nota_admin}</div>` : '';
+            return `<tr>
+                <td><strong>${s.empleado}</strong><div class="fecha">${s.fecha}</div></td>
+                <td><span class="badge-estado badge-pendiente">${SOL_TIPO_LABEL[s.tipo_solicitud] || s.tipo_solicitud}</span></td>
+                <td class="sol-cambio">${describirCambio(s)}</td>
+                <td><div>${s.motivo}</div>${nota}</td>
+                <td>${acciones}</td>
+            </tr>`;
+        }).join('');
+
+        contenido.innerHTML = `
+            <div class="horario-grupo">
+                <table class="horario-tabla">
+                    <thead><tr><th>Empleado</th><th>Tipo</th><th>Cambio</th><th>Motivo</th><th></th></tr></thead>
+                    <tbody>${filas}</tbody>
+                </table>
+            </div>`;
+    } catch {
+        contenido.innerHTML = '<p style="color:#ef4444;font-size:13px">Error al cargar solicitudes.</p>';
+    }
+}
+
+window.resolverSolicitud = function(id, estado) {
+    const titulo = estado === 'aprobada' ? '✓ Aprobar solicitud' : '✗ Rechazar solicitud';
+    const mensaje = estado === 'aprobada'
+        ? 'Se aplicará el cambio al fichaje del empleado. ¿Confirmar?'
+        : 'La solicitud quedará rechazada y el fichaje no cambiará. ¿Confirmar?';
+    mostrarModal(titulo, mensaje, async () => {
+        let nota_admin = '';
+        if (estado === 'rechazada') {
+            nota_admin = window.prompt('Nota para el empleado (opcional):') || '';
+        }
+        try {
+            const res = await fetch('/api/solicitudes', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ id, estado, nota_admin })
+            });
+            if (!res.ok) throw new Error();
+            mostrarMensaje(`✓ Solicitud ${estado === 'aprobada' ? 'aprobada' : 'rechazada'} correctamente`, 'success');
+            cargarSolicitudes();
+            if (estado === 'aprobada') cargarDatosEnTiempoReal();
+        } catch {
+            mostrarMensaje('✗ Error al resolver la solicitud', 'error');
+        }
+    });
 };

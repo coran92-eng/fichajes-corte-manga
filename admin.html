@@ -819,6 +819,14 @@
         .badge-pendiente { background: #fef3c7; color: #92400e; }
         .badge-validado { background: #d1fae5; color: #065f46; }
         .badge-rechazado { background: #fee2e2; color: #7f1d1d; }
+        .badge-aprobada { background: #d1fae5; color: #065f46; }
+        .badge-rechazada { background: #fee2e2; color: #7f1d1d; }
+
+        .sol-cambio { font-family: monospace; font-size: 12px; }
+        .sol-cambio del { color: #b91c1c; text-decoration: line-through; }
+        .sol-cambio ins { color: #047857; text-decoration: none; font-weight: 700; }
+        .sol-motivo { color: #6b7280; font-size: 12px; font-style: italic; }
+        @media (prefers-color-scheme: dark) { .sol-motivo { color: #9ca3af; } }
 
         @media (prefers-color-scheme: dark) {
             .panel-horarios { background: #1e3a5f; border-color: #1e40af; }
@@ -851,6 +859,9 @@
                 </button>
                 <button class="btn-horarios" id="btnHorarios" aria-label="Gestionar horarios">
                     <i data-lucide="calendar" aria-hidden="true" style="width:15px;height:15px"></i> Horarios
+                </button>
+                <button class="btn-horarios" id="btnSolicitudes" style="background:#0ea5e9" aria-label="Solicitudes de corrección">
+                    <i data-lucide="alarm-clock" aria-hidden="true" style="width:15px;height:15px"></i> Solicitudes
                 </button>
                 <div class="overflow-menu">
                     <button class="btn-overflow" id="btnOverflow" aria-label="Más opciones" aria-haspopup="true" aria-expanded="false">
@@ -925,6 +936,24 @@
                 <button class="btn-export" id="btnIrEncargado" style="background:#8b5cf6;font-size:13px">
                     <i data-lucide="edit-3" style="width:14px;height:14px"></i> Crear horario
                 </button>
+            </div>
+        </div>
+
+        <!-- Panel solicitudes de corrección -->
+        <div class="panel-horarios" id="panelSolicitudes">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:15px;flex-wrap:wrap;gap:10px">
+                <h3 style="margin:0"><i data-lucide="alarm-clock" aria-hidden="true" style="width:16px;height:16px;vertical-align:middle;margin-right:6px"></i>Solicitudes de corrección</h3>
+                <div style="display:flex;gap:8px;align-items:center">
+                    <select id="filtroEstadoSolicitud" style="padding:6px 10px;border:1px solid #e5e7eb;border-radius:6px;font-size:13px">
+                        <option value="pendiente">Pendientes</option>
+                        <option value="aprobada">Aprobadas</option>
+                        <option value="rechazada">Rechazadas</option>
+                    </select>
+                    <button id="btnRecargarSolicitudes" style="background:#6b7280;color:white;padding:6px 12px;font-size:12px">↻ Recargar</button>
+                </div>
+            </div>
+            <div id="solicitudesContenido">
+                <p style="color:#9ca3af;font-size:13px">Selecciona un estado para ver las solicitudes.</p>
             </div>
         </div>
 
