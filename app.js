@@ -47,24 +47,11 @@ function inicializar() {
     configurarNFC();
     configurarBotones();
 
-    const inputEmpleado = document.getElementById('empleado');
-    inputEmpleado.addEventListener('change', actualizarUltimaAccion);
-
-    // Detectar selección en datalist antes de blur para no dejar el botón bloqueado
-    let debounceEmpleado = null;
-    inputEmpleado.addEventListener('input', () => {
-        clearTimeout(debounceEmpleado);
-        debounceEmpleado = setTimeout(actualizarUltimaAccion, 350);
-    });
-
     actualizarEstadoBotones(null);
     if (centroActual) iniciarPanelTurno();
 }
 
 async function cargarEmpleados() {
-    const select = document.getElementById('empleado');
-    select.innerHTML = '<option value="">-- Selecciona tu nombre --</option>';
-
     let empleados = EMPLEADOS_DEFAULT.map(n => ({ nombre: n, centro: '' }));
     try {
         const url = centroActual ? `/api/empleados?centro=${encodeURIComponent(centroActual)}` : '/api/empleados';
@@ -79,22 +66,31 @@ async function cargarEmpleados() {
         console.error('Error cargando empleados:', e);
     }
 
-    const datalist = document.getElementById('empleados-list');
-    if (datalist) {
-        datalist.innerHTML = '';
-        empleados.forEach(({ nombre }) => {
-            const option = document.createElement('option');
-            option.value = nombre;
-            datalist.appendChild(option);
-        });
-    } else {
-        empleados.forEach(({ nombre }) => {
-            const option = document.createElement('option');
-            option.value = nombre;
-            option.textContent = nombre;
-            select.appendChild(option);
-        });
+    const cont = document.getElementById('empleadosBotones');
+    if (!cont) return;
+
+    if (empleados.length === 0) {
+        cont.innerHTML = '<span style="color:#9ca3af;font-size:13px;grid-column:1/-1">Sin empleados en este centro</span>';
+        return;
     }
+
+    cont.innerHTML = '';
+    empleados.forEach(({ nombre }) => {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'btn-emp';
+        btn.textContent = nombre;
+        btn.addEventListener('click', () => seleccionarEmpleado(nombre, btn));
+        cont.appendChild(btn);
+    });
+}
+
+function seleccionarEmpleado(nombre, btn) {
+    const cont = document.getElementById('empleadosBotones');
+    if (cont) cont.querySelectorAll('.btn-emp').forEach(b => b.classList.remove('selected'));
+    btn.classList.add('selected');
+    document.getElementById('empleado').value = nombre;
+    actualizarUltimaAccion();
 }
 
 function actualizarReloj() {
@@ -142,6 +138,14 @@ function configurarBotones() {
     });
     document.getElementById('btnEncargado')?.addEventListener('click', () => {
         window.location.href = 'login-encargado.html';
+    });
+
+    document.getElementById('btnSolicitarCorreccion')?.addEventListener('click', abrirModalSolicitud);
+    document.getElementById('btnSolCancelar')?.addEventListener('click', cerrarModalSolicitud);
+    document.getElementById('btnSolEnviar')?.addEventListener('click', enviarSolicitud);
+    document.getElementById('solCaso')?.addEventListener('change', actualizarVisibilidadHora);
+    document.getElementById('solModal')?.addEventListener('click', (e) => {
+        if (e.target.id === 'solModal') cerrarModalSolicitud();
     });
 
     const btnUndo = document.getElementById('btnUndo');
@@ -233,6 +237,104 @@ async function registrarFichaje(tipo) {
         mostrarMensaje('✗ Error al guardar. Intenta de nuevo.', 'error');
     } finally {
         btnElements.forEach(btn => btn.disabled = false);
+    }
+}
+
+// ── Solicitud de corrección ───────────────────────────────────
+function actualizarVisibilidadHora() {
+    const caso = document.getElementById('solCaso').value;
+    const wrap = document.getElementById('solHoraWrap');
+    if (wrap) wrap.style.display = caso === 'eliminar' ? 'none' : 'block';
+}
+
+function abrirModalSolicitud() {
+    const empleado = document.getElementById('empleado').value;
+    if (!empleado) {
+        mostrarMensaje('Selecciona tu nombre primero', 'error');
+        return;
+    }
+    const modal = document.getElementById('solModal');
+    if (!modal) return;
+
+    const now = new Date();
+    const pad = n => String(n).padStart(2, '0');
+    document.getElementById('solFecha').value =
+        `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+    document.getElementById('solHora').value = `${pad(now.getHours())}:${pad(now.getMinutes())}`;
+    document.getElementById('solMotivo').value = '';
+    document.getElementById('solCaso').value = 'crear';
+    document.getElementById('solTipoFichaje').value = 'entrada';
+    actualizarVisibilidadHora();
+    modal.classList.add('visible');
+}
+
+function cerrarModalSolicitud() {
+    document.getElementById('solModal')?.classList.remove('visible');
+}
+
+async function enviarSolicitud() {
+    const empleado = document.getElementById('empleado').value;
+    const tipo_solicitud = document.getElementById('solCaso').value;
+    const tipo_fichaje = document.getElementById('solTipoFichaje').value;
+    const fecha = document.getElementById('solFecha').value;
+    const horaInput = document.getElementById('solHora').value;
+    const motivo = document.getElementById('solMotivo').value.trim();
+    const btnEnviar = document.getElementById('btnSolEnviar');
+
+    if (!empleado || !fecha || !motivo) {
+        mostrarMensaje('Completa el día y el motivo', 'error');
+        return;
+    }
+    if (tipo_solicitud !== 'eliminar' && !horaInput) {
+        mostrarMensaje('Indica la hora correcta', 'error');
+        return;
+    }
+
+    const hora_propuesta = tipo_solicitud === 'eliminar'
+        ? ''
+        : (horaInput.length === 5 ? `${horaInput}:00` : horaInput);
+
+    let fichaje_id = null;
+    let hora_original = '';
+
+    if (tipo_solicitud === 'modificar' || tipo_solicitud === 'eliminar') {
+        try {
+            const res = await fetch(`/api/fichajes?empleado=${encodeURIComponent(empleado)}`);
+            if (res.ok) {
+                const fichajes = await res.json();
+                const match = fichajes.find(f => f.fecha === fecha && f.tipo === tipo_fichaje);
+                if (match) {
+                    fichaje_id = match.id;
+                    hora_original = match.hora;
+                }
+            }
+        } catch {}
+    }
+
+    try {
+        btnEnviar.disabled = true;
+        const response = await fetch('/api/solicitudes', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                empleado,
+                centro: centroActual || '',
+                tipo_solicitud,
+                fichaje_id,
+                tipo_fichaje,
+                fecha,
+                hora_original,
+                hora_propuesta,
+                motivo,
+            })
+        });
+        if (!response.ok) throw new Error();
+        cerrarModalSolicitud();
+        mostrarMensaje('✓ Solicitud enviada, pendiente de aprobación', 'success');
+    } catch {
+        mostrarMensaje('✗ Error al enviar la solicitud', 'error');
+    } finally {
+        btnEnviar.disabled = false;
     }
 }
 

@@ -21,6 +21,10 @@ export default async function handler(req, res) {
       await db.execute("ALTER TABLE fichajes ADD COLUMN centro TEXT NOT NULL DEFAULT ''");
     } catch {}
 
+    try {
+      await db.execute("ALTER TABLE fichajes ADD COLUMN corregido INTEGER NOT NULL DEFAULT 0");
+    } catch {}
+
     if (req.method === "GET") {
       const { empleado, limit, centro } = req.query;
 
