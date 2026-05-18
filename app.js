@@ -6,24 +6,7 @@ const EMPLEADOS_DEFAULT = [
 const params = new URLSearchParams(window.location.search);
 const centroActual = params.get('centro');
 
-let _dbgTrail = 'v9';
-function dbg(step) {
-    _dbgTrail += '>' + step;
-    const el = document.getElementById('buildStamp');
-    if (el) el.textContent = _dbgTrail;
-}
-window.addEventListener('error', e => {
-    const el = document.getElementById('buildStamp');
-    if (el) el.textContent = _dbgTrail + ' ERR: ' + (e.message || e.error) + ' @' + (e.filename || '').split('/').pop() + ':' + e.lineno;
-});
-window.addEventListener('unhandledrejection', e => {
-    const el = document.getElementById('buildStamp');
-    if (el) el.textContent = _dbgTrail + ' REJ: ' + (e.reason && (e.reason.message || e.reason));
-});
-
 document.addEventListener('DOMContentLoaded', async () => {
-    dbg('dom');
-
     if (!centroActual) {
         await mostrarSelectorCentro();
         return;
@@ -32,12 +15,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     document.getElementById('centroBadge').textContent = centroActual;
     document.getElementById('centroBadge').style.display = 'inline-block';
 
-    try {
-        inicializar();
-        dbg('init-ok');
-    } catch (err) {
-        dbg('init-THREW:' + (err && err.message));
-    }
+    inicializar();
     actualizarReloj();
     setInterval(actualizarReloj, 1000);
 });
@@ -70,9 +48,7 @@ function inicializar() {
     configurarBotones();
 
     actualizarEstadoBotones(null);
-    dbg('pre-panel');
     if (centroActual) iniciarPanelTurno();
-    dbg('post-panel');
 }
 
 async function cargarEmpleados() {
@@ -487,7 +463,6 @@ function mostrarUndoToast(tipo, fichaje) {
 let turnoRefreshInterval = null;
 
 function iniciarPanelTurno() {
-    dbg('iniciarPanel');
     cargarTurnoActual();
     if (turnoRefreshInterval) clearInterval(turnoRefreshInterval);
     turnoRefreshInterval = setInterval(cargarTurnoActual, 30000);
@@ -495,7 +470,6 @@ function iniciarPanelTurno() {
 
 async function cargarTurnoActual() {
     try {
-        dbg('fetch');
         const desde = Date.now() - 36 * 60 * 60 * 1000;
         const ctrl = new AbortController();
         const to = setTimeout(() => ctrl.abort(), 8000);
@@ -504,10 +478,8 @@ async function cargarTurnoActual() {
             { signal: ctrl.signal, cache: 'no-store' }
         );
         clearTimeout(to);
-        dbg('http' + res.status);
         if (!res.ok) { renderizarTurnoPanel([]); return; }
         const fichajes = await res.json();
-        dbg('rows' + (Array.isArray(fichajes) ? fichajes.length : 'NOarray'));
 
         // Agrupar por empleado (API devuelve ORDER BY timestamp DESC)
         const porEmpleado = {};
@@ -558,9 +530,7 @@ function renderizarTurnoPanel(enTurno) {
     const panel = document.getElementById('turnoPanel');
     const lista = document.getElementById('turnoLista');
     const countEl = document.getElementById('turnoCount');
-    dbg('render(panel=' + !!panel + ',lista=' + !!lista + ',n=' + enTurno.length + ')');
     if (!panel || !lista) return;
-    dbg('SET-block');
 
     if (enTurno.length === 0) {
         panel.style.display = 'block';
