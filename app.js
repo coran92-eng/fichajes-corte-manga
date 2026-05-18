@@ -524,7 +524,9 @@ function renderizarTurnoPanel(enTurno) {
     if (!panel || !lista) return;
 
     if (enTurno.length === 0) {
-        panel.style.display = 'none';
+        panel.style.display = 'block';
+        countEl.textContent = 'Nadie ahora';
+        lista.innerHTML = '<div class="turno-vacio">Nadie en el local en este momento</div>';
         return;
     }
 
