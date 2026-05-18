@@ -47,24 +47,11 @@ function inicializar() {
     configurarNFC();
     configurarBotones();
 
-    const inputEmpleado = document.getElementById('empleado');
-    inputEmpleado.addEventListener('change', actualizarUltimaAccion);
-
-    // Detectar selección en datalist antes de blur para no dejar el botón bloqueado
-    let debounceEmpleado = null;
-    inputEmpleado.addEventListener('input', () => {
-        clearTimeout(debounceEmpleado);
-        debounceEmpleado = setTimeout(actualizarUltimaAccion, 350);
-    });
-
     actualizarEstadoBotones(null);
     if (centroActual) iniciarPanelTurno();
 }
 
 async function cargarEmpleados() {
-    const select = document.getElementById('empleado');
-    select.innerHTML = '<option value="">-- Selecciona tu nombre --</option>';
-
     let empleados = EMPLEADOS_DEFAULT.map(n => ({ nombre: n, centro: '' }));
     try {
         const url = centroActual ? `/api/empleados?centro=${encodeURIComponent(centroActual)}` : '/api/empleados';
@@ -79,22 +66,31 @@ async function cargarEmpleados() {
         console.error('Error cargando empleados:', e);
     }
 
-    const datalist = document.getElementById('empleados-list');
-    if (datalist) {
-        datalist.innerHTML = '';
-        empleados.forEach(({ nombre }) => {
-            const option = document.createElement('option');
-            option.value = nombre;
-            datalist.appendChild(option);
-        });
-    } else {
-        empleados.forEach(({ nombre }) => {
-            const option = document.createElement('option');
-            option.value = nombre;
-            option.textContent = nombre;
-            select.appendChild(option);
-        });
+    const cont = document.getElementById('empleadosBotones');
+    if (!cont) return;
+
+    if (empleados.length === 0) {
+        cont.innerHTML = '<span style="color:#9ca3af;font-size:13px;grid-column:1/-1">Sin empleados en este centro</span>';
+        return;
     }
+
+    cont.innerHTML = '';
+    empleados.forEach(({ nombre }) => {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'btn-emp';
+        btn.textContent = nombre;
+        btn.addEventListener('click', () => seleccionarEmpleado(nombre, btn));
+        cont.appendChild(btn);
+    });
+}
+
+function seleccionarEmpleado(nombre, btn) {
+    const cont = document.getElementById('empleadosBotones');
+    if (cont) cont.querySelectorAll('.btn-emp').forEach(b => b.classList.remove('selected'));
+    btn.classList.add('selected');
+    document.getElementById('empleado').value = nombre;
+    actualizarUltimaAccion();
 }
 
 function actualizarReloj() {
