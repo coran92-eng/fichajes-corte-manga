@@ -812,7 +812,10 @@
         });
         // Registrar Service Worker para offline (mantener fuera del módulo para scope global)
         if ('serviceWorker' in navigator) {
-            navigator.serviceWorker.register('sw.js')
+            // updateViaCache:'none' evita que el navegador cachee sw.js
+            // (hasta 24h por defecto), que dejaba dispositivos servidos con
+            // una versión antigua sin poder actualizarse.
+            navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' })
                 .then(reg => {
                     reg.update();
                     setInterval(() => reg.update(), 60 * 60 * 1000);
