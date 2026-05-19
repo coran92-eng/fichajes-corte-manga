@@ -727,6 +727,15 @@
             <div class="turno-lista" id="turnoLista"></div>
         </div>
 
+        <!-- Resumen del turno anterior (07:00→07:00) -->
+        <div class="turno-panel" id="ayerPanel" style="display:none">
+            <div class="turno-header">
+                <span class="turno-title">Ayer en el local</span>
+                <span class="turno-count" id="ayerCount"></span>
+            </div>
+            <div class="turno-lista" id="ayerLista"></div>
+        </div>
+
         <div class="button-group-descanso">
             <button class="btn-descanso-ini" id="btnDescansoIni">Inicio Descanso</button>
             <button class="btn-descanso-fin" id="btnDescansoFin">Fin Descanso</button>
@@ -805,7 +814,7 @@
         <button id="btnUndo" class="undo-btn" type="button">Deshacer</button>
     </div>
 
-    <script type="module" src="app.js?v=9"></script>
+    <script type="module" src="app.js?v=10"></script>
     <script>
         document.addEventListener('DOMContentLoaded', () => {
             if (typeof lucide !== 'undefined') lucide.createIcons();
