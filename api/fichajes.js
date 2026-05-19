@@ -26,7 +26,7 @@ export default async function handler(req, res) {
     } catch {}
 
     if (req.method === "GET") {
-      const { empleado, limit, centro, desde } = req.query;
+      const { empleado, limit, centro, desde, hasta } = req.query;
 
       let conditions = [];
       let args = [];
@@ -42,6 +42,10 @@ export default async function handler(req, res) {
       if (desde) {
         conditions.push("timestamp >= ?");
         args.push(parseInt(desde, 10));
+      }
+      if (hasta) {
+        conditions.push("timestamp < ?");
+        args.push(parseInt(hasta, 10));
       }
 
       let query = "SELECT * FROM fichajes";

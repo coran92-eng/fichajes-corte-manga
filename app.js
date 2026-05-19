@@ -461,11 +461,16 @@ function mostrarUndoToast(tipo, fichaje) {
 
 // ── Panel turno activo ────────────────────────────────────────
 let turnoRefreshInterval = null;
+let ayerRefreshInterval = null;
 
 function iniciarPanelTurno() {
     cargarTurnoActual();
     if (turnoRefreshInterval) clearInterval(turnoRefreshInterval);
     turnoRefreshInterval = setInterval(cargarTurnoActual, 30000);
+
+    cargarResumenAyer();
+    if (ayerRefreshInterval) clearInterval(ayerRefreshInterval);
+    ayerRefreshInterval = setInterval(cargarResumenAyer, 10 * 60 * 1000);
 }
 
 async function cargarTurnoActual() {
@@ -582,6 +587,132 @@ function renderizarTurnoPanel(enTurno) {
                         <span class="turno-linea-val">${entradaHora.slice(0,5)}</span>
                     </div>
                     ${descansosHtml}${descansoActivoHtml}
+                </div>
+            </div>`;
+    }).join('');
+}
+
+// ── Resumen del turno anterior (07:00 → 07:00) ────────────────
+function ventanaDiaAnterior() {
+    const CORTE = 7;
+    const now = new Date();
+    const ini = new Date(now);
+    ini.setHours(CORTE, 0, 0, 0);
+    if (now.getHours() < CORTE) ini.setDate(ini.getDate() - 1);
+    const hasta = ini.getTime();
+    const desde = hasta - 24 * 60 * 60 * 1000;
+    return { desde, hasta };
+}
+
+async function cargarResumenAyer() {
+    try {
+        const { desde, hasta } = ventanaDiaAnterior();
+        const ctrl = new AbortController();
+        const to = setTimeout(() => ctrl.abort(), 8000);
+        const res = await fetch(
+            `/api/fichajes?centro=${encodeURIComponent(centroActual)}&desde=${desde}&hasta=${hasta}`,
+            { signal: ctrl.signal, cache: 'no-store' }
+        );
+        clearTimeout(to);
+        if (!res.ok) { renderizarResumenAyer([]); return; }
+        const fichajes = await res.json();
+
+        // Agrupar por empleado (API devuelve ORDER BY timestamp DESC)
+        const porEmpleado = {};
+        fichajes.forEach(f => {
+            if (!porEmpleado[f.empleado]) porEmpleado[f.empleado] = [];
+            porEmpleado[f.empleado].push(f);
+        });
+
+        const resumen = [];
+        Object.entries(porEmpleado).forEach(([nombre, registros]) => {
+            // Cronológico ascendente
+            const cron = registros.slice().reverse();
+            const entrada = cron.find(r => r.tipo === 'entrada');
+            let salidaHora = null;
+            for (const r of cron) if (r.tipo === 'salida') salidaHora = r.hora;
+
+            const descansos = [];
+            let ini = null;
+            for (const r of cron) {
+                if (r.tipo === 'inicio_descanso') {
+                    ini = { hora: r.hora, timestamp: Number(r.timestamp) };
+                } else if (r.tipo === 'fin_descanso' && ini) {
+                    const durMin = Math.round((Number(r.timestamp) - ini.timestamp) / 60000);
+                    descansos.push({ inicio: ini.hora, fin: r.hora, durMin });
+                    ini = null;
+                }
+            }
+            const descansoSinCerrar = ini ? { hora: ini.hora } : null;
+
+            resumen.push({
+                nombre,
+                entradaHora: entrada ? entrada.hora : null,
+                salidaHora,
+                descansos,
+                descansoSinCerrar
+            });
+        });
+
+        resumen.sort((a, b) => a.nombre.localeCompare(b.nombre));
+        renderizarResumenAyer(resumen);
+    } catch {
+        renderizarResumenAyer([]);
+    }
+}
+
+function renderizarResumenAyer(resumen) {
+    const panel = document.getElementById('ayerPanel');
+    const lista = document.getElementById('ayerLista');
+    const countEl = document.getElementById('ayerCount');
+    if (!panel || !lista) return;
+
+    panel.style.display = 'block';
+
+    if (resumen.length === 0) {
+        if (countEl) countEl.textContent = '';
+        lista.innerHTML = '<div class="turno-vacio">Sin registros del día anterior</div>';
+        return;
+    }
+
+    if (countEl) countEl.textContent = `${resumen.length} persona${resumen.length !== 1 ? 's' : ''}`;
+
+    lista.innerHTML = resumen.map(({ nombre, entradaHora, salidaHora, descansos, descansoSinCerrar }) => {
+        const completo = !!salidaHora;
+        const variant = completo ? 'activo' : 'warning';
+        const badgeText = completo ? 'Completo' : 'Sin salida';
+
+        const descansosHtml = descansos.map(d => `
+            <div class="turno-linea">
+                <span class="turno-linea-label">Descanso</span>
+                <span class="turno-linea-val">${d.inicio.slice(0,5)} – ${d.fin.slice(0,5)}</span>
+                <span class="turno-linea-dur">${d.durMin} min</span>
+            </div>`).join('');
+
+        const descansoSinCerrarHtml = descansoSinCerrar ? `
+            <div class="turno-linea turno-linea--warning">
+                <span class="turno-linea-label">Descanso desde</span>
+                <span class="turno-linea-val">${descansoSinCerrar.hora.slice(0,5)}</span>
+                <span class="turno-linea-dur turno-linea-dur--warning">sin cerrar</span>
+            </div>` : '';
+
+        return `
+            <div class="turno-card turno-card--${variant}">
+                <div class="turno-card-header">
+                    <span class="turno-dot turno-dot--${variant}"></span>
+                    <span class="turno-nombre">${nombre}</span>
+                    <span class="turno-badge turno-badge--${variant}">${badgeText}</span>
+                </div>
+                <div class="turno-detalle">
+                    <div class="turno-linea">
+                        <span class="turno-linea-label">Entrada</span>
+                        <span class="turno-linea-val">${entradaHora ? entradaHora.slice(0,5) : '—'}</span>
+                    </div>
+                    ${descansosHtml}${descansoSinCerrarHtml}
+                    <div class="turno-linea">
+                        <span class="turno-linea-label">Salida</span>
+                        <span class="turno-linea-val">${salidaHora ? salidaHora.slice(0,5) : 'Sin salida'}</span>
+                    </div>
                 </div>
             </div>`;
     }).join('');
