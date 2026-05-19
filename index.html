@@ -483,6 +483,18 @@
             .turno-linea--warning .turno-linea-val { color: #f87171; }
         }
 
+        /* Panel "Ayer": tono gris/neutro para que no parezca turno activo */
+        #ayerPanel { background: #f9fafb; border-color: #e5e7eb; }
+        #ayerPanel .turno-title { color: #6b7280; }
+        #ayerPanel .turno-card--activo { border-left-color: #9ca3af; }
+        #ayerPanel .turno-dot--activo { background: #9ca3af; }
+        #ayerPanel .turno-badge--activo { background: #f3f4f6; color: #4b5563; }
+        @media (prefers-color-scheme: dark) {
+            #ayerPanel { background: #111827; border-color: #374151; }
+            #ayerPanel .turno-title { color: #9ca3af; }
+            #ayerPanel .turno-badge--activo { background: #374151; color: #d1d5db; }
+        }
+
         .estado-badge {
             font-size: 13px;
             font-weight: 600;
