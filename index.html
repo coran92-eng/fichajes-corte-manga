@@ -489,10 +489,20 @@
         #ayerPanel .turno-card--activo { border-left-color: #9ca3af; }
         #ayerPanel .turno-dot--activo { background: #9ca3af; }
         #ayerPanel .turno-badge--activo { background: #f3f4f6; color: #4b5563; }
+        .resumen-sub {
+            font-size: 12px;
+            font-weight: 700;
+            color: #6b7280;
+            text-transform: uppercase;
+            letter-spacing: 0.4px;
+            margin: 12px 0 6px;
+        }
+        .resumen-sub:first-of-type { margin-top: 4px; }
         @media (prefers-color-scheme: dark) {
             #ayerPanel { background: #111827; border-color: #374151; }
             #ayerPanel .turno-title { color: #9ca3af; }
             #ayerPanel .turno-badge--activo { background: #374151; color: #d1d5db; }
+            .resumen-sub { color: #9ca3af; }
         }
 
         .estado-badge {
@@ -739,12 +749,14 @@
             <div class="turno-lista" id="turnoLista"></div>
         </div>
 
-        <!-- Resumen del turno anterior (07:00→07:00) -->
+        <!-- Resumen: hoy ya se fueron + turno anterior (07:00→07:00) -->
         <div class="turno-panel" id="ayerPanel" style="display:none">
             <div class="turno-header">
-                <span class="turno-title">Ayer en el local</span>
-                <span class="turno-count" id="ayerCount"></span>
+                <span class="turno-title">Antes que tú</span>
             </div>
+            <div class="resumen-sub">Hoy · ya se fueron</div>
+            <div class="turno-lista" id="hoyLista"></div>
+            <div class="resumen-sub">Ayer</div>
             <div class="turno-lista" id="ayerLista"></div>
         </div>
 
@@ -826,7 +838,7 @@
         <button id="btnUndo" class="undo-btn" type="button">Deshacer</button>
     </div>
 
-    <script type="module" src="app.js?v=10"></script>
+    <script type="module" src="app.js?v=11"></script>
     <script>
         document.addEventListener('DOMContentLoaded', () => {
             if (typeof lucide !== 'undefined') lucide.createIcons();
