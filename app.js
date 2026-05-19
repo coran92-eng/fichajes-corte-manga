@@ -230,7 +230,7 @@ async function registrarFichaje(tipo) {
 
         actualizarEstadoBotones(tipo);
         mostrarUndoToast(tipo, fichaje);
-        if (centroActual) cargarTurnoActual();
+        if (centroActual) { cargarTurnoActual(); cargarResumenPrevios(); }
 
     } catch (error) {
         console.error('Error al registrar:', error);
@@ -468,9 +468,9 @@ function iniciarPanelTurno() {
     if (turnoRefreshInterval) clearInterval(turnoRefreshInterval);
     turnoRefreshInterval = setInterval(cargarTurnoActual, 30000);
 
-    cargarResumenAyer();
+    cargarResumenPrevios();
     if (ayerRefreshInterval) clearInterval(ayerRefreshInterval);
-    ayerRefreshInterval = setInterval(cargarResumenAyer, 10 * 60 * 1000);
+    ayerRefreshInterval = setInterval(cargarResumenPrevios, 10 * 60 * 1000);
 }
 
 async function cargarTurnoActual() {
@@ -592,7 +592,7 @@ function renderizarTurnoPanel(enTurno) {
     }).join('');
 }
 
-// ── Resumen del turno anterior (07:00 → 07:00) ────────────────
+// ── Resumen: hoy (ya se fueron) + turno anterior (07:00 → 07:00) ──
 function ventanaDiaAnterior() {
     const CORTE = 7;
     const now = new Date();
@@ -604,80 +604,97 @@ function ventanaDiaAnterior() {
     return { desde, hasta };
 }
 
-async function cargarResumenAyer() {
+function ventanaHoy() {
+    return { desde: ventanaDiaAnterior().hasta, hasta: Date.now() };
+}
+
+async function fetchFichajes(desde, hasta) {
+    const ctrl = new AbortController();
+    const to = setTimeout(() => ctrl.abort(), 8000);
     try {
-        const { desde, hasta } = ventanaDiaAnterior();
-        const ctrl = new AbortController();
-        const to = setTimeout(() => ctrl.abort(), 8000);
         const res = await fetch(
             `/api/fichajes?centro=${encodeURIComponent(centroActual)}&desde=${desde}&hasta=${hasta}`,
             { signal: ctrl.signal, cache: 'no-store' }
         );
         clearTimeout(to);
-        if (!res.ok) { renderizarResumenAyer([]); return; }
-        const fichajes = await res.json();
-
-        // Agrupar por empleado (API devuelve ORDER BY timestamp DESC)
-        const porEmpleado = {};
-        fichajes.forEach(f => {
-            if (!porEmpleado[f.empleado]) porEmpleado[f.empleado] = [];
-            porEmpleado[f.empleado].push(f);
-        });
-
-        const resumen = [];
-        Object.entries(porEmpleado).forEach(([nombre, registros]) => {
-            // Cronológico ascendente
-            const cron = registros.slice().reverse();
-            const entrada = cron.find(r => r.tipo === 'entrada');
-            let salidaHora = null;
-            for (const r of cron) if (r.tipo === 'salida') salidaHora = r.hora;
-
-            const descansos = [];
-            let ini = null;
-            for (const r of cron) {
-                if (r.tipo === 'inicio_descanso') {
-                    ini = { hora: r.hora, timestamp: Number(r.timestamp) };
-                } else if (r.tipo === 'fin_descanso' && ini) {
-                    const durMin = Math.round((Number(r.timestamp) - ini.timestamp) / 60000);
-                    descansos.push({ inicio: ini.hora, fin: r.hora, durMin });
-                    ini = null;
-                }
-            }
-            const descansoSinCerrar = ini ? { hora: ini.hora } : null;
-
-            resumen.push({
-                nombre,
-                entradaHora: entrada ? entrada.hora : null,
-                salidaHora,
-                descansos,
-                descansoSinCerrar
-            });
-        });
-
-        resumen.sort((a, b) => a.nombre.localeCompare(b.nombre));
-        renderizarResumenAyer(resumen);
+        if (!res.ok) return [];
+        const data = await res.json();
+        return Array.isArray(data) ? data : [];
     } catch {
-        renderizarResumenAyer([]);
+        clearTimeout(to);
+        return [];
     }
 }
 
-function renderizarResumenAyer(resumen) {
+function construirResumen(fichajes) {
+    // Agrupar por empleado (API devuelve ORDER BY timestamp DESC)
+    const porEmpleado = {};
+    fichajes.forEach(f => {
+        if (!porEmpleado[f.empleado]) porEmpleado[f.empleado] = [];
+        porEmpleado[f.empleado].push(f);
+    });
+
+    const resumen = [];
+    Object.entries(porEmpleado).forEach(([nombre, registros]) => {
+        const cron = registros.slice().reverse(); // cronológico ascendente
+        const entrada = cron.find(r => r.tipo === 'entrada');
+        let salidaHora = null;
+        for (const r of cron) if (r.tipo === 'salida') salidaHora = r.hora;
+
+        const descansos = [];
+        let ini = null;
+        for (const r of cron) {
+            if (r.tipo === 'inicio_descanso') {
+                ini = { hora: r.hora, timestamp: Number(r.timestamp) };
+            } else if (r.tipo === 'fin_descanso' && ini) {
+                const durMin = Math.round((Number(r.timestamp) - ini.timestamp) / 60000);
+                descansos.push({ inicio: ini.hora, fin: r.hora, durMin });
+                ini = null;
+            }
+        }
+        const descansoSinCerrar = ini ? { hora: ini.hora } : null;
+
+        resumen.push({
+            nombre,
+            entradaHora: entrada ? entrada.hora : null,
+            salidaHora,
+            descansos,
+            descansoSinCerrar,
+            ultimoTipo: registros[0] ? registros[0].tipo : null
+        });
+    });
+
+    resumen.sort((a, b) => a.nombre.localeCompare(b.nombre));
+    return resumen;
+}
+
+async function cargarResumenPrevios() {
+    const hoyW = ventanaHoy();
+    const ayerW = ventanaDiaAnterior();
+    const [fHoy, fAyer] = await Promise.all([
+        fetchFichajes(hoyW.desde, hoyW.hasta),
+        fetchFichajes(ayerW.desde, ayerW.hasta)
+    ]);
+
     const panel = document.getElementById('ayerPanel');
-    const lista = document.getElementById('ayerLista');
-    const countEl = document.getElementById('ayerCount');
-    if (!panel || !lista) return;
+    if (panel) panel.style.display = 'block';
 
-    panel.style.display = 'block';
+    // Hoy: solo quien ya se fue (último movimiento = salida). Los que
+    // siguen activos ya aparecen en el panel verde "En local ahora".
+    const hoy = construirResumen(fHoy).filter(p => p.ultimoTipo === 'salida');
+    renderizarResumen(document.getElementById('hoyLista'), hoy, 'Nadie se ha ido aún hoy');
+    renderizarResumen(document.getElementById('ayerLista'), construirResumen(fAyer), 'Sin registros del día anterior');
+}
 
-    if (resumen.length === 0) {
-        if (countEl) countEl.textContent = '';
-        lista.innerHTML = '<div class="turno-vacio">Sin registros del día anterior</div>';
+function renderizarResumen(lista, items, vacioMsg) {
+    if (!lista) return;
+
+    if (items.length === 0) {
+        lista.innerHTML = `<div class="turno-vacio">${vacioMsg}</div>`;
         return;
     }
 
-    if (countEl) countEl.textContent = `${resumen.length} persona${resumen.length !== 1 ? 's' : ''}`;
-
-    lista.innerHTML = resumen.map(({ nombre, entradaHora, salidaHora, descansos, descansoSinCerrar }) => {
+    lista.innerHTML = items.map(({ nombre, entradaHora, salidaHora, descansos, descansoSinCerrar }) => {
         const completo = !!salidaHora;
         const variant = completo ? 'activo' : 'warning';
         const badgeText = completo ? 'Completo' : 'Sin salida';
