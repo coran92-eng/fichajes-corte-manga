@@ -122,13 +122,26 @@ async function renderEmpleados(intento = 0) {
                 `<option value="${c}"${c === sel ? ' selected' : ''}>${c}</option>`
             ).join('');
 
-        contenedor.innerHTML = lista.map(({ nombre, centro }) => {
+        const ROLES = [
+            { value: '',       label: 'Sin rol' },
+            { value: 'cocina', label: 'Cocina' },
+            { value: 'sala',   label: 'Sala' },
+            { value: 'mixto',  label: 'Mixto' },
+        ];
+        const opcionesRol = (sel) => ROLES.map(r =>
+            `<option value="${r.value}"${r.value === (sel || '') ? ' selected' : ''}>${r.label}</option>`
+        ).join('');
+
+        contenedor.innerHTML = lista.map(({ nombre, centro, rol }) => {
             const nEsc = nombre.replace(/"/g, '&quot;');
             return `
-            <div class="empleado-tag">
+            <div class="empleado-tag empleado-rol--${rol || 'sin'}">
                 ${nombre}
                 <select class="empleado-centro" data-nombre="${nEsc}" title="Centro de ${nombre}">
                     ${opcionesCentro(centro)}
+                </select>
+                <select class="empleado-rol" data-nombre="${nEsc}" title="Rol de ${nombre}">
+                    ${opcionesRol(rol)}
                 </select>
                 <button type="button" title="Eliminar ${nombre}" onclick="window.confirmarEliminarEmpleado('${nombre.replace(/'/g, "\\'")}')">✕</button>
             </div>`;
@@ -137,6 +150,10 @@ async function renderEmpleados(intento = 0) {
         contenedor.querySelectorAll('.empleado-centro').forEach(sel => {
             sel.addEventListener('change', () =>
                 window.asignarCentroEmpleado(sel.dataset.nombre, sel.value));
+        });
+        contenedor.querySelectorAll('.empleado-rol').forEach(sel => {
+            sel.addEventListener('change', () =>
+                window.asignarRolEmpleado(sel.dataset.nombre, sel.value));
         });
     } catch (err) {
         if (intento < 2) {
@@ -180,6 +197,23 @@ window.asignarCentroEmpleado = async function(nombre, centro) {
         mostrarMensaje(`✓ "${nombre}" asignado a ${centro || 'sin centro'}`, 'success');
     } catch {
         mostrarMensaje(`✗ Error al asignar centro a "${nombre}"`, 'error');
+        renderEmpleados();
+    }
+};
+
+window.asignarRolEmpleado = async function(nombre, rol) {
+    try {
+        const response = await fetch('/api/empleados', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ nombre, rol })
+        });
+        if (!response.ok) throw new Error();
+        const etiqueta = rol ? rol.charAt(0).toUpperCase() + rol.slice(1) : 'sin rol';
+        mostrarMensaje(`✓ "${nombre}" · rol: ${etiqueta}`, 'success');
+        renderEmpleados();
+    } catch {
+        mostrarMensaje(`✗ Error al asignar rol a "${nombre}"`, 'error');
         renderEmpleados();
     }
 };
@@ -461,6 +495,10 @@ function configurarBotones() {
 
     document.getElementById('btnHorasSemana').addEventListener('click', () => {
         window.location.href = 'horas-semana.html';
+    });
+
+    document.getElementById('btnHorasMes')?.addEventListener('click', () => {
+        window.location.href = 'horas-mes.html';
     });
 
     document.getElementById('btnEmpleados').addEventListener('click', () => {

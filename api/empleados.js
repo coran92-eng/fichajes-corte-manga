@@ -18,6 +18,10 @@ export default async function handler(req, res) {
       await db.execute("ALTER TABLE empleados ADD COLUMN centro TEXT NOT NULL DEFAULT ''");
     } catch {}
 
+    try {
+      await db.execute("ALTER TABLE empleados ADD COLUMN rol TEXT NOT NULL DEFAULT ''");
+    } catch {}
+
     if (req.method === "GET") {
       res.setHeader('Cache-Control', 'no-store');
       const { centro } = req.query;
@@ -27,48 +31,57 @@ export default async function handler(req, res) {
         // Empleados del centro + los que no tengan centro asignado.
         // Comparación tolerante: ignora mayúsculas y espacios sobrantes.
         result = await db.execute({
-          sql: "SELECT nombre, centro FROM empleados WHERE LOWER(TRIM(COALESCE(centro,''))) = LOWER(TRIM(?)) OR TRIM(COALESCE(centro,'')) = '' ORDER BY nombre ASC",
+          sql: "SELECT nombre, centro, rol FROM empleados WHERE LOWER(TRIM(COALESCE(centro,''))) = LOWER(TRIM(?)) OR TRIM(COALESCE(centro,'')) = '' ORDER BY nombre ASC",
           args: [centro]
         });
       } else {
-        result = await db.execute("SELECT nombre, centro FROM empleados ORDER BY nombre ASC");
+        result = await db.execute("SELECT nombre, centro, rol FROM empleados ORDER BY nombre ASC");
       }
 
       if (result.rows.length === 0) {
         if (centro) {
           // No hay empleados para este centro, usar todos los empleados
-          result = await db.execute("SELECT nombre, centro FROM empleados ORDER BY nombre ASC");
+          result = await db.execute("SELECT nombre, centro, rol FROM empleados ORDER BY nombre ASC");
         }
         if (result.rows.length === 0) {
           // Tabla vacía, insertar defaults
           for (const nombre of DEFAULTS) {
             await db.execute({ sql: "INSERT OR IGNORE INTO empleados (nombre, centro) VALUES (?, '')", args: [nombre] });
           }
-          result = await db.execute("SELECT nombre, centro FROM empleados ORDER BY nombre ASC");
+          result = await db.execute("SELECT nombre, centro, rol FROM empleados ORDER BY nombre ASC");
         }
       }
 
-      return res.status(200).json(result.rows.map(r => ({ nombre: r.nombre, centro: r.centro })));
+      return res.status(200).json(result.rows.map(r => ({ nombre: r.nombre, centro: r.centro, rol: r.rol || '' })));
     }
     else if (req.method === "POST") {
-      const { nombre, centro = '' } = req.body;
+      const { nombre, centro = '', rol = '' } = req.body;
       if (!nombre || !nombre.trim()) {
         return res.status(400).json({ error: "Nombre requerido" });
       }
       await db.execute({
-        sql: "INSERT OR IGNORE INTO empleados (nombre, centro) VALUES (?, ?)",
-        args: [nombre.trim(), centro]
+        sql: "INSERT OR IGNORE INTO empleados (nombre, centro, rol) VALUES (?, ?, ?)",
+        args: [nombre.trim(), centro, rol]
       });
       return res.status(201).json({ success: true });
     }
     else if (req.method === "PUT") {
-      const { nombre, centro = '' } = req.body;
+      const { nombre, centro, rol } = req.body;
       if (!nombre || !nombre.trim()) {
         return res.status(400).json({ error: "Nombre requerido" });
       }
+      // Actualiza solo los campos presentes (para permitir cambiar rol sin tocar centro y viceversa)
+      const sets = [];
+      const args = [];
+      if (typeof centro === 'string') { sets.push("centro = ?"); args.push(centro); }
+      if (typeof rol === 'string')    { sets.push("rol = ?");    args.push(rol); }
+      if (sets.length === 0) {
+        return res.status(400).json({ error: "Nada que actualizar (indica centro o rol)" });
+      }
+      args.push(nombre.trim());
       await db.execute({
-        sql: "UPDATE empleados SET centro = ? WHERE nombre = ?",
-        args: [centro, nombre.trim()]
+        sql: `UPDATE empleados SET ${sets.join(', ')} WHERE nombre = ?`,
+        args
       });
       return res.status(200).json({ success: true });
     }
