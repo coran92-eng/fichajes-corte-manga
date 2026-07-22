@@ -1,0 +1,405 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#2563eb">
+    <title>Horas del Mes · Previsto vs Real</title>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <script>
+        function verificarSesion() {
+            const token = sessionStorage.getItem('admin_session');
+            const loginTime = sessionStorage.getItem('login_time');
+            if (!token || !loginTime) return false;
+            const ochoHoras = 8 * 60 * 60 * 1000;
+            if (Date.now() - parseInt(loginTime) > ochoHoras) {
+                sessionStorage.removeItem('admin_session');
+                sessionStorage.removeItem('login_time');
+                return false;
+            }
+            return true;
+        }
+        if (!verificarSesion()) window.location.href = 'login.html';
+    </script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100dvh;
+            padding: 20px;
+        }
+        .container {
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            padding: 30px;
+            max-width: 1100px;
+            margin: 0 auto;
+        }
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 30px;
+            flex-wrap: wrap;
+            gap: 15px;
+        }
+        .header h1 { color: #1f2937; font-size: 26px; }
+        button {
+            padding: 10px 18px;
+            border: none;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+        }
+        .btn-volver { background: #6b7280; color: white; display: inline-flex; align-items: center; gap: 6px; }
+        .btn-volver:hover { background: #4b5563; }
+        .filtros {
+            background: #f9fafb;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 25px;
+            display: flex;
+            gap: 20px;
+            align-items: flex-end;
+            flex-wrap: wrap;
+        }
+        .filtro-grupo { display: flex; flex-direction: column; gap: 5px; }
+        .filtro-grupo label {
+            font-size: 12px;
+            font-weight: 600;
+            color: #6b7280;
+        }
+        .filtro-grupo select, .filtro-grupo input {
+            padding: 8px 12px;
+            border: 2px solid #e5e7eb;
+            border-radius: 6px;
+            font-size: 14px;
+            font-family: inherit;
+        }
+        .filtro-grupo select:focus, .filtro-grupo input:focus {
+            outline: none;
+            border-color: #2563eb;
+        }
+        table { width: 100%; border-collapse: collapse; }
+        thead { background: #f3f4f6; }
+        th, td {
+            padding: 12px 14px;
+            text-align: left;
+            border-bottom: 1px solid #e5e7eb;
+            font-size: 14px;
+        }
+        th { font-weight: 600; color: #374151; }
+        tbody tr:hover { background: #f9fafb; }
+        tfoot td {
+            font-weight: 700;
+            background: #f3f4f6;
+            border-top: 2px solid #d1d5db;
+        }
+        .rol-dot {
+            display: inline-block;
+            width: 10px;
+            height: 10px;
+            border-radius: 3px;
+            margin-right: 6px;
+            vertical-align: middle;
+        }
+        .rol-dot.cocina { background: #f97316; }
+        .rol-dot.sala   { background: #3b82f6; }
+        .rol-dot.mixto  { background: #a855f7; }
+        .rol-dot.sinrol { background: #9ca3af; }
+        .mono { font-family: 'Courier New', monospace; font-weight: 600; color: #1f2937; }
+        .diff-pos { color: #065f46; font-weight: 700; }
+        .diff-neg { color: #b91c1c; font-weight: 700; }
+        .diff-zero { color: #6b7280; }
+        .empty {
+            text-align: center;
+            padding: 50px 20px;
+            color: #6b7280;
+            font-size: 16px;
+        }
+        #tablaContainer { overflow-x: auto; }
+        .status {
+            padding: 10px 12px;
+            border-radius: 6px;
+            font-size: 13px;
+            margin-bottom: 15px;
+            display: none;
+        }
+        .status.info { background: #dbeafe; color: #1e40af; display: block; }
+        .status.error { background: #fee2e2; color: #7f1d1d; display: block; }
+        @media (max-width: 768px) {
+            .container { padding: 15px; }
+            th, td { padding: 8px 10px; font-size: 12px; }
+            .filtros { flex-direction: column; align-items: stretch; }
+        }
+        @media (prefers-color-scheme: dark) {
+            body { background: #111827; }
+            .container { background: #1f2937; color: #e5e7eb; }
+            .header h1 { color: #e5e7eb; }
+            th { color: #e5e7eb; }
+            thead { background: #374151; }
+            tbody tr:hover { background: #2d3748; }
+            tfoot td { background: #374151; border-top-color: #4b5563; }
+            .filtros { background: #374151; }
+            .filtro-grupo select, .filtro-grupo input {
+                background: #4b5563; color: #e5e7eb; border-color: #6b7280;
+            }
+            td { color: #d1d5db; }
+            .mono { color: #e5e7eb; }
+            .diff-zero { color: #9ca3af; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>
+                <i data-lucide="calendar-range" aria-hidden="true" style="width:24px;height:24px;vertical-align:middle;margin-right:8px"></i>
+                Horas del Mes · Previsto vs Real
+            </h1>
+            <button class="btn-volver" onclick="window.location.href='admin.html'">
+                <i data-lucide="arrow-left" aria-hidden="true" style="width:15px;height:15px"></i> Volver
+            </button>
+        </div>
+
+        <div class="filtros">
+            <div class="filtro-grupo">
+                <label for="inpMes">Mes</label>
+                <input type="month" id="inpMes">
+            </div>
+            <div class="filtro-grupo">
+                <label for="selCentro">Centro</label>
+                <select id="selCentro"><option value="">-- Selecciona --</option></select>
+            </div>
+        </div>
+
+        <div id="status" class="status"></div>
+        <div id="tablaContainer">
+            <div class="empty">Elige mes y centro para ver el resumen.</div>
+        </div>
+    </div>
+
+    <script>
+    (function() {
+        // ── Helpers ──────────────────────────────────────────────
+        const $ = (id) => document.getElementById(id);
+
+        function toOpMinutesHM(hhmm) {
+            if (!hhmm || !/^\d{1,2}:\d{2}/.test(hhmm)) return NaN;
+            const [h, m] = hhmm.split(':').map(Number);
+            return h * 60 + m;
+        }
+        // Duración en minutos con cruce de medianoche (07:30 → 03:00 permitido)
+        function durHorarioMin(entrada, salida) {
+            const e = toOpMinutesHM(entrada);
+            const s = toOpMinutesHM(salida);
+            if (isNaN(e) || isNaN(s)) return 0;
+            let d = s - e;
+            if (d <= 0) d += 24 * 60;
+            // Descartar duraciones absurdas (>24h)
+            if (d > 24 * 60) d = 0;
+            return d;
+        }
+        function minToHoras(min) {
+            if (min < 0) min = 0;
+            const h = Math.floor(min / 60);
+            const m = min % 60;
+            return `${h}h ${String(m).padStart(2, '0')}m`;
+        }
+        function pad2(n) { return String(n).padStart(2, '0'); }
+        function ymd(d) {
+            return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+        }
+        function setStatus(txt, tipo) {
+            const el = $('status');
+            el.className = 'status' + (tipo ? ' ' + tipo : '');
+            el.textContent = txt || '';
+        }
+
+        // ── Cargar centros ───────────────────────────────────────
+        async function cargarCentros() {
+            try {
+                const res = await fetch('/config.json');
+                const cfg = await res.json();
+                const sel = $('selCentro');
+                (cfg.centros || []).forEach(c => {
+                    const o = document.createElement('option');
+                    o.value = c; o.textContent = c;
+                    sel.appendChild(o);
+                });
+            } catch (e) {
+                setStatus('No se pudieron cargar los centros', 'error');
+            }
+        }
+
+        // ── Cargar y calcular ────────────────────────────────────
+        async function cargarResumen() {
+            const mes = $('inpMes').value;    // "YYYY-MM"
+            const centro = $('selCentro').value;
+            const cont = $('tablaContainer');
+
+            if (!mes || !centro) {
+                cont.innerHTML = '<div class="empty">Elige mes y centro para ver el resumen.</div>';
+                return;
+            }
+
+            setStatus('Cargando datos del mes...', 'info');
+
+            const [y, m] = mes.split('-').map(Number);
+            const inicio = new Date(y, m - 1, 1);
+            const fin = new Date(y, m, 1); // primer día del mes siguiente
+            const desde = inicio.getTime();
+            const hasta = fin.getTime();
+
+            try {
+                const [empleadosRes, horariosRes, fichajesRes] = await Promise.all([
+                    fetch(`/api/empleados?centro=${encodeURIComponent(centro)}`),
+                    fetch(`/api/horarios?centro=${encodeURIComponent(centro)}&estado=validado`),
+                    fetch(`/api/fichajes?centro=${encodeURIComponent(centro)}&desde=${desde}&hasta=${hasta}`),
+                ]);
+                if (!empleadosRes.ok || !horariosRes.ok || !fichajesRes.ok) {
+                    throw new Error('Error de red');
+                }
+                const empleados = await empleadosRes.json();
+                const horarios = await horariosRes.json();
+                const fichajes = await fichajesRes.json();
+
+                // Previsto: sumar duración de horarios cuya fecha cae en el mes
+                const previstoMin = {}; // { empleado: min }
+                horarios.forEach(h => {
+                    if (h.fecha < ymd(inicio) || h.fecha >= ymd(fin)) return;
+                    const d = durHorarioMin(h.hora_entrada, h.hora_salida);
+                    previstoMin[h.empleado] = (previstoMin[h.empleado] || 0) + d;
+                });
+
+                // Real: emparejar entrada/salida por empleado y día
+                const porEmp = {};
+                fichajes.forEach(f => {
+                    (porEmp[f.empleado] = porEmp[f.empleado] || []).push(f);
+                });
+                const realMin = {};
+                Object.entries(porEmp).forEach(([nombre, regs]) => {
+                    // API devuelve DESC; ordenar por timestamp asc
+                    regs.sort((a, b) => Number(a.timestamp) - Number(b.timestamp));
+                    let entradaTs = null;
+                    let descIni = null;
+                    let trabajadoMs = 0;
+                    for (const r of regs) {
+                        const ts = Number(r.timestamp);
+                        if (r.tipo === 'entrada') {
+                            entradaTs = ts;
+                        } else if (r.tipo === 'salida') {
+                            if (entradaTs != null) {
+                                trabajadoMs += (ts - entradaTs);
+                                entradaTs = null;
+                            }
+                        } else if (r.tipo === 'inicio_descanso') {
+                            descIni = ts;
+                        } else if (r.tipo === 'fin_descanso') {
+                            if (descIni != null) {
+                                trabajadoMs -= (ts - descIni);
+                                descIni = null;
+                            }
+                        }
+                    }
+                    realMin[nombre] = Math.max(0, Math.round(trabajadoMs / 60000));
+                });
+
+                // Fila por empleado registrado en el centro, incluidos los sin datos
+                const filas = empleados.map(e => {
+                    const nombre = e.nombre;
+                    const rol = e.rol || '';
+                    const prev = previstoMin[nombre] || 0;
+                    const real = realMin[nombre] || 0;
+                    return { nombre, rol, previsto: prev, real, diff: real - prev };
+                });
+                // Añadir empleados que tienen datos pero no están en la lista del centro
+                const setNombres = new Set(empleados.map(e => e.nombre));
+                Object.keys({ ...previstoMin, ...realMin }).forEach(nombre => {
+                    if (!setNombres.has(nombre)) {
+                        filas.push({
+                            nombre, rol: '',
+                            previsto: previstoMin[nombre] || 0,
+                            real: realMin[nombre] || 0,
+                            diff: (realMin[nombre] || 0) - (previstoMin[nombre] || 0)
+                        });
+                    }
+                });
+                filas.sort((a, b) => a.nombre.localeCompare(b.nombre));
+
+                renderTabla(filas);
+                setStatus('', '');
+            } catch (e) {
+                console.error(e);
+                setStatus('Error al cargar los datos', 'error');
+            }
+        }
+
+        function renderTabla(filas) {
+            const cont = $('tablaContainer');
+            if (!filas.length) {
+                cont.innerHTML = '<div class="empty">No hay empleados en este centro.</div>';
+                return;
+            }
+            const rolLabel = { cocina: 'Cocina', sala: 'Sala', mixto: 'Mixto' };
+            const rows = filas.map(f => {
+                const rolCls = f.rol ? f.rol : 'sinrol';
+                const rolTxt = rolLabel[f.rol] || 'Sin rol';
+                let diffCls = 'diff-zero';
+                if (f.diff > 5)  diffCls = 'diff-pos';  // más de 5 min de más
+                if (f.diff < -5) diffCls = 'diff-neg';
+                const sign = f.diff > 0 ? '+' : (f.diff < 0 ? '−' : '');
+                return `<tr>
+                    <td><span class="rol-dot ${rolCls}"></span>${escapeHtml(f.nombre)}</td>
+                    <td>${rolTxt}</td>
+                    <td class="mono">${minToHoras(f.previsto)}</td>
+                    <td class="mono">${minToHoras(f.real)}</td>
+                    <td class="mono ${diffCls}">${sign}${minToHoras(Math.abs(f.diff))}</td>
+                </tr>`;
+            }).join('');
+            const totales = filas.reduce((a, f) => ({
+                prev: a.prev + f.previsto,
+                real: a.real + f.real,
+                diff: a.diff + f.diff,
+            }), { prev: 0, real: 0, diff: 0 });
+            const totalDiffCls = totales.diff > 5 ? 'diff-pos'
+                             : totales.diff < -5 ? 'diff-neg' : 'diff-zero';
+            const totalSign = totales.diff > 0 ? '+' : (totales.diff < 0 ? '−' : '');
+            cont.innerHTML = `<table>
+                <thead><tr>
+                    <th>Empleado</th><th>Rol</th>
+                    <th>Previsto</th><th>Real</th><th>Diferencia (real − previsto)</th>
+                </tr></thead>
+                <tbody>${rows}</tbody>
+                <tfoot><tr>
+                    <td>Total</td><td></td>
+                    <td class="mono">${minToHoras(totales.prev)}</td>
+                    <td class="mono">${minToHoras(totales.real)}</td>
+                    <td class="mono ${totalDiffCls}">${totalSign}${minToHoras(Math.abs(totales.diff))}</td>
+                </tr></tfoot>
+            </table>`;
+        }
+
+        function escapeHtml(s) {
+            return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+        }
+
+        // ── Init ────────────────────────────────────────────────
+        document.addEventListener('DOMContentLoaded', async () => {
+            // Mes por defecto = mes actual
+            const now = new Date();
+            $('inpMes').value = `${now.getFullYear()}-${pad2(now.getMonth() + 1)}`;
+
+            await cargarCentros();
+
+            $('inpMes').addEventListener('change', cargarResumen);
+            $('selCentro').addEventListener('change', cargarResumen);
+            if (typeof lucide !== 'undefined') lucide.createIcons();
+        });
+    })();
+    </script>
+</body>
+</html>

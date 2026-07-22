@@ -247,11 +247,11 @@
             flex-direction: column;
             gap: 5px;
             align-items: center;
-            min-width: 100px;
+            min-width: 108px;
         }
 
         .horario-cell input[type="time"] {
-            width: 90px;
+            width: 92px;
             padding: 5px 7px;
             border: 1px solid #d1d5db;
             border-radius: 6px;
@@ -274,8 +274,76 @@
             border-radius: 6px;
         }
 
-        .horario-cell.es-libre input[type="time"] {
+        .horario-cell.es-libre input[type="time"],
+        .horario-cell.es-libre .turno-dur,
+        .horario-cell.es-libre .turno-bar {
             display: none;
+        }
+
+        /* Duración del turno */
+        .turno-dur {
+            font-size: 11px;
+            font-weight: 700;
+            color: #374151;
+            font-variant-numeric: tabular-nums;
+        }
+
+        /* Barra visual sobre la franja operativa (07:30 → 03:00) */
+        .turno-bar {
+            width: 96px;
+            height: 6px;
+            background: #e5e7eb;
+            border-radius: 3px;
+            position: relative;
+            overflow: hidden;
+        }
+        .turno-bar-fill {
+            position: absolute;
+            top: 0;
+            bottom: 0;
+            background: #9ca3af;
+            border-radius: 3px;
+        }
+        /* Coloreado por rol del empleado (aplicado en la fila) */
+        tr.rol-cocina .turno-bar-fill { background: #f97316; }
+        tr.rol-sala   .turno-bar-fill { background: #3b82f6; }
+        tr.rol-mixto  .turno-bar-fill { background: #a855f7; }
+        tr.rol-cocina .td-empleado { border-left: 4px solid #f97316; }
+        tr.rol-sala   .td-empleado { border-left: 4px solid #3b82f6; }
+        tr.rol-mixto  .td-empleado { border-left: 4px solid #a855f7; }
+        tr.rol-cocina .horario-cell input[type="time"] { border-color: #fed7aa; }
+        tr.rol-sala   .horario-cell input[type="time"] { border-color: #bfdbfe; }
+        tr.rol-mixto  .horario-cell input[type="time"] { border-color: #e9d5ff; }
+
+        /* Leyenda de colores por rol */
+        .leyenda {
+            display: flex;
+            gap: 14px;
+            align-items: center;
+            flex-wrap: wrap;
+            font-size: 12px;
+            color: #6b7280;
+            margin-bottom: 12px;
+        }
+        .leyenda-chip {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .leyenda-dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 3px;
+            display: inline-block;
+        }
+        .leyenda-dot.cocina { background: #f97316; }
+        .leyenda-dot.sala   { background: #3b82f6; }
+        .leyenda-dot.mixto  { background: #a855f7; }
+        .leyenda-dot.sinrol { background: #9ca3af; }
+        .leyenda-info {
+            margin-left: auto;
+            font-size: 11px;
+            color: #9ca3af;
         }
 
         /* Toggle libre */
@@ -431,6 +499,11 @@
             .libranza-toggle {
                 color: #9ca3af;
             }
+
+            .turno-dur { color: #e5e7eb; }
+            .turno-bar { background: #374151; }
+            .leyenda { color: #9ca3af; }
+            .leyenda-info { color: #6b7280; }
         }
 
         /* Responsive */
@@ -500,6 +573,15 @@
 
         <!-- Mensaje de estado -->
         <div id="message" class="message" role="alert" aria-live="polite" aria-atomic="true"></div>
+
+        <!-- Leyenda de colores por rol -->
+        <div class="leyenda" id="leyendaRoles" style="display:none">
+            <span class="leyenda-chip"><span class="leyenda-dot cocina"></span> Cocina</span>
+            <span class="leyenda-chip"><span class="leyenda-dot sala"></span> Sala</span>
+            <span class="leyenda-chip"><span class="leyenda-dot mixto"></span> Mixto</span>
+            <span class="leyenda-chip"><span class="leyenda-dot sinrol"></span> Sin rol</span>
+            <span class="leyenda-info">Rango operativo 07:30 → 03:00 · pasos de 30 min</span>
+        </div>
 
         <!-- Tabla de horario (JS la renderiza) -->
         <div id="tablaHorario" class="horario-grid-wrapper">

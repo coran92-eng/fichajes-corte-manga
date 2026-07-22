@@ -3,7 +3,54 @@
 
 let centroActual = '';
 let semanaActual = '';
-let empleadosList = [];
+let empleadosList = []; // [{ nombre, rol }]
+
+// ── Rango operativo (07:30 → 03:00 día siguiente) ─────────────
+const APERTURA_MIN = 7 * 60 + 30;   // 07:30 en minutos absolutos
+const DURACION_OP = 19.5 * 60;      // 1170 min
+
+/**
+ * Minutos operativos: 07:30 = 0, ..., 03:00 (día siguiente) = 1170.
+ * Devuelve NaN si el string no es HH:MM.
+ */
+function toOpMinutes(hhmm) {
+    if (!hhmm || !/^\d{1,2}:\d{2}$/.test(hhmm)) return NaN;
+    const [h, m] = hhmm.split(':').map(Number);
+    const abs = h * 60 + m;
+    let op = abs - APERTURA_MIN;
+    if (op < 0) op += 24 * 60;
+    return op;
+}
+
+/**
+ * true si HH:MM cae dentro de 07:30 → 03:00 (día siguiente) y es media hora exacta.
+ */
+function esHoraOperativa(hhmm) {
+    const op = toOpMinutes(hhmm);
+    return !isNaN(op) && op >= 0 && op <= DURACION_OP && op % 30 === 0;
+}
+
+/**
+ * Devuelve la duración (min) de un turno entrada→salida en el rango operativo,
+ * o null si el turno no es válido.
+ */
+function duracionTurnoMin(entrada, salida) {
+    const e = toOpMinutes(entrada);
+    const s = toOpMinutes(salida);
+    if (isNaN(e) || isNaN(s)) return null;
+    if (e < 0 || e > DURACION_OP || s < 0 || s > DURACION_OP) return null;
+    const dur = s - e;
+    return dur > 0 ? dur : null;
+}
+
+/**
+ * Formatea min en "Hh Mm" (6h 30m).
+ */
+function formatDur(min) {
+    const h = Math.floor(min / 60);
+    const m = min % 60;
+    return m ? `${h}h ${m}m` : `${h}h`;
+}
 
 // ── Helpers de fecha ──────────────────────────────────────────
 
@@ -205,8 +252,10 @@ async function cargarEmpleados(centro) {
         const res = await fetch(`/api/empleados?centro=${encodeURIComponent(centro)}`);
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const raw = await res.json();
-        // Normalise: accept both string and object entries
-        empleadosList = raw.map(e => (typeof e === 'string' ? e : e.nombre));
+        // Normalise a {nombre, rol}
+        empleadosList = raw.map(e => typeof e === 'string'
+            ? { nombre: e, rol: '' }
+            : { nombre: e.nombre, rol: e.rol || '' });
         mostrarMensaje('', '');
         renderTabla();
     } catch (err) {
@@ -327,13 +376,21 @@ function renderTabla(horarioExistente = []) {
     }).join('');
 
     // Employee rows
-    const rows = empleadosList.map(empleado => {
+    const rows = empleadosList.map(({ nombre: empleado, rol }) => {
+        const rolClass = rol ? ` rol-${rol}` : '';
         const cells = week.days.map((day) => {
             const fecha = formatISO(day);
             const entry = lookup[`${empleado}|${fecha}`] || null;
             const esLibre = entry && entry.libre === true;
-            const entrada = entry ? (entry.hora_entrada || '09:00') : '09:00';
-            const salida = entry ? (entry.hora_salida || '17:00') : '17:00';
+            // Defaults dentro del rango operativo: 07:30 → 15:00 (turno de día)
+            const entrada = entry ? (entry.hora_entrada || '07:30') : '07:30';
+            const salida  = entry ? (entry.hora_salida  || '15:00') : '15:00';
+
+            const durMin = duracionTurnoMin(entrada, salida);
+            const durTxt = durMin != null ? formatDur(durMin) : '—';
+            const opE = toOpMinutes(entrada);
+            const barLeft  = durMin != null ? (opE / DURACION_OP) * 100 : 0;
+            const barWidth = durMin != null ? (durMin / DURACION_OP) * 100 : 0;
 
             return `
                 <td>
@@ -343,15 +400,19 @@ function renderTabla(horarioExistente = []) {
                         <label class="libranza-toggle">
                             <input type="checkbox" class="chk-libre"${esLibre ? ' checked' : ''}> Libre
                         </label>
-                        <input type="time" class="inp-entrada" value="${entrada}" aria-label="Hora entrada">
-                        <input type="time" class="inp-salida" value="${salida}" aria-label="Hora salida">
+                        <input type="time" class="inp-entrada" step="1800" value="${entrada}" aria-label="Hora entrada">
+                        <input type="time" class="inp-salida"  step="1800" value="${salida}"  aria-label="Hora salida">
+                        <span class="turno-dur">${durTxt}</span>
+                        <div class="turno-bar" aria-hidden="true">
+                            <div class="turno-bar-fill" style="left:${barLeft.toFixed(1)}%;width:${barWidth.toFixed(1)}%"></div>
+                        </div>
                     </div>
                 </td>
             `;
         }).join('');
 
         return `
-            <tr>
+            <tr class="${rolClass.trim()}">
                 <td class="td-empleado">${escapeHtml(empleado)}</td>
                 ${cells}
             </tr>
@@ -376,9 +437,33 @@ function renderTabla(horarioExistente = []) {
     wrapper.querySelectorAll('.chk-libre').forEach(chk => {
         chk.addEventListener('change', onLibreToggle);
     });
+    // Recalcular duración y barra al cambiar horas
+    wrapper.querySelectorAll('.inp-entrada, .inp-salida').forEach(inp => {
+        inp.addEventListener('change', () => actualizarCelda(inp.closest('.horario-cell')));
+    });
 
+    document.getElementById('leyendaRoles').style.display = 'flex';
     document.getElementById('btnEnviar').disabled = false;
     if (typeof lucide !== 'undefined') lucide.createIcons();
+}
+
+function actualizarCelda(cell) {
+    if (!cell) return;
+    const entrada = cell.querySelector('.inp-entrada')?.value || '';
+    const salida  = cell.querySelector('.inp-salida')?.value || '';
+    const durEl = cell.querySelector('.turno-dur');
+    const fillEl = cell.querySelector('.turno-bar-fill');
+    const durMin = duracionTurnoMin(entrada, salida);
+    if (durEl) durEl.textContent = durMin != null ? formatDur(durMin) : '—';
+    if (fillEl) {
+        if (durMin != null) {
+            const opE = toOpMinutes(entrada);
+            fillEl.style.left  = `${((opE / DURACION_OP) * 100).toFixed(1)}%`;
+            fillEl.style.width = `${((durMin / DURACION_OP) * 100).toFixed(1)}%`;
+        } else {
+            fillEl.style.width = '0%';
+        }
+    }
 }
 
 function onLibreToggle(e) {
@@ -406,6 +491,7 @@ async function enviarHorario() {
     // Collect all non-libre cells that have both time inputs filled
     const cells = document.querySelectorAll('.horario-cell:not(.es-libre)');
     const turnos = [];
+    const invalidos = [];
 
     cells.forEach(cell => {
         const empleado = cell.dataset.empleado;
@@ -413,10 +499,25 @@ async function enviarHorario() {
         const entrada = cell.querySelector('.inp-entrada')?.value;
         const salida = cell.querySelector('.inp-salida')?.value;
 
-        if (empleado && fecha && entrada && salida) {
-            turnos.push({ empleado, centro: centroActual, fecha, hora_entrada: entrada, hora_salida: salida, semana: semanaActual });
+        if (!empleado || !fecha || !entrada || !salida) return;
+
+        // Validar rango operativo 07:30 → 03:00 y pasos de 30 min
+        if (!esHoraOperativa(entrada) || !esHoraOperativa(salida)) {
+            invalidos.push(`${empleado} (${fecha}): fuera del rango 07:30–03:00 o no es media hora exacta`);
+            return;
         }
+        const dur = duracionTurnoMin(entrada, salida);
+        if (dur == null) {
+            invalidos.push(`${empleado} (${fecha}): salida debe ser posterior a entrada`);
+            return;
+        }
+        turnos.push({ empleado, centro: centroActual, fecha, hora_entrada: entrada, hora_salida: salida, semana: semanaActual });
     });
+
+    if (invalidos.length > 0) {
+        mostrarMensaje(`Corrige antes de enviar: ${invalidos.join(' | ')}`, 'error');
+        return;
+    }
 
     if (turnos.length === 0) {
         mostrarMensaje('No hay turnos para enviar (todos marcados como Libre)', 'error');
