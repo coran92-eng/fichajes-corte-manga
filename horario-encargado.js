@@ -52,6 +52,21 @@ function formatDur(min) {
     return m ? `${h}h ${m}m` : `${h}h`;
 }
 
+// Colores por rol (usados para pintar los tramos de la barra en línea)
+const ROL_COLOR = {
+    cocina: '#f97316',
+    sala:   '#3b82f6',
+    mixto:  '#a855f7',
+    '':     '#9ca3af',
+};
+function colorRol(rol) { return ROL_COLOR[rol || ''] || '#9ca3af'; }
+
+const ROLES_CAMBIO = [
+    { value: 'cocina', label: 'Cocina' },
+    { value: 'sala',   label: 'Sala' },
+    { value: 'mixto',  label: 'Mixto' },
+];
+
 // ── Helpers de fecha ──────────────────────────────────────────
 
 /**
@@ -385,26 +400,39 @@ function renderTabla(horarioExistente = []) {
             // Defaults dentro del rango operativo: 07:30 → 15:00 (turno de día)
             const entrada = entry ? (entry.hora_entrada || '07:30') : '07:30';
             const salida  = entry ? (entry.hora_salida  || '15:00') : '15:00';
+            const horaCambio = entry ? (entry.hora_cambio || '') : '';
+            const rolSegunda = entry ? (entry.rol_segunda || '') : '';
+            const tieneCambio = !!(horaCambio && rolSegunda);
 
-            const durMin = duracionTurnoMin(entrada, salida);
-            const durTxt = durMin != null ? formatDur(durMin) : '—';
-            const opE = toOpMinutes(entrada);
-            const barLeft  = durMin != null ? (opE / DURACION_OP) * 100 : 0;
-            const barWidth = durMin != null ? (durMin / DURACION_OP) * 100 : 0;
+            const opcionesRolSeg = ROLES_CAMBIO.map(r =>
+                `<option value="${r.value}"${r.value === rolSegunda ? ' selected' : ''}>${r.label}</option>`
+            ).join('');
 
             return `
                 <td>
                     <div class="horario-cell${esLibre ? ' es-libre' : ''}"
                          data-empleado="${escapeAttr(empleado)}"
-                         data-fecha="${fecha}">
+                         data-fecha="${fecha}"
+                         data-rol-emp="${escapeAttr(rol || '')}">
                         <label class="libranza-toggle">
                             <input type="checkbox" class="chk-libre"${esLibre ? ' checked' : ''}> Libre
                         </label>
                         <input type="time" class="inp-entrada" step="1800" value="${entrada}" aria-label="Hora entrada">
                         <input type="time" class="inp-salida"  step="1800" value="${salida}"  aria-label="Hora salida">
-                        <span class="turno-dur">${durTxt}</span>
+                        <span class="turno-dur">—</span>
                         <div class="turno-bar" aria-hidden="true">
-                            <div class="turno-bar-fill" style="left:${barLeft.toFixed(1)}%;width:${barWidth.toFixed(1)}%"></div>
+                            <div class="turno-bar-fill turno-bar-fill--1"></div>
+                            <div class="turno-bar-fill turno-bar-fill--2"></div>
+                        </div>
+                        <button type="button" class="btn-cambio-toggle"${tieneCambio ? ' hidden' : ''}>+ Cambio de rol</button>
+                        <div class="cambio-panel"${tieneCambio ? '' : ' hidden'}>
+                            <span class="cambio-lbl">→</span>
+                            <input type="time" class="inp-cambio" step="1800" value="${horaCambio}" aria-label="Hora del cambio">
+                            <select class="sel-rol2" aria-label="Rol segunda parte">
+                                <option value=""${rolSegunda ? '' : ' selected'}>—</option>
+                                ${opcionesRolSeg}
+                            </select>
+                            <button type="button" class="btn-cambio-remove" title="Quitar cambio">×</button>
                         </div>
                     </div>
                 </td>
@@ -439,11 +467,45 @@ function renderTabla(horarioExistente = []) {
     wrapper.querySelectorAll('.chk-libre').forEach(chk => {
         chk.addEventListener('change', onLibreToggle);
     });
-    // Recalcular duración y barra al cambiar horas
-    wrapper.querySelectorAll('.inp-entrada, .inp-salida').forEach(inp => {
+    // Recalcular duración y barra al cambiar horas o cambio de rol
+    wrapper.querySelectorAll('.inp-entrada, .inp-salida, .inp-cambio, .sel-rol2').forEach(inp => {
         inp.addEventListener('change', () => actualizarCelda(inp.closest('.horario-cell')));
     });
-    // Totales semanales iniciales
+    // Botones para añadir/quitar cambio de rol
+    wrapper.querySelectorAll('.btn-cambio-toggle').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const cell = btn.closest('.horario-cell');
+            const panel = cell.querySelector('.cambio-panel');
+            const inpC = cell.querySelector('.inp-cambio');
+            // Valor por defecto del cambio: punto medio del turno
+            const entrada = cell.querySelector('.inp-entrada')?.value || '';
+            const salida  = cell.querySelector('.inp-salida')?.value || '';
+            const opE = toOpMinutes(entrada);
+            const opS = toOpMinutes(salida);
+            if (!inpC.value && !isNaN(opE) && !isNaN(opS) && opS > opE) {
+                const opMed = Math.round(((opE + opS) / 2) / 30) * 30;
+                const abs = ((opMed + APERTURA_MIN) % (24 * 60));
+                const h = Math.floor(abs / 60);
+                const m = abs % 60;
+                inpC.value = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+            }
+            panel.hidden = false;
+            btn.hidden = true;
+            actualizarCelda(cell);
+        });
+    });
+    wrapper.querySelectorAll('.btn-cambio-remove').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const cell = btn.closest('.horario-cell');
+            cell.querySelector('.cambio-panel').hidden = true;
+            cell.querySelector('.btn-cambio-toggle').hidden = false;
+            cell.querySelector('.inp-cambio').value = '';
+            cell.querySelector('.sel-rol2').value = '';
+            actualizarCelda(cell);
+        });
+    });
+    // Render inicial de cada celda (aplica colores + barra) y totales semanales
+    wrapper.querySelectorAll('.horario-cell').forEach(cell => actualizarCelda(cell));
     wrapper.querySelectorAll('tbody tr').forEach(tr => calcularTotalFila(tr));
 
     document.getElementById('leyendaRoles').style.display = 'flex';
@@ -456,18 +518,45 @@ function actualizarCelda(cell) {
     const entrada = cell.querySelector('.inp-entrada')?.value || '';
     const salida  = cell.querySelector('.inp-salida')?.value || '';
     const durEl = cell.querySelector('.turno-dur');
-    const fillEl = cell.querySelector('.turno-bar-fill');
+    const fill1 = cell.querySelector('.turno-bar-fill--1');
+    const fill2 = cell.querySelector('.turno-bar-fill--2');
+    const panel = cell.querySelector('.cambio-panel');
+    const inpCambio = cell.querySelector('.inp-cambio');
+    const selRol2   = cell.querySelector('.sel-rol2');
+    const rolEmp = cell.dataset.rolEmp || '';
+
     const durMin = duracionTurnoMin(entrada, salida);
     if (durEl) durEl.textContent = durMin != null ? formatDur(durMin) : '—';
-    if (fillEl) {
-        if (durMin != null) {
-            const opE = toOpMinutes(entrada);
-            fillEl.style.left  = `${((opE / DURACION_OP) * 100).toFixed(1)}%`;
-            fillEl.style.width = `${((durMin / DURACION_OP) * 100).toFixed(1)}%`;
-        } else {
-            fillEl.style.width = '0%';
+
+    // Reset visual
+    if (fill1) { fill1.style.width = '0%'; fill1.style.left = '0%'; fill1.style.background = colorRol(rolEmp); }
+    if (fill2) { fill2.style.width = '0%'; fill2.style.left = '0%'; fill2.style.background = 'transparent'; }
+    if (durMin == null) { calcularTotalFila(cell.closest('tr')); return; }
+
+    const opE = toOpMinutes(entrada);
+    const opS = toOpMinutes(salida);
+    const hayCambio = panel && !panel.hidden
+        && inpCambio && inpCambio.value
+        && selRol2 && selRol2.value;
+
+    if (hayCambio) {
+        const opC = toOpMinutes(inpCambio.value);
+        // Validez: dentro del turno y snap de 30 min
+        const dentro = !isNaN(opC) && opC > opE && opC < opS && opC % 30 === 0;
+        if (dentro) {
+            fill1.style.left  = `${((opE / DURACION_OP) * 100).toFixed(1)}%`;
+            fill1.style.width = `${(((opC - opE) / DURACION_OP) * 100).toFixed(1)}%`;
+            fill2.style.left  = `${((opC / DURACION_OP) * 100).toFixed(1)}%`;
+            fill2.style.width = `${(((opS - opC) / DURACION_OP) * 100).toFixed(1)}%`;
+            fill2.style.background = colorRol(selRol2.value);
+            calcularTotalFila(cell.closest('tr'));
+            return;
         }
+        // Cambio inválido → pinta el tramo completo como si no hubiera cambio
     }
+
+    fill1.style.left  = `${((opE / DURACION_OP) * 100).toFixed(1)}%`;
+    fill1.style.width = `${((durMin / DURACION_OP) * 100).toFixed(1)}%`;
     calcularTotalFila(cell.closest('tr'));
 }
 
@@ -535,7 +624,40 @@ async function enviarHorario() {
             invalidos.push(`${empleado} (${fecha}): salida debe ser posterior a entrada`);
             return;
         }
-        turnos.push({ empleado, centro: centroActual, fecha, hora_entrada: entrada, hora_salida: salida, semana: semanaActual });
+
+        // Cambio de rol a mitad de turno (opcional)
+        const panel = cell.querySelector('.cambio-panel');
+        const inpC  = cell.querySelector('.inp-cambio');
+        const selR2 = cell.querySelector('.sel-rol2');
+        let hora_cambio = '';
+        let rol_segunda = '';
+        if (panel && !panel.hidden && inpC && inpC.value) {
+            const rol2 = (selR2?.value || '').trim();
+            if (!rol2) {
+                invalidos.push(`${empleado} (${fecha}): elige el rol de la segunda parte o quita el cambio`);
+                return;
+            }
+            if (!esHoraOperativa(inpC.value)) {
+                invalidos.push(`${empleado} (${fecha}): hora del cambio inválida (media hora en 07:30–03:00)`);
+                return;
+            }
+            const opE = toOpMinutes(entrada);
+            const opS = toOpMinutes(salida);
+            const opC = toOpMinutes(inpC.value);
+            if (!(opC > opE && opC < opS)) {
+                invalidos.push(`${empleado} (${fecha}): la hora del cambio debe estar entre entrada y salida`);
+                return;
+            }
+            hora_cambio = inpC.value;
+            rol_segunda = rol2;
+        }
+
+        turnos.push({
+            empleado, centro: centroActual, fecha,
+            hora_entrada: entrada, hora_salida: salida,
+            semana: semanaActual,
+            hora_cambio, rol_segunda
+        });
     });
 
     if (invalidos.length > 0) {

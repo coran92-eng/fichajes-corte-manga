@@ -19,6 +19,10 @@ export default async function handler(req, res) {
       )
     `);
 
+    // Migraciones para cambio de rol a media jornada (patrón try/catch)
+    try { await db.execute("ALTER TABLE horarios ADD COLUMN hora_cambio TEXT NOT NULL DEFAULT ''"); } catch {}
+    try { await db.execute("ALTER TABLE horarios ADD COLUMN rol_segunda TEXT NOT NULL DEFAULT ''"); } catch {}
+
     if (req.method === "GET") {
       const { empleado, centro, semana, estado, fecha } = req.query;
 
@@ -54,7 +58,11 @@ export default async function handler(req, res) {
       return res.status(200).json(result.rows);
     }
     else if (req.method === "POST") {
-      const { empleado, centro = '', fecha, hora_entrada, hora_salida, semana, notas = '' } = req.body;
+      const {
+        empleado, centro = '', fecha,
+        hora_entrada, hora_salida, semana, notas = '',
+        hora_cambio = '', rol_segunda = ''
+      } = req.body;
 
       if (!empleado || !fecha || !hora_entrada || !hora_salida || !semana) {
         return res.status(400).json({ error: "Faltan campos requeridos" });
@@ -78,8 +86,8 @@ export default async function handler(req, res) {
       });
 
       const result = await db.execute({
-        sql: "INSERT INTO horarios (empleado, centro, fecha, hora_entrada, hora_salida, semana, estado, creado_en, notas) VALUES (?, ?, ?, ?, ?, ?, 'pendiente', ?, ?)",
-        args: [empleado, centro, fecha, hora_entrada, hora_salida, semana, Date.now(), notas],
+        sql: "INSERT INTO horarios (empleado, centro, fecha, hora_entrada, hora_salida, semana, estado, creado_en, notas, hora_cambio, rol_segunda) VALUES (?, ?, ?, ?, ?, ?, 'pendiente', ?, ?, ?, ?)",
+        args: [empleado, centro, fecha, hora_entrada, hora_salida, semana, Date.now(), notas, hora_cambio, rol_segunda],
       });
 
       return res.status(201).json({ success: true, id: result.lastInsertRowid.toString() });
