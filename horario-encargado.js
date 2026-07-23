@@ -415,6 +415,7 @@ function renderTabla(horarioExistente = []) {
             <tr class="${rolClass.trim()}">
                 <td class="td-empleado">${escapeHtml(empleado)}</td>
                 ${cells}
+                <td class="td-total-sem"><span class="turno-total-sem">0h</span></td>
             </tr>
         `;
     }).join('');
@@ -425,6 +426,7 @@ function renderTabla(horarioExistente = []) {
                 <tr>
                     <th class="col-empleado">Empleado</th>
                     ${headerCols}
+                    <th class="col-total">Total sem.</th>
                 </tr>
             </thead>
             <tbody>
@@ -441,6 +443,8 @@ function renderTabla(horarioExistente = []) {
     wrapper.querySelectorAll('.inp-entrada, .inp-salida').forEach(inp => {
         inp.addEventListener('change', () => actualizarCelda(inp.closest('.horario-cell')));
     });
+    // Totales semanales iniciales
+    wrapper.querySelectorAll('tbody tr').forEach(tr => calcularTotalFila(tr));
 
     document.getElementById('leyendaRoles').style.display = 'flex';
     document.getElementById('btnEnviar').disabled = false;
@@ -464,6 +468,25 @@ function actualizarCelda(cell) {
             fillEl.style.width = '0%';
         }
     }
+    calcularTotalFila(cell.closest('tr'));
+}
+
+/**
+ * Suma la duración de todos los turnos no-libres de una fila y actualiza
+ * la celda "Total sem." de esa fila.
+ */
+function calcularTotalFila(tr) {
+    if (!tr) return;
+    let total = 0;
+    tr.querySelectorAll('.horario-cell').forEach(cell => {
+        if (cell.classList.contains('es-libre')) return;
+        const entrada = cell.querySelector('.inp-entrada')?.value || '';
+        const salida  = cell.querySelector('.inp-salida')?.value || '';
+        const d = duracionTurnoMin(entrada, salida);
+        if (d != null) total += d;
+    });
+    const el = tr.querySelector('.turno-total-sem');
+    if (el) el.textContent = total > 0 ? formatDur(total) : '0h';
 }
 
 function onLibreToggle(e) {
@@ -474,6 +497,7 @@ function onLibreToggle(e) {
     } else {
         cell.classList.remove('es-libre');
     }
+    calcularTotalFila(cell.closest('tr'));
 }
 
 // ── Envío del horario ─────────────────────────────────────────

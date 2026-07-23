@@ -288,6 +288,23 @@
             font-variant-numeric: tabular-nums;
         }
 
+        /* Total semanal por empleado (última columna) */
+        .horario-grid th.col-total,
+        .horario-grid td.td-total-sem {
+            text-align: right;
+            padding-right: 14px;
+            min-width: 84px;
+            border-left: 1px solid #e5e7eb;
+            background: #f9fafb;
+            vertical-align: middle;
+        }
+        .turno-total-sem {
+            font-size: 15px;
+            font-weight: 700;
+            color: #1f2937;
+            font-variant-numeric: tabular-nums;
+        }
+
         /* Barra visual sobre la franja operativa (07:30 → 03:00) */
         .turno-bar {
             width: 96px;
@@ -504,6 +521,12 @@
             .turno-bar { background: #374151; }
             .leyenda { color: #9ca3af; }
             .leyenda-info { color: #6b7280; }
+            .horario-grid th.col-total,
+            .horario-grid td.td-total-sem {
+                background: #374151;
+                border-left-color: #4b5563;
+            }
+            .turno-total-sem { color: #e5e7eb; }
         }
 
         /* Responsive */
