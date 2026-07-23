@@ -19,7 +19,8 @@ export default async function handler(req, res) {
       )
     `);
 
-    // Migraciones para cambio de rol a media jornada (patrón try/catch)
+    // Migraciones para rol del día y cambio a media jornada
+    try { await db.execute("ALTER TABLE horarios ADD COLUMN rol_primera TEXT NOT NULL DEFAULT ''"); } catch {}
     try { await db.execute("ALTER TABLE horarios ADD COLUMN hora_cambio TEXT NOT NULL DEFAULT ''"); } catch {}
     try { await db.execute("ALTER TABLE horarios ADD COLUMN rol_segunda TEXT NOT NULL DEFAULT ''"); } catch {}
 
@@ -61,7 +62,7 @@ export default async function handler(req, res) {
       const {
         empleado, centro = '', fecha,
         hora_entrada, hora_salida, semana, notas = '',
-        hora_cambio = '', rol_segunda = ''
+        rol_primera = '', hora_cambio = '', rol_segunda = ''
       } = req.body;
 
       if (!empleado || !fecha || !hora_entrada || !hora_salida || !semana) {
@@ -86,8 +87,8 @@ export default async function handler(req, res) {
       });
 
       const result = await db.execute({
-        sql: "INSERT INTO horarios (empleado, centro, fecha, hora_entrada, hora_salida, semana, estado, creado_en, notas, hora_cambio, rol_segunda) VALUES (?, ?, ?, ?, ?, ?, 'pendiente', ?, ?, ?, ?)",
-        args: [empleado, centro, fecha, hora_entrada, hora_salida, semana, Date.now(), notas, hora_cambio, rol_segunda],
+        sql: "INSERT INTO horarios (empleado, centro, fecha, hora_entrada, hora_salida, semana, estado, creado_en, notas, rol_primera, hora_cambio, rol_segunda) VALUES (?, ?, ?, ?, ?, ?, 'pendiente', ?, ?, ?, ?, ?)",
+        args: [empleado, centro, fecha, hora_entrada, hora_salida, semana, Date.now(), notas, rol_primera, hora_cambio, rol_segunda],
       });
 
       return res.status(201).json({ success: true, id: result.lastInsertRowid.toString() });

@@ -326,6 +326,98 @@
         tr.rol-sala   .turno-bar-fill--1 { background: #3b82f6; }
         tr.rol-mixto  .turno-bar-fill--1 { background: #a855f7; }
 
+        /* Selector "rol de este día" (primera parte del turno) */
+        .rol1-row {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            font-size: 11px;
+            color: #6b7280;
+        }
+        .rol1-lbl { font-weight: 600; }
+        .rol1-row .sel-rol1 {
+            padding: 2px 4px;
+            font-size: 12px;
+            border: 1px solid #d1d5db;
+            border-radius: 5px;
+            background: white;
+            color: #1f2937;
+            cursor: pointer;
+        }
+
+        /* Resumen semanal (Gantt) */
+        .resumen-semana { margin-top: 8px; margin-bottom: 16px; }
+        .resumen-titulo {
+            font-size: 16px;
+            font-weight: 700;
+            color: #374151;
+            margin-bottom: 10px;
+        }
+        .gantt-day {
+            border: 1px solid #e5e7eb;
+            border-radius: 8px;
+            padding: 10px 12px;
+            margin-bottom: 12px;
+            background: #fafafa;
+        }
+        .gantt-day-title {
+            font-size: 13px;
+            font-weight: 700;
+            color: #1f2937;
+            margin-bottom: 8px;
+        }
+        .gantt-axis {
+            position: relative;
+            height: 14px;
+            margin-left: 90px;
+            border-bottom: 1px dashed #d1d5db;
+            font-size: 10px;
+            color: #6b7280;
+            font-variant-numeric: tabular-nums;
+        }
+        .gantt-axis span {
+            position: absolute;
+            transform: translateX(-50%);
+            top: 0;
+        }
+        .gantt-row {
+            display: flex;
+            align-items: center;
+            margin-top: 6px;
+        }
+        .gantt-label {
+            width: 90px;
+            font-size: 12px;
+            color: #374151;
+            font-weight: 600;
+            padding-right: 8px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        .gantt-track {
+            position: relative;
+            flex: 1;
+            height: 14px;
+            background:
+                repeating-linear-gradient(to right,
+                  transparent 0, transparent calc(100%/19.5 - 1px),
+                  #e5e7eb    calc(100%/19.5 - 1px), #e5e7eb    calc(100%/19.5));
+            border-radius: 3px;
+            overflow: hidden;
+        }
+        .gantt-seg {
+            position: absolute;
+            top: 1px;
+            bottom: 1px;
+            border-radius: 2px;
+        }
+        .gantt-empty {
+            color: #9ca3af;
+            font-size: 12px;
+            padding: 4px 0;
+        }
+
         /* Panel de "cambio de rol a mitad de turno" */
         .btn-cambio-toggle {
             background: none;
@@ -587,6 +679,30 @@
                 border-color: #4b5563;
             }
             .cambio-panel .btn-cambio-remove { color: #f87171; }
+            .rol1-row { color: #9ca3af; }
+            .rol1-row .sel-rol1 {
+                background: #374151;
+                color: #e5e7eb;
+                border-color: #4b5563;
+            }
+            .resumen-titulo { color: #e5e7eb; }
+            .gantt-day {
+                background: #111827;
+                border-color: #374151;
+            }
+            .gantt-day-title { color: #e5e7eb; }
+            .gantt-axis {
+                color: #9ca3af;
+                border-bottom-color: #4b5563;
+            }
+            .gantt-label { color: #d1d5db; }
+            .gantt-track {
+                background:
+                    repeating-linear-gradient(to right,
+                      transparent 0, transparent calc(100%/19.5 - 1px),
+                      #374151    calc(100%/19.5 - 1px), #374151    calc(100%/19.5));
+            }
+            .gantt-empty { color: #6b7280; }
         }
 
         /* Responsive */
@@ -666,12 +782,19 @@
             <span class="leyenda-info">Rango operativo 07:30 → 03:00 · pasos de 30 min</span>
         </div>
 
+        <!-- Resumen semanal (Gantt por día) — bajo la tabla al final del archivo -->
         <!-- Tabla de horario (JS la renderiza) -->
         <div id="tablaHorario" class="horario-grid-wrapper">
             <div class="empty-state">
                 <i data-lucide="calendar-x" aria-hidden="true" style="width:40px;height:40px;color:#d1d5db"></i>
                 <p>Selecciona un centro y una semana para cargar el horario</p>
             </div>
+        </div>
+
+        <!-- Resumen semanal por día (Gantt de franjas de media hora) -->
+        <div id="resumenSemana" class="resumen-semana" style="display:none">
+            <h2 class="resumen-titulo">Resumen semanal</h2>
+            <div id="resumenDias"></div>
         </div>
 
         <!-- Acciones -->
