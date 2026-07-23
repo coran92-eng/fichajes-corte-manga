@@ -403,7 +403,9 @@ function renderTabla(horarioExistente = []) {
             const horaCambio = entry ? (entry.hora_cambio || '') : '';
             const rolSegunda = entry ? (entry.rol_segunda || '') : '';
             const rolPrimera = entry ? (entry.rol_primera || '') : '';
+            const horaDescanso = entry ? (entry.hora_descanso || '') : '';
             const tieneCambio = !!(horaCambio && rolSegunda);
+            const tieneDescanso = !!horaDescanso;
 
             // El rol de la primera parte por defecto es el fijo del empleado;
             // Albert puede cambiarlo por día (p.ej. camarero que empieza en cocina).
@@ -448,6 +450,13 @@ function renderTabla(horarioExistente = []) {
                             </select>
                             <button type="button" class="btn-cambio-remove" title="Quitar cambio">×</button>
                         </div>
+                        <button type="button" class="btn-desc-toggle" hidden>+ Descanso 20 min</button>
+                        <div class="descanso-panel"${tieneDescanso ? '' : ' hidden'}>
+                            <span class="desc-lbl">☕</span>
+                            <input type="time" class="inp-descanso" step="1800" value="${horaDescanso}" aria-label="Hora del descanso">
+                            <span class="desc-suf">20 min</span>
+                            <button type="button" class="btn-desc-remove" title="Quitar descanso">×</button>
+                        </div>
                     </div>
                 </td>
             `;
@@ -481,9 +490,39 @@ function renderTabla(horarioExistente = []) {
     wrapper.querySelectorAll('.chk-libre').forEach(chk => {
         chk.addEventListener('change', onLibreToggle);
     });
-    // Recalcular duración y barra al cambiar horas o roles
-    wrapper.querySelectorAll('.inp-entrada, .inp-salida, .inp-cambio, .sel-rol1, .sel-rol2').forEach(inp => {
+    // Recalcular duración y barra al cambiar horas, roles o descanso
+    wrapper.querySelectorAll('.inp-entrada, .inp-salida, .inp-cambio, .sel-rol1, .sel-rol2, .inp-descanso').forEach(inp => {
         inp.addEventListener('change', () => actualizarCelda(inp.closest('.horario-cell')));
+    });
+    // Añadir / quitar descanso 20 min (solo visible cuando la jornada > 5h)
+    wrapper.querySelectorAll('.btn-desc-toggle').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const cell = btn.closest('.horario-cell');
+            const panel = cell.querySelector('.descanso-panel');
+            const inpD = cell.querySelector('.inp-descanso');
+            // Por defecto, punto medio del turno redondeado a 30 min
+            const entrada = cell.querySelector('.inp-entrada')?.value || '';
+            const salida  = cell.querySelector('.inp-salida')?.value || '';
+            const opE = toOpMinutes(entrada);
+            const opS = toOpMinutes(salida);
+            if (!inpD.value && !isNaN(opE) && !isNaN(opS) && opS > opE) {
+                const opMed = Math.round(((opE + opS) / 2) / 30) * 30;
+                const abs = (opMed + APERTURA_MIN) % (24 * 60);
+                const h = Math.floor(abs / 60), m = abs % 60;
+                inpD.value = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+            }
+            panel.hidden = false;
+            btn.hidden = true;
+            actualizarCelda(cell);
+        });
+    });
+    wrapper.querySelectorAll('.btn-desc-remove').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const cell = btn.closest('.horario-cell');
+            cell.querySelector('.descanso-panel').hidden = true;
+            cell.querySelector('.inp-descanso').value = '';
+            actualizarCelda(cell);
+        });
     });
     // Botones para añadir/quitar cambio de rol
     wrapper.querySelectorAll('.btn-cambio-toggle').forEach(btn => {
@@ -546,9 +585,27 @@ function actualizarCelda(cell) {
     const durMin = duracionTurnoMin(entrada, salida);
     if (durEl) durEl.textContent = durMin != null ? formatDur(durMin) : '—';
 
+    // Botón/panel de descanso: solo si el turno supera 5h (300 min)
+    const btnDescToggle = cell.querySelector('.btn-desc-toggle');
+    const panelDesc = cell.querySelector('.descanso-panel');
+    const inpDesc = cell.querySelector('.inp-descanso');
+    const permiteDescanso = durMin != null && durMin > 300;
+    const tieneDescanso = panelDesc && !panelDesc.hidden && inpDesc && inpDesc.value;
+    if (btnDescToggle && panelDesc) {
+        if (!permiteDescanso) {
+            // Ocultar todo si el turno no llega a 5h
+            btnDescToggle.hidden = true;
+            panelDesc.hidden = true;
+        } else {
+            btnDescToggle.hidden = !panelDesc.hidden;
+        }
+    }
+
     // Reset visual
     if (fill1) { fill1.style.width = '0%'; fill1.style.left = '0%'; fill1.style.background = colorRol(rol1); }
     if (fill2) { fill2.style.width = '0%'; fill2.style.left = '0%'; fill2.style.background = 'transparent'; }
+    // Quitar marca de descanso previa
+    cell.querySelectorAll('.turno-bar-desc').forEach(el => el.remove());
     if (durMin == null) { calcularTotalFila(cell.closest('tr')); renderResumenSemana(); return; }
 
     const opE = toOpMinutes(entrada);
@@ -567,6 +624,7 @@ function actualizarCelda(cell) {
             fill2.style.left  = `${((opC / DURACION_OP) * 100).toFixed(1)}%`;
             fill2.style.width = `${(((opS - opC) / DURACION_OP) * 100).toFixed(1)}%`;
             fill2.style.background = colorRol(selRol2.value);
+            pintarDescansoEnBarra(cell, tieneDescanso ? inpDesc.value : '', opE, opS);
             calcularTotalFila(cell.closest('tr'));
             renderResumenSemana();
             return;
@@ -576,8 +634,27 @@ function actualizarCelda(cell) {
 
     fill1.style.left  = `${((opE / DURACION_OP) * 100).toFixed(1)}%`;
     fill1.style.width = `${((durMin / DURACION_OP) * 100).toFixed(1)}%`;
+    pintarDescansoEnBarra(cell, tieneDescanso ? inpDesc.value : '', opE, opS);
     calcularTotalFila(cell.closest('tr'));
     renderResumenSemana();
+}
+
+// Añade un pequeño hueco/marca en la barra a la hora del descanso, si es válida.
+function pintarDescansoEnBarra(cell, horaDescanso, opE, opS) {
+    if (!horaDescanso) return;
+    const bar = cell.querySelector('.turno-bar');
+    if (!bar) return;
+    const opD = toOpMinutes(horaDescanso);
+    if (isNaN(opD) || opD <= opE || opD >= opS) return;
+    const leftPct = (opD / DURACION_OP) * 100;
+    // Ancho: 20 min sobre 1170 = ~1.7%
+    const widthPct = (20 / DURACION_OP) * 100;
+    const mark = document.createElement('div');
+    mark.className = 'turno-bar-desc';
+    mark.style.left = `${leftPct.toFixed(1)}%`;
+    mark.style.width = `${widthPct.toFixed(2)}%`;
+    mark.title = `Descanso 20 min · ${horaDescanso}`;
+    bar.appendChild(mark);
 }
 
 /**
@@ -666,9 +743,21 @@ function renderResumenSemana() {
             const segsHtml = segs.map(s =>
                 `<div class="gantt-seg" style="left:${((s.left / DURACION_OP) * 100).toFixed(1)}%;width:${((s.width / DURACION_OP) * 100).toFixed(1)}%;background:${s.color}"></div>`
             ).join('');
+            // Marca de descanso 20 min (si el panel de descanso está activo)
+            let descHtml = '';
+            const panelD = cell.querySelector('.descanso-panel');
+            const inpD = cell.querySelector('.inp-descanso');
+            if (panelD && !panelD.hidden && inpD && inpD.value && durMin > 300) {
+                const opD = toOpMinutes(inpD.value);
+                if (!isNaN(opD) && opD > opE && opD < opS) {
+                    const leftPct = (opD / DURACION_OP) * 100;
+                    const widthPct = (20 / DURACION_OP) * 100;
+                    descHtml = `<div class="gantt-seg gantt-desc" style="left:${leftPct.toFixed(1)}%;width:${widthPct.toFixed(2)}%;background:#111827;outline:1px solid rgba(255,255,255,0.6)" title="Descanso 20 min · ${inpD.value}"></div>`;
+                }
+            }
             filas.push({
                 nombre: cell.dataset.empleado,
-                html: `<div class="gantt-row"><div class="gantt-label">${escapeHtml(cell.dataset.empleado)}</div><div class="gantt-track">${segsHtml}</div></div>`
+                html: `<div class="gantt-row"><div class="gantt-label">${escapeHtml(cell.dataset.empleado)}</div><div class="gantt-track">${segsHtml}${descHtml}</div></div>`
             });
         });
         filas.sort((a, b) => a.nombre.localeCompare(b.nombre));
@@ -759,11 +848,35 @@ async function enviarHorario() {
         // Rol de la primera parte (opcional): si no se elige, usa el fijo del empleado
         const rol_primera = (cell.querySelector('.sel-rol1')?.value || '').trim();
 
+        // Descanso planificado (solo válido si el turno > 5h)
+        let hora_descanso = '';
+        const panelD = cell.querySelector('.descanso-panel');
+        const inpD = cell.querySelector('.inp-descanso');
+        if (panelD && !panelD.hidden && inpD && inpD.value) {
+            if (dur <= 300) {
+                // no debería ocurrir (el panel se oculta), pero por si acaso
+                inpD.value = '';
+            } else if (!esHoraOperativa(inpD.value)) {
+                invalidos.push(`${empleado} (${fecha}): hora de descanso inválida`);
+                return;
+            } else {
+                const opE = toOpMinutes(entrada);
+                const opS = toOpMinutes(salida);
+                const opD = toOpMinutes(inpD.value);
+                if (!(opD > opE && opD < opS)) {
+                    invalidos.push(`${empleado} (${fecha}): el descanso debe caer dentro del turno`);
+                    return;
+                }
+                hora_descanso = inpD.value;
+            }
+        }
+
         turnos.push({
             empleado, centro: centroActual, fecha,
             hora_entrada: entrada, hora_salida: salida,
             semana: semanaActual,
-            rol_primera, hora_cambio, rol_segunda
+            rol_primera, hora_cambio, rol_segunda,
+            hora_descanso
         });
     });
 

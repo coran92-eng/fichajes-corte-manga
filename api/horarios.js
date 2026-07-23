@@ -19,10 +19,11 @@ export default async function handler(req, res) {
       )
     `);
 
-    // Migraciones para rol del día y cambio a media jornada
+    // Migraciones para rol del día, cambio a media jornada y descanso planificado
     try { await db.execute("ALTER TABLE horarios ADD COLUMN rol_primera TEXT NOT NULL DEFAULT ''"); } catch {}
     try { await db.execute("ALTER TABLE horarios ADD COLUMN hora_cambio TEXT NOT NULL DEFAULT ''"); } catch {}
     try { await db.execute("ALTER TABLE horarios ADD COLUMN rol_segunda TEXT NOT NULL DEFAULT ''"); } catch {}
+    try { await db.execute("ALTER TABLE horarios ADD COLUMN hora_descanso TEXT NOT NULL DEFAULT ''"); } catch {}
 
     if (req.method === "GET") {
       const { empleado, centro, semana, estado, fecha } = req.query;
@@ -62,7 +63,8 @@ export default async function handler(req, res) {
       const {
         empleado, centro = '', fecha,
         hora_entrada, hora_salida, semana, notas = '',
-        rol_primera = '', hora_cambio = '', rol_segunda = ''
+        rol_primera = '', hora_cambio = '', rol_segunda = '',
+        hora_descanso = ''
       } = req.body;
 
       if (!empleado || !fecha || !hora_entrada || !hora_salida || !semana) {
@@ -87,8 +89,8 @@ export default async function handler(req, res) {
       });
 
       const result = await db.execute({
-        sql: "INSERT INTO horarios (empleado, centro, fecha, hora_entrada, hora_salida, semana, estado, creado_en, notas, rol_primera, hora_cambio, rol_segunda) VALUES (?, ?, ?, ?, ?, ?, 'pendiente', ?, ?, ?, ?, ?)",
-        args: [empleado, centro, fecha, hora_entrada, hora_salida, semana, Date.now(), notas, rol_primera, hora_cambio, rol_segunda],
+        sql: "INSERT INTO horarios (empleado, centro, fecha, hora_entrada, hora_salida, semana, estado, creado_en, notas, rol_primera, hora_cambio, rol_segunda, hora_descanso) VALUES (?, ?, ?, ?, ?, ?, 'pendiente', ?, ?, ?, ?, ?, ?)",
+        args: [empleado, centro, fecha, hora_entrada, hora_salida, semana, Date.now(), notas, rol_primera, hora_cambio, rol_segunda, hora_descanso],
       });
 
       return res.status(201).json({ success: true, id: result.lastInsertRowid.toString() });

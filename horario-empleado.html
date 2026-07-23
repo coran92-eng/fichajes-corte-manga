@@ -535,8 +535,17 @@
                         const segsHtml = segs.map(s =>
                             `<div class="gantt-seg" style="left:${((s.l/DURACION_OP)*100).toFixed(1)}%;width:${((s.w/DURACION_OP)*100).toFixed(1)}%;background:${s.c}"></div>`
                         ).join('');
+                        let descHtml = '';
+                        if (h.hora_descanso && dur > 300) {
+                            const opD = toOpMinutes(h.hora_descanso);
+                            if (!isNaN(opD) && opD > opE && opD < opS) {
+                                const leftPct = (opD / DURACION_OP) * 100;
+                                const widthPct = (20 / DURACION_OP) * 100;
+                                descHtml = `<div class="gantt-seg gantt-desc" style="left:${leftPct.toFixed(1)}%;width:${widthPct.toFixed(2)}%;background:#111827;outline:1px solid rgba(255,255,255,0.6)" title="Descanso 20 min · ${h.hora_descanso}"></div>`;
+                            }
+                        }
                         return { nombre: h.empleado, html:
-                            `<div class="gantt-row"><div class="gantt-label">${escapeHtml(h.empleado)}</div><div class="gantt-track">${segsHtml}</div></div>`
+                            `<div class="gantt-row"><div class="gantt-label">${escapeHtml(h.empleado)}</div><div class="gantt-track">${segsHtml}${descHtml}</div></div>`
                         };
                     })
                     .filter(Boolean)
@@ -587,6 +596,9 @@
                 let rolCell = pill1;
                 if (h.hora_cambio && h.rol_segunda) {
                     rolCell += `<div class="cambio-text">→ ${h.hora_cambio.slice(0,5)} <span class="rol-pill ${h.rol_segunda}">${ROL_LABEL[h.rol_segunda]}</span></div>`;
+                }
+                if (h.hora_descanso && dur > 300) {
+                    rolCell += `<div class="cambio-text">☕ Descanso 20 min · ${h.hora_descanso.slice(0,5)}</div>`;
                 }
                 return `<tr>
                     <td class="dia">${diasNombres[i]} ${formatDayMonth(day)}</td>
