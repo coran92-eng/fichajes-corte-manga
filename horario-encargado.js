@@ -402,8 +402,15 @@ function renderTabla(horarioExistente = []) {
             const salida  = entry ? (entry.hora_salida  || '15:00') : '15:00';
             const horaCambio = entry ? (entry.hora_cambio || '') : '';
             const rolSegunda = entry ? (entry.rol_segunda || '') : '';
+            const rolPrimera = entry ? (entry.rol_primera || '') : '';
             const tieneCambio = !!(horaCambio && rolSegunda);
 
+            // El rol de la primera parte por defecto es el fijo del empleado;
+            // Albert puede cambiarlo por día (p.ej. camarero que empieza en cocina).
+            const rol1Actual = rolPrimera || rol || '';
+            const opcionesRol1 = ROLES_CAMBIO.map(r =>
+                `<option value="${r.value}"${r.value === rol1Actual ? ' selected' : ''}>${r.label}</option>`
+            ).join('');
             const opcionesRolSeg = ROLES_CAMBIO.map(r =>
                 `<option value="${r.value}"${r.value === rolSegunda ? ' selected' : ''}>${r.label}</option>`
             ).join('');
@@ -417,6 +424,13 @@ function renderTabla(horarioExistente = []) {
                         <label class="libranza-toggle">
                             <input type="checkbox" class="chk-libre"${esLibre ? ' checked' : ''}> Libre
                         </label>
+                        <div class="rol1-row">
+                            <span class="rol1-lbl">Rol</span>
+                            <select class="sel-rol1" aria-label="Rol de este día">
+                                <option value=""${rol1Actual ? '' : ' selected'}>—</option>
+                                ${opcionesRol1}
+                            </select>
+                        </div>
                         <input type="time" class="inp-entrada" step="1800" value="${entrada}" aria-label="Hora entrada">
                         <input type="time" class="inp-salida"  step="1800" value="${salida}"  aria-label="Hora salida">
                         <span class="turno-dur">—</span>
@@ -467,8 +481,8 @@ function renderTabla(horarioExistente = []) {
     wrapper.querySelectorAll('.chk-libre').forEach(chk => {
         chk.addEventListener('change', onLibreToggle);
     });
-    // Recalcular duración y barra al cambiar horas o cambio de rol
-    wrapper.querySelectorAll('.inp-entrada, .inp-salida, .inp-cambio, .sel-rol2').forEach(inp => {
+    // Recalcular duración y barra al cambiar horas o roles
+    wrapper.querySelectorAll('.inp-entrada, .inp-salida, .inp-cambio, .sel-rol1, .sel-rol2').forEach(inp => {
         inp.addEventListener('change', () => actualizarCelda(inp.closest('.horario-cell')));
     });
     // Botones para añadir/quitar cambio de rol
@@ -507,6 +521,7 @@ function renderTabla(horarioExistente = []) {
     // Render inicial de cada celda (aplica colores + barra) y totales semanales
     wrapper.querySelectorAll('.horario-cell').forEach(cell => actualizarCelda(cell));
     wrapper.querySelectorAll('tbody tr').forEach(tr => calcularTotalFila(tr));
+    renderResumenSemana();
 
     document.getElementById('leyendaRoles').style.display = 'flex';
     document.getElementById('btnEnviar').disabled = false;
@@ -522,16 +537,19 @@ function actualizarCelda(cell) {
     const fill2 = cell.querySelector('.turno-bar-fill--2');
     const panel = cell.querySelector('.cambio-panel');
     const inpCambio = cell.querySelector('.inp-cambio');
+    const selRol1   = cell.querySelector('.sel-rol1');
     const selRol2   = cell.querySelector('.sel-rol2');
     const rolEmp = cell.dataset.rolEmp || '';
+    // Rol del primer tramo: el seleccionado en el día; si no, el fijo del empleado
+    const rol1 = (selRol1?.value || rolEmp || '');
 
     const durMin = duracionTurnoMin(entrada, salida);
     if (durEl) durEl.textContent = durMin != null ? formatDur(durMin) : '—';
 
     // Reset visual
-    if (fill1) { fill1.style.width = '0%'; fill1.style.left = '0%'; fill1.style.background = colorRol(rolEmp); }
+    if (fill1) { fill1.style.width = '0%'; fill1.style.left = '0%'; fill1.style.background = colorRol(rol1); }
     if (fill2) { fill2.style.width = '0%'; fill2.style.left = '0%'; fill2.style.background = 'transparent'; }
-    if (durMin == null) { calcularTotalFila(cell.closest('tr')); return; }
+    if (durMin == null) { calcularTotalFila(cell.closest('tr')); renderResumenSemana(); return; }
 
     const opE = toOpMinutes(entrada);
     const opS = toOpMinutes(salida);
@@ -550,6 +568,7 @@ function actualizarCelda(cell) {
             fill2.style.width = `${(((opS - opC) / DURACION_OP) * 100).toFixed(1)}%`;
             fill2.style.background = colorRol(selRol2.value);
             calcularTotalFila(cell.closest('tr'));
+            renderResumenSemana();
             return;
         }
         // Cambio inválido → pinta el tramo completo como si no hubiera cambio
@@ -558,6 +577,7 @@ function actualizarCelda(cell) {
     fill1.style.left  = `${((opE / DURACION_OP) * 100).toFixed(1)}%`;
     fill1.style.width = `${((durMin / DURACION_OP) * 100).toFixed(1)}%`;
     calcularTotalFila(cell.closest('tr'));
+    renderResumenSemana();
 }
 
 /**
@@ -578,6 +598,89 @@ function calcularTotalFila(tr) {
     if (el) el.textContent = total > 0 ? formatDur(total) : '0h';
 }
 
+/**
+ * Recorre las celdas actualmente en pantalla y pinta el resumen semanal
+ * tipo Gantt: un bloque por día, con una fila por empleado que trabaja
+ * ese día, mostrando el turno en color(es) según los roles.
+ */
+function renderResumenSemana() {
+    const wrapper = document.getElementById('resumenSemana');
+    const cont = document.getElementById('resumenDias');
+    if (!wrapper || !cont) return;
+
+    const week = findWeek(semanaActual);
+    if (!week) { wrapper.style.display = 'none'; return; }
+    wrapper.style.display = 'block';
+
+    // Etiquetas del eje (cada 2h desde 07:30)
+    const axisTicks = [];
+    for (let op = 0; op <= DURACION_OP; op += 120) {
+        const abs = (op + APERTURA_MIN) % (24 * 60);
+        const h = Math.floor(abs / 60), m = abs % 60;
+        const label = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+        const leftPct = (op / DURACION_OP) * 100;
+        axisTicks.push(`<span style="left:${leftPct.toFixed(1)}%">${label}</span>`);
+    }
+    const axisHtml = axisTicks.join('');
+
+    const diasNombres = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'];
+
+    // Agrupar celdas del día
+    const cellsByDate = {};
+    document.querySelectorAll('.horario-cell').forEach(cell => {
+        (cellsByDate[cell.dataset.fecha] = cellsByDate[cell.dataset.fecha] || []).push(cell);
+    });
+
+    cont.innerHTML = week.days.map((day, i) => {
+        const fecha = formatISO(day);
+        const cells = cellsByDate[fecha] || [];
+        const filas = [];
+        cells.forEach(cell => {
+            if (cell.classList.contains('es-libre')) return;
+            const entrada = cell.querySelector('.inp-entrada')?.value || '';
+            const salida  = cell.querySelector('.inp-salida')?.value || '';
+            const durMin = duracionTurnoMin(entrada, salida);
+            if (durMin == null) return;
+            const rolEmp = cell.dataset.rolEmp || '';
+            const rol1 = (cell.querySelector('.sel-rol1')?.value || rolEmp);
+            const panel = cell.querySelector('.cambio-panel');
+            const inpCambio = cell.querySelector('.inp-cambio');
+            const selRol2 = cell.querySelector('.sel-rol2');
+            const opE = toOpMinutes(entrada);
+            const opS = toOpMinutes(salida);
+
+            let segs = [];
+            const hayCambio = panel && !panel.hidden
+                && inpCambio && inpCambio.value
+                && selRol2 && selRol2.value;
+            if (hayCambio) {
+                const opC = toOpMinutes(inpCambio.value);
+                if (!isNaN(opC) && opC > opE && opC < opS && opC % 30 === 0) {
+                    segs.push({ left: opE, width: opC - opE, color: colorRol(rol1) });
+                    segs.push({ left: opC, width: opS - opC, color: colorRol(selRol2.value) });
+                }
+            }
+            if (segs.length === 0) {
+                segs.push({ left: opE, width: opS - opE, color: colorRol(rol1) });
+            }
+            const segsHtml = segs.map(s =>
+                `<div class="gantt-seg" style="left:${((s.left / DURACION_OP) * 100).toFixed(1)}%;width:${((s.width / DURACION_OP) * 100).toFixed(1)}%;background:${s.color}"></div>`
+            ).join('');
+            filas.push({
+                nombre: cell.dataset.empleado,
+                html: `<div class="gantt-row"><div class="gantt-label">${escapeHtml(cell.dataset.empleado)}</div><div class="gantt-track">${segsHtml}</div></div>`
+            });
+        });
+        filas.sort((a, b) => a.nombre.localeCompare(b.nombre));
+
+        const cabecera = `<div class="gantt-day-title">${diasNombres[i]} ${formatDayMonth(day)}</div><div class="gantt-axis">${axisHtml}</div>`;
+        const cuerpo = filas.length
+            ? filas.map(f => f.html).join('')
+            : '<div class="gantt-empty">Sin turnos</div>';
+        return `<div class="gantt-day">${cabecera}${cuerpo}</div>`;
+    }).join('');
+}
+
 function onLibreToggle(e) {
     const cell = e.target.closest('.horario-cell');
     if (!cell) return;
@@ -587,6 +690,7 @@ function onLibreToggle(e) {
         cell.classList.remove('es-libre');
     }
     calcularTotalFila(cell.closest('tr'));
+    renderResumenSemana();
 }
 
 // ── Envío del horario ─────────────────────────────────────────
@@ -652,11 +756,14 @@ async function enviarHorario() {
             rol_segunda = rol2;
         }
 
+        // Rol de la primera parte (opcional): si no se elige, usa el fijo del empleado
+        const rol_primera = (cell.querySelector('.sel-rol1')?.value || '').trim();
+
         turnos.push({
             empleado, centro: centroActual, fecha,
             hora_entrada: entrada, hora_salida: salida,
             semana: semanaActual,
-            hora_cambio, rol_segunda
+            rol_primera, hora_cambio, rol_segunda
         });
     });
 
