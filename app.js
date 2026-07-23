@@ -141,6 +141,12 @@ function configurarBotones() {
     });
 
     document.getElementById('btnSolicitarCorreccion')?.addEventListener('click', abrirModalSolicitud);
+    document.getElementById('btnVerHorario')?.addEventListener('click', () => {
+        const url = centroActual
+            ? `/horario-empleado.html?centro=${encodeURIComponent(centroActual)}`
+            : '/horario-empleado.html';
+        window.location.href = url;
+    });
     document.getElementById('btnSolCancelar')?.addEventListener('click', cerrarModalSolicitud);
     document.getElementById('btnSolEnviar')?.addEventListener('click', enviarSolicitud);
     document.getElementById('solCaso')?.addEventListener('change', actualizarVisibilidadHora);

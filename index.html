@@ -582,6 +582,24 @@
             box-shadow: 0 5px 15px rgba(245, 158, 11, 0.3);
         }
 
+        .btn-horario {
+            width: 100%;
+            background: #2563eb;
+            color: white;
+            margin-bottom: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            padding: 12px 20px;
+            font-size: 13px;
+        }
+        .btn-horario:hover {
+            background: #1d4ed8;
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(37, 99, 235, 0.3);
+        }
+
         .sol-modal {
             display: none;
             position: fixed;
@@ -768,6 +786,11 @@
         <button class="btn-correccion" id="btnSolicitarCorreccion" type="button">
             <i data-lucide="alarm-clock" aria-hidden="true" style="width:16px;height:16px"></i>
             Solicitar corrección de fichaje
+        </button>
+
+        <button class="btn-horario" id="btnVerHorario" type="button">
+            <i data-lucide="calendar-days" aria-hidden="true" style="width:16px;height:16px"></i>
+            Horario
         </button>
 
         <div class="admin-sep"></div>

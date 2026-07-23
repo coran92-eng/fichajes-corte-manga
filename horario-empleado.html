@@ -1,0 +1,624 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#2563eb">
+    <title>Horario · Fichaje</title>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100dvh;
+            padding: 20px;
+        }
+        .container {
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            padding: 24px;
+            max-width: 1100px;
+            margin: 0 auto;
+        }
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+            gap: 12px;
+        }
+        .header h1 { color: #1f2937; font-size: 22px; }
+        .header .centro-chip {
+            display: inline-block;
+            background: #2563eb;
+            color: white;
+            padding: 3px 10px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 600;
+            margin-left: 8px;
+            vertical-align: middle;
+        }
+        button {
+            padding: 10px 16px;
+            border: none;
+            border-radius: 8px;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+        }
+        .btn-volver {
+            background: #6b7280;
+            color: white;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .btn-volver:hover { background: #4b5563; }
+
+        .filtros {
+            display: flex;
+            gap: 14px;
+            align-items: flex-end;
+            flex-wrap: wrap;
+            background: #f9fafb;
+            padding: 12px;
+            border-radius: 8px;
+            margin-bottom: 16px;
+        }
+        .filtro-grupo { display: flex; flex-direction: column; gap: 4px; flex: 1; min-width: 200px; }
+        .filtro-grupo label { font-size: 12px; font-weight: 600; color: #6b7280; }
+        .filtro-grupo select {
+            padding: 8px 10px;
+            border: 2px solid #e5e7eb;
+            border-radius: 6px;
+            font-size: 14px;
+            background: white;
+        }
+
+        .tabs {
+            display: flex;
+            gap: 6px;
+            border-bottom: 1px solid #e5e7eb;
+            margin-bottom: 16px;
+        }
+        .tab {
+            background: none;
+            color: #6b7280;
+            padding: 10px 14px;
+            border-bottom: 3px solid transparent;
+            border-radius: 0;
+            font-size: 14px;
+        }
+        .tab.active {
+            color: #2563eb;
+            border-bottom-color: #2563eb;
+        }
+
+        .hidden { display: none !important; }
+
+        .leyenda {
+            display: flex;
+            gap: 14px;
+            align-items: center;
+            flex-wrap: wrap;
+            font-size: 12px;
+            color: #6b7280;
+            margin-bottom: 12px;
+        }
+        .leyenda-chip { display: inline-flex; align-items: center; gap: 6px; }
+        .leyenda-dot { width: 12px; height: 12px; border-radius: 3px; display: inline-block; }
+        .leyenda-dot.cocina { background: #f97316; }
+        .leyenda-dot.sala   { background: #3b82f6; }
+        .leyenda-dot.mixto  { background: #a855f7; }
+        .leyenda-dot.sinrol { background: #9ca3af; }
+
+        /* Gantt (mismo look que la vista del encargado) */
+        .gantt-day {
+            border: 1px solid #e5e7eb;
+            border-radius: 8px;
+            padding: 10px 12px;
+            margin-bottom: 12px;
+            background: #fafafa;
+        }
+        .gantt-day-title {
+            font-size: 13px;
+            font-weight: 700;
+            color: #1f2937;
+            margin-bottom: 8px;
+        }
+        .gantt-axis {
+            position: relative;
+            height: 14px;
+            margin-left: 110px;
+            border-bottom: 1px dashed #d1d5db;
+            font-size: 10px;
+            color: #6b7280;
+            font-variant-numeric: tabular-nums;
+        }
+        .gantt-axis span { position: absolute; transform: translateX(-50%); top: 0; }
+        .gantt-row { display: flex; align-items: center; margin-top: 6px; }
+        .gantt-label {
+            width: 110px;
+            font-size: 13px;
+            color: #374151;
+            font-weight: 600;
+            padding-right: 8px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        .gantt-track {
+            position: relative;
+            flex: 1;
+            height: 16px;
+            background:
+                repeating-linear-gradient(to right,
+                  transparent 0, transparent calc(100%/19.5 - 1px),
+                  #e5e7eb    calc(100%/19.5 - 1px), #e5e7eb    calc(100%/19.5));
+            border-radius: 3px;
+            overflow: hidden;
+        }
+        .gantt-seg { position: absolute; top: 1px; bottom: 1px; border-radius: 2px; }
+        .gantt-empty { color: #9ca3af; font-size: 13px; padding: 6px 0; }
+
+        /* Mi horario — tabla amigable para foto */
+        .mio-header {
+            display: flex;
+            gap: 12px;
+            align-items: baseline;
+            flex-wrap: wrap;
+            margin-bottom: 12px;
+        }
+        .mio-header .mio-nombre { font-size: 20px; font-weight: 700; color: #1f2937; }
+        .mio-header .mio-semana { font-size: 14px; color: #6b7280; }
+        .mio-header .mio-total {
+            margin-left: auto;
+            background: #dbeafe;
+            color: #1e40af;
+            padding: 6px 12px;
+            border-radius: 8px;
+            font-weight: 700;
+            font-size: 14px;
+        }
+
+        table.mio-tabla {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 15px;
+        }
+        table.mio-tabla th, table.mio-tabla td {
+            padding: 12px 14px;
+            border-bottom: 1px solid #e5e7eb;
+            text-align: left;
+            vertical-align: middle;
+        }
+        table.mio-tabla thead th {
+            background: #f3f4f6;
+            font-size: 13px;
+            font-weight: 700;
+            color: #374151;
+        }
+        table.mio-tabla tr.libre td { color: #9ca3af; font-style: italic; }
+        table.mio-tabla td.dia { font-weight: 700; color: #1f2937; }
+        table.mio-tabla td.hora { font-family: 'Courier New', monospace; font-weight: 700; }
+        .rol-pill {
+            display: inline-block;
+            padding: 3px 10px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 700;
+            color: white;
+        }
+        .rol-pill.cocina { background: #f97316; }
+        .rol-pill.sala   { background: #3b82f6; }
+        .rol-pill.mixto  { background: #a855f7; }
+        .rol-pill.sinrol { background: #9ca3af; }
+        .cambio-text { font-size: 12px; color: #6b7280; margin-top: 2px; }
+
+        .empty {
+            text-align: center;
+            padding: 40px 20px;
+            color: #9ca3af;
+            font-size: 14px;
+        }
+
+        .status {
+            padding: 10px 12px;
+            border-radius: 6px;
+            font-size: 13px;
+            margin-bottom: 12px;
+            display: none;
+        }
+        .status.info { background: #dbeafe; color: #1e40af; display: block; }
+        .status.error { background: #fee2e2; color: #7f1d1d; display: block; }
+
+        @media (max-width: 640px) {
+            .container { padding: 16px; }
+            .gantt-axis { margin-left: 80px; font-size: 9px; }
+            .gantt-label { width: 80px; font-size: 12px; }
+            table.mio-tabla th, table.mio-tabla td { padding: 8px 10px; font-size: 14px; }
+        }
+        @media (prefers-color-scheme: dark) {
+            body { background: #111827; }
+            .container { background: #1f2937; color: #e5e7eb; }
+            .header h1 { color: #e5e7eb; }
+            .filtros { background: #374151; }
+            .filtro-grupo label { color: #9ca3af; }
+            .filtro-grupo select { background: #4b5563; color: #e5e7eb; border-color: #6b7280; }
+            .tabs { border-bottom-color: #4b5563; }
+            .tab { color: #9ca3af; }
+            .tab.active { color: #60a5fa; border-bottom-color: #60a5fa; }
+            .leyenda { color: #9ca3af; }
+            .gantt-day { background: #111827; border-color: #374151; }
+            .gantt-day-title { color: #e5e7eb; }
+            .gantt-axis { color: #9ca3af; border-bottom-color: #4b5563; }
+            .gantt-label { color: #d1d5db; }
+            .gantt-track {
+                background:
+                    repeating-linear-gradient(to right,
+                      transparent 0, transparent calc(100%/19.5 - 1px),
+                      #374151    calc(100%/19.5 - 1px), #374151    calc(100%/19.5));
+            }
+            .gantt-empty { color: #6b7280; }
+            .mio-header .mio-nombre { color: #e5e7eb; }
+            .mio-header .mio-semana { color: #9ca3af; }
+            .mio-header .mio-total { background: #1e3a8a; color: #dbeafe; }
+            table.mio-tabla thead th { background: #374151; color: #e5e7eb; }
+            table.mio-tabla th, table.mio-tabla td { border-bottom-color: #374151; }
+            table.mio-tabla td.dia { color: #e5e7eb; }
+            table.mio-tabla tr.libre td { color: #6b7280; }
+            .empty { color: #6b7280; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>
+                <i data-lucide="calendar-days" aria-hidden="true" style="width:22px;height:22px;vertical-align:middle;margin-right:6px"></i>
+                Horario
+                <span class="centro-chip" id="centroChip"></span>
+            </h1>
+            <button class="btn-volver" onclick="volverAlFichaje()">
+                <i data-lucide="arrow-left" aria-hidden="true" style="width:14px;height:14px"></i> Volver
+            </button>
+        </div>
+
+        <div class="filtros">
+            <div class="filtro-grupo">
+                <label for="selSemana">Semana</label>
+                <select id="selSemana"></select>
+            </div>
+            <div class="filtro-grupo" id="grupoEmpleado" style="display:none">
+                <label for="selEmpleado">Tu nombre</label>
+                <select id="selEmpleado"><option value="">-- Selecciona --</option></select>
+            </div>
+        </div>
+
+        <div class="tabs">
+            <button class="tab active" data-tab="general">General (todos)</button>
+            <button class="tab" data-tab="mio">Mi horario</button>
+        </div>
+
+        <div id="status" class="status"></div>
+
+        <div id="tabGeneral" class="tab-content">
+            <div class="leyenda">
+                <span class="leyenda-chip"><span class="leyenda-dot cocina"></span> Cocina</span>
+                <span class="leyenda-chip"><span class="leyenda-dot sala"></span> Sala</span>
+                <span class="leyenda-chip"><span class="leyenda-dot mixto"></span> Mixto</span>
+                <span class="leyenda-chip"><span class="leyenda-dot sinrol"></span> Sin rol</span>
+            </div>
+            <div id="ganttSem"></div>
+        </div>
+
+        <div id="tabMio" class="tab-content hidden">
+            <div id="miHorario"><div class="empty">Elige tu nombre arriba para ver tu horario.</div></div>
+        </div>
+    </div>
+
+    <script>
+    (function() {
+        // ── Helpers básicos ───────────────────────────────────────
+        const $ = id => document.getElementById(id);
+        const params = new URLSearchParams(window.location.search);
+        const centroActual = params.get('centro');
+
+        const APERTURA_MIN = 7 * 60 + 30;
+        const DURACION_OP  = 19.5 * 60;
+
+        function toOpMinutes(hhmm) {
+            if (!hhmm || !/^\d{1,2}:\d{2}/.test(hhmm)) return NaN;
+            const [h, m] = hhmm.split(':').map(Number);
+            let op = (h * 60 + m) - APERTURA_MIN;
+            if (op < 0) op += 24 * 60;
+            return op;
+        }
+        function duracionMin(entrada, salida) {
+            const e = toOpMinutes(entrada), s = toOpMinutes(salida);
+            if (isNaN(e) || isNaN(s)) return null;
+            const d = s - e;
+            return d > 0 ? d : null;
+        }
+        function formatDur(min) {
+            const h = Math.floor(min / 60), m = min % 60;
+            return m ? `${h}h ${m}m` : `${h}h`;
+        }
+        const ROL_COLOR = { cocina: '#f97316', sala: '#3b82f6', mixto: '#a855f7', '': '#9ca3af' };
+        const colorRol = r => ROL_COLOR[r || ''] || '#9ca3af';
+        const ROL_LABEL = { cocina: 'Cocina', sala: 'Sala', mixto: 'Mixto' };
+
+        function pad2(n) { return String(n).padStart(2, '0'); }
+        function ymd(d) { return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`; }
+        function formatDayMonth(d) {
+            return d.toLocaleDateString('es-ES', { day: '2-digit', month: 'short' }).replace('.', '');
+        }
+        function getISOWeek(date) {
+            const d = new Date(date);
+            d.setHours(0, 0, 0, 0);
+            d.setDate(d.getDate() + 3 - (d.getDay() + 6) % 7);
+            const week1 = new Date(d.getFullYear(), 0, 4);
+            const wn = 1 + Math.round(((d - week1) / 86400000 - 3 + (week1.getDay() + 6) % 7) / 7);
+            return `${d.getFullYear()}-W${pad2(wn)}`;
+        }
+        function mondayOf(date) {
+            const d = new Date(date);
+            d.setHours(0, 0, 0, 0);
+            const day = d.getDay();
+            const diff = (day + 6) % 7; // 0 si lun, 6 si dom
+            d.setDate(d.getDate() - diff);
+            return d;
+        }
+        function daysOfWeek(mon) {
+            return Array.from({ length: 7 }, (_, i) => {
+                const d = new Date(mon);
+                d.setDate(mon.getDate() + i);
+                return d;
+            });
+        }
+        function setStatus(txt, tipo) {
+            const el = $('status');
+            el.className = 'status' + (tipo ? ' ' + tipo : '');
+            el.textContent = txt || '';
+        }
+
+        function volverAlFichaje() {
+            if (centroActual) {
+                window.location.href = `/?centro=${encodeURIComponent(centroActual)}`;
+            } else {
+                window.location.href = '/';
+            }
+        }
+        window.volverAlFichaje = volverAlFichaje;
+
+        // ── Semanas disponibles: actual + 6 siguientes ────────────
+        function buildWeeks() {
+            const monHoy = mondayOf(new Date());
+            return Array.from({ length: 7 }, (_, i) => {
+                const monday = new Date(monHoy);
+                monday.setDate(monHoy.getDate() + i * 7);
+                const dias = daysOfWeek(monday);
+                const iso = getISOWeek(monday);
+                const wn = iso.split('-W')[1];
+                const label = `Sem. ${wn} · ${formatDayMonth(dias[0])} – ${formatDayMonth(dias[6])}${i === 0 ? ' (esta)' : ''}`;
+                return { value: iso, label, days: dias };
+            });
+        }
+        const weeks = buildWeeks();
+        function findWeek(value) { return weeks.find(w => w.value === value) || null; }
+
+        // ── Estado + datos ────────────────────────────────────────
+        let semanaActual = weeks[0].value;
+        let empleadosCentro = []; // [{nombre, rol}]
+        let horarioSem = [];      // filas de /api/horarios para la semana
+
+        // ── Init ──────────────────────────────────────────────────
+        document.addEventListener('DOMContentLoaded', async () => {
+            if (!centroActual) {
+                window.location.href = '/';
+                return;
+            }
+            $('centroChip').textContent = centroActual;
+
+            // Poblar semanas
+            const selSem = $('selSemana');
+            weeks.forEach(w => {
+                const o = document.createElement('option');
+                o.value = w.value; o.textContent = w.label;
+                selSem.appendChild(o);
+            });
+            selSem.value = semanaActual;
+
+            selSem.addEventListener('change', async () => {
+                semanaActual = selSem.value;
+                await cargarSemana();
+                renderGeneral();
+                renderMio();
+            });
+
+            // Tabs
+            document.querySelectorAll('.tab').forEach(t => t.addEventListener('click', () => cambiarTab(t.dataset.tab)));
+
+            $('selEmpleado').addEventListener('change', renderMio);
+
+            await cargarEmpleados();
+            await cargarSemana();
+            renderGeneral();
+            renderMio();
+            if (typeof lucide !== 'undefined') lucide.createIcons();
+        });
+
+        function cambiarTab(tab) {
+            document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.tab === tab));
+            $('tabGeneral').classList.toggle('hidden', tab !== 'general');
+            $('tabMio').classList.toggle('hidden', tab !== 'mio');
+            $('grupoEmpleado').style.display = tab === 'mio' ? 'flex' : 'none';
+        }
+
+        async function cargarEmpleados() {
+            try {
+                const res = await fetch(`/api/empleados?centro=${encodeURIComponent(centroActual)}`);
+                if (!res.ok) throw new Error();
+                empleadosCentro = (await res.json()).map(e => typeof e === 'string'
+                    ? { nombre: e, rol: '' }
+                    : { nombre: e.nombre, rol: e.rol || '' });
+                empleadosCentro.sort((a, b) => a.nombre.localeCompare(b.nombre));
+                const sel = $('selEmpleado');
+                sel.innerHTML = '<option value="">-- Selecciona --</option>' +
+                    empleadosCentro.map(e => `<option value="${escapeAttr(e.nombre)}">${escapeHtml(e.nombre)}</option>`).join('');
+            } catch (e) {
+                setStatus('No se pudieron cargar los empleados', 'error');
+            }
+        }
+
+        async function cargarSemana() {
+            setStatus('Cargando horario...', 'info');
+            try {
+                const url = `/api/horarios?centro=${encodeURIComponent(centroActual)}&semana=${encodeURIComponent(semanaActual)}&estado=validado`;
+                const res = await fetch(url, { cache: 'no-store' });
+                if (!res.ok) throw new Error();
+                horarioSem = await res.json();
+                setStatus('', '');
+            } catch (e) {
+                horarioSem = [];
+                setStatus('No se pudo cargar el horario de esta semana', 'error');
+            }
+        }
+
+        // ── Vista GENERAL (Gantt semanal) ─────────────────────────
+        function renderGeneral() {
+            const cont = $('ganttSem');
+            const week = findWeek(semanaActual);
+            if (!week) { cont.innerHTML = ''; return; }
+
+            // Ticks del eje cada 2h desde 07:30
+            const axisTicks = [];
+            for (let op = 0; op <= DURACION_OP; op += 120) {
+                const abs = (op + APERTURA_MIN) % (24 * 60);
+                const h = Math.floor(abs / 60), m = abs % 60;
+                const leftPct = (op / DURACION_OP) * 100;
+                axisTicks.push(`<span style="left:${leftPct.toFixed(1)}%">${pad2(h)}:${pad2(m)}</span>`);
+            }
+            const axisHtml = axisTicks.join('');
+            const diasNombres = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'];
+
+            // Rol de cada empleado (para 1er tramo si no viene rol_primera)
+            const rolPorEmp = {};
+            empleadosCentro.forEach(e => { rolPorEmp[e.nombre] = e.rol || ''; });
+
+            const porFecha = {};
+            horarioSem.forEach(h => { (porFecha[h.fecha] = porFecha[h.fecha] || []).push(h); });
+
+            cont.innerHTML = week.days.map((day, i) => {
+                const fecha = ymd(day);
+                const rows = (porFecha[fecha] || [])
+                    .map(h => {
+                        const dur = duracionMin(h.hora_entrada, h.hora_salida);
+                        if (dur == null) return null;
+                        const opE = toOpMinutes(h.hora_entrada);
+                        const opS = toOpMinutes(h.hora_salida);
+                        const rol1 = (h.rol_primera || rolPorEmp[h.empleado] || '');
+                        const segs = [];
+                        if (h.hora_cambio && h.rol_segunda) {
+                            const opC = toOpMinutes(h.hora_cambio);
+                            if (!isNaN(opC) && opC > opE && opC < opS) {
+                                segs.push({ l: opE, w: opC - opE, c: colorRol(rol1) });
+                                segs.push({ l: opC, w: opS - opC, c: colorRol(h.rol_segunda) });
+                            }
+                        }
+                        if (segs.length === 0) segs.push({ l: opE, w: opS - opE, c: colorRol(rol1) });
+                        const segsHtml = segs.map(s =>
+                            `<div class="gantt-seg" style="left:${((s.l/DURACION_OP)*100).toFixed(1)}%;width:${((s.w/DURACION_OP)*100).toFixed(1)}%;background:${s.c}"></div>`
+                        ).join('');
+                        return { nombre: h.empleado, html:
+                            `<div class="gantt-row"><div class="gantt-label">${escapeHtml(h.empleado)}</div><div class="gantt-track">${segsHtml}</div></div>`
+                        };
+                    })
+                    .filter(Boolean)
+                    .sort((a, b) => a.nombre.localeCompare(b.nombre));
+
+                const cabecera = `<div class="gantt-day-title">${diasNombres[i]} ${formatDayMonth(day)}</div><div class="gantt-axis">${axisHtml}</div>`;
+                const cuerpo = rows.length ? rows.map(r => r.html).join('') : '<div class="gantt-empty">Sin turnos</div>';
+                return `<div class="gantt-day">${cabecera}${cuerpo}</div>`;
+            }).join('');
+        }
+
+        // ── Vista MI HORARIO (tabla) ──────────────────────────────
+        function renderMio() {
+            const cont = $('miHorario');
+            const empleado = $('selEmpleado').value;
+            const week = findWeek(semanaActual);
+            if (!empleado || !week) {
+                cont.innerHTML = '<div class="empty">Elige tu nombre arriba para ver tu horario.</div>';
+                return;
+            }
+            const rolFijo = (empleadosCentro.find(e => e.nombre === empleado) || {}).rol || '';
+
+            // Lookup por fecha
+            const lookup = {};
+            horarioSem.filter(h => h.empleado === empleado).forEach(h => { lookup[h.fecha] = h; });
+
+            const diasNombres = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'];
+            let totalMin = 0;
+
+            const rows = week.days.map((day, i) => {
+                const fecha = ymd(day);
+                const h = lookup[fecha];
+                if (!h) {
+                    return `<tr class="libre">
+                        <td class="dia">${diasNombres[i]} ${formatDayMonth(day)}</td>
+                        <td>Libre</td>
+                        <td class="hora">—</td>
+                        <td class="hora">—</td>
+                        <td class="hora">—</td>
+                    </tr>`;
+                }
+                const dur = duracionMin(h.hora_entrada, h.hora_salida) || 0;
+                totalMin += dur;
+                const rol1 = (h.rol_primera || rolFijo || '');
+                const pill1 = rol1
+                    ? `<span class="rol-pill ${rol1}">${ROL_LABEL[rol1]}</span>`
+                    : `<span class="rol-pill sinrol">Sin rol</span>`;
+                let rolCell = pill1;
+                if (h.hora_cambio && h.rol_segunda) {
+                    rolCell += `<div class="cambio-text">→ ${h.hora_cambio.slice(0,5)} <span class="rol-pill ${h.rol_segunda}">${ROL_LABEL[h.rol_segunda]}</span></div>`;
+                }
+                return `<tr>
+                    <td class="dia">${diasNombres[i]} ${formatDayMonth(day)}</td>
+                    <td>${rolCell}</td>
+                    <td class="hora">${h.hora_entrada.slice(0,5)}</td>
+                    <td class="hora">${h.hora_salida.slice(0,5)}</td>
+                    <td class="hora">${formatDur(dur)}</td>
+                </tr>`;
+            }).join('');
+
+            cont.innerHTML = `
+                <div class="mio-header">
+                    <span class="mio-nombre">${escapeHtml(empleado)}</span>
+                    <span class="mio-semana">${week.label}</span>
+                    <span class="mio-total">Total: ${formatDur(totalMin)}</span>
+                </div>
+                <table class="mio-tabla">
+                    <thead>
+                        <tr>
+                            <th>Día</th><th>Rol</th><th>Entrada</th><th>Salida</th><th>Horas</th>
+                        </tr>
+                    </thead>
+                    <tbody>${rows}</tbody>
+                </table>
+            `;
+        }
+
+        function escapeHtml(s) {
+            return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+        }
+        function escapeAttr(s) { return String(s).replace(/"/g, '&quot;').replace(/'/g, '&#39;'); }
+    })();
+    </script>
+</body>
+</html>
