@@ -318,13 +318,62 @@
             position: absolute;
             top: 0;
             bottom: 0;
-            background: #9ca3af;
+            background: #9ca3af; /* fallback; JS pinta el color según rol */
             border-radius: 3px;
         }
-        /* Coloreado por rol del empleado (aplicado en la fila) */
-        tr.rol-cocina .turno-bar-fill { background: #f97316; }
-        tr.rol-sala   .turno-bar-fill { background: #3b82f6; }
-        tr.rol-mixto  .turno-bar-fill { background: #a855f7; }
+        /* Coloreado por rol del empleado — fallback si JS aún no pintó */
+        tr.rol-cocina .turno-bar-fill--1 { background: #f97316; }
+        tr.rol-sala   .turno-bar-fill--1 { background: #3b82f6; }
+        tr.rol-mixto  .turno-bar-fill--1 { background: #a855f7; }
+
+        /* Panel de "cambio de rol a mitad de turno" */
+        .btn-cambio-toggle {
+            background: none;
+            border: 1px dashed #cbd5e1;
+            color: #64748b;
+            font-size: 11px;
+            padding: 2px 6px;
+            border-radius: 6px;
+            cursor: pointer;
+        }
+        .btn-cambio-toggle:hover { background: #f1f5f9; color: #334155; }
+        .cambio-panel {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            font-size: 11px;
+            color: #6b7280;
+        }
+        .cambio-panel .cambio-lbl { font-weight: 700; color: #9ca3af; }
+        .cambio-panel .inp-cambio {
+            width: 80px;
+            padding: 3px 5px;
+            border: 1px solid #d1d5db;
+            border-radius: 5px;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            background: white;
+            color: #1f2937;
+        }
+        .cambio-panel .sel-rol2 {
+            padding: 3px 4px;
+            border: 1px solid #d1d5db;
+            border-radius: 5px;
+            font-size: 12px;
+            background: white;
+            color: #1f2937;
+            cursor: pointer;
+        }
+        .cambio-panel .btn-cambio-remove {
+            background: none;
+            border: none;
+            color: #ef4444;
+            font-size: 14px;
+            font-weight: 700;
+            padding: 0 2px;
+            cursor: pointer;
+            line-height: 1;
+        }
         tr.rol-cocina .td-empleado { border-left: 4px solid #f97316; }
         tr.rol-sala   .td-empleado { border-left: 4px solid #3b82f6; }
         tr.rol-mixto  .td-empleado { border-left: 4px solid #a855f7; }
@@ -527,6 +576,17 @@
                 border-left-color: #4b5563;
             }
             .turno-total-sem { color: #e5e7eb; }
+            .btn-cambio-toggle { border-color: #4b5563; color: #9ca3af; }
+            .btn-cambio-toggle:hover { background: #374151; color: #e5e7eb; }
+            .cambio-panel { color: #9ca3af; }
+            .cambio-panel .cambio-lbl { color: #6b7280; }
+            .cambio-panel .inp-cambio,
+            .cambio-panel .sel-rol2 {
+                background: #374151;
+                color: #e5e7eb;
+                border-color: #4b5563;
+            }
+            .cambio-panel .btn-cambio-remove { color: #f87171; }
         }
 
         /* Responsive */
