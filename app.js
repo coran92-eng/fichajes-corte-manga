@@ -74,6 +74,7 @@ async function cargarEmpleados() {
         return;
     }
 
+    listaEmpleados = empleados.map(e => e.nombre);
     cont.innerHTML = '';
     empleados.forEach(({ nombre, rol }) => {
         rolPorEmpleado[nombre] = (rol || '').toLowerCase();
@@ -241,7 +242,7 @@ async function registrarFichaje(tipo) {
 
         actualizarEstadoBotones(tipo);
         mostrarUndoToast(tipo, fichaje);
-        if (centroActual) { cargarTurnoActual(); cargarResumenPrevios(); }
+        if (centroActual) { cargarTurnoActual(); cargarResumenPrevios(); renderTareasPanel(true); }
 
     } catch (error) {
         console.error('Error al registrar:', error);
@@ -482,6 +483,10 @@ function iniciarPanelTurno() {
     cargarResumenPrevios();
     if (ayerRefreshInterval) clearInterval(ayerRefreshInterval);
     ayerRefreshInterval = setInterval(cargarResumenPrevios, 10 * 60 * 1000);
+
+    renderTareasPanel();
+    if (tareasRefreshInterval) clearInterval(tareasRefreshInterval);
+    tareasRefreshInterval = setInterval(renderTareasPanel, 60000);
 }
 
 async function cargarTurnoActual() {
@@ -921,4 +926,208 @@ async function confirmarSalida() {
     }
 
     registrarFichaje('salida');
+}
+
+// ── Panel de tareas en la pantalla de fichaje ─────────────────
+// El equipo marca la tarea aquí mismo: nombre + quién la ha hecho + Guardar.
+let listaEmpleados = [];
+let tareasRefreshInterval = null;
+const fotosTarea = {};   // instancia_id → { b64, origen }
+
+const BLOQUE_TXT = {
+    APERTURA: 'Apertura', DURANTE_SERVICIO: 'Durante el servicio',
+    CAMBIO_TURNO: 'Cambio de turno', CIERRE: 'Cierre',
+    SEMANAL: 'Semanal', MENSUAL: 'Mensual',
+};
+const ORDEN_BLOQUES = ['APERTURA', 'DURANTE_SERVICIO', 'CAMBIO_TURNO', 'CIERRE', 'SEMANAL', 'MENSUAL'];
+
+function escTarea(s) {
+    return String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+function horaCorta(ts) {
+    return ts ? new Date(Number(ts)).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' }) : '';
+}
+
+async function renderTareasPanel(forzar = false) {
+    const panel = document.getElementById('tareasPanel');
+    const lista = document.getElementById('tareasLista');
+    const countEl = document.getElementById('tareasCount');
+    if (!panel || !lista || !centroActual) return;
+
+    const datos = await cargarTareasCentro(forzar);
+    // Si no hay tareas configuradas para el centro, el panel no estorba.
+    if (!datos || !Array.isArray(datos.tareas) || datos.tareas.length === 0) {
+        panel.style.display = 'none';
+        return;
+    }
+
+    panel.style.display = 'block';
+    const r = datos.resumen || { total: 0, completadas: 0 };
+    countEl.textContent = `${r.completadas}/${r.total} hechas`;
+
+    const ahora = Date.now();
+    let html = '';
+    for (const bloque of ORDEN_BLOQUES) {
+        const delBloque = datos.tareas.filter(t => t.bloque === bloque);
+        if (!delBloque.length) continue;
+        html += `<div class="tarea-bloque">${BLOQUE_TXT[bloque] || bloque}</div>`;
+        html += delBloque.map(t => filaTarea(t, ahora)).join('');
+    }
+    lista.innerHTML = html;
+
+    lista.querySelectorAll('[data-guardar]').forEach(b =>
+        b.addEventListener('click', () => guardarTarea(Number(b.dataset.guardar))));
+    lista.querySelectorAll('[data-tfoto]').forEach(inp =>
+        inp.addEventListener('change', ev => capturarFotoTarea(ev, Number(inp.dataset.tfoto))));
+}
+
+function filaTarea(t, ahora) {
+    const hecha = t.estado === 'COMPLETADA' || t.estado === 'COMPLETADA_TARDIA';
+    const noAplica = t.estado === 'NO_APLICA';
+    const vencida = t.estado === 'VENCIDA';
+    const futura = ahora < Number(t.ventana_inicio_ts);
+    const cls = hecha ? 'hecha' : vencida ? 'vencida' : futura ? 'futura' : '';
+
+    const nombre = `<div class="tarea-nom">${escTarea(t.nombre)}
+        <small>${horaCorta(t.ventana_inicio_ts)}–${horaCorta(t.ventana_fin_ts)} · ${escTarea(t.rol_responsable)}${t.criticidad === 'BLOQUEANTE' ? ' · <span class="tarea-bloq">imprescindible</span>' : ''}</small>
+    </div>`;
+
+    if (hecha) {
+        return `<div class="tarea-row hecha"><span class="tarea-punto"></span>${nombre}
+            <span class="tarea-hecha-info">✓ ${escTarea(t.completada_por)} · ${horaCorta(t.completada_ts_servidor)}</span></div>`;
+    }
+    if (noAplica) {
+        return `<div class="tarea-row"><span class="tarea-punto"></span>${nombre}
+            <span class="tarea-hecha-info" style="color:#6b7280">No aplica</span></div>`;
+    }
+    if (futura) {
+        return `<div class="tarea-row futura"><span class="tarea-punto"></span>${nombre}
+            <span class="tarea-hecha-info" style="color:#94a3b8">desde ${horaCorta(t.ventana_inicio_ts)}</span></div>`;
+    }
+
+    // Pendiente o vencida: se puede marcar
+    const opciones = ['<option value="">¿Quién?</option>']
+        .concat(listaEmpleados.map(n => `<option value="${escTarea(n)}">${escTarea(n)}</option>`))
+        .join('');
+
+    let extras = '';
+    const tipo = t.tipo_evidencia;
+    if (tipo === 'NUMERO' || tipo === 'FOTO+NUMERO') {
+        let cfg = {};
+        try { cfg = JSON.parse(t.evidencia_config || '{}'); } catch {}
+        extras += `<input type="number" step="0.1" inputmode="decimal" class="tarea-num"
+                    id="tnum-${t.id}" placeholder="${escTarea(cfg.unidad || 'valor')}">`;
+    }
+    if (tipo === 'TEXTO') {
+        extras += `<input type="text" class="tarea-txt" id="ttxt-${t.id}" placeholder="Anota...">`;
+    }
+    if (tipo === 'FOTO' || tipo === 'FOTO+NUMERO') {
+        extras += `<label class="tarea-foto-btn" id="tfotolbl-${t.id}">📷
+            <input type="file" accept="image/*" capture="environment" data-tfoto="${t.id}" style="display:none"></label>`;
+    }
+
+    return `<div class="tarea-row ${cls}"><span class="tarea-punto"></span>${nombre}
+        <select class="tarea-sel" id="tsel-${t.id}">${opciones}</select>
+        ${extras}
+        <button type="button" class="tarea-guardar" data-guardar="${t.id}">Guardar</button>
+    </div>`;
+}
+
+// Reescalado en el propio móvil: la foto viaja pequeña y no cuesta almacenamiento.
+function capturarFotoTarea(ev, id) {
+    const file = ev.target.files && ev.target.files[0];
+    if (!file) return;
+    const recien = (Date.now() - (file.lastModified || 0)) < 2 * 60 * 1000;
+    const reader = new FileReader();
+    reader.onload = () => {
+        const img = new Image();
+        img.onload = () => {
+            const MAX = 1024;
+            let { width: w, height: h } = img;
+            if (w > MAX || h > MAX) {
+                const f = Math.min(MAX / w, MAX / h);
+                w = Math.round(w * f); h = Math.round(h * f);
+            }
+            const c = document.createElement('canvas');
+            c.width = w; c.height = h;
+            c.getContext('2d').drawImage(img, 0, 0, w, h);
+            fotosTarea[id] = { b64: c.toDataURL('image/jpeg', 0.6), origen: recien ? 'camara' : 'galeria' };
+            const lbl = document.getElementById(`tfotolbl-${id}`);
+            if (lbl) { lbl.classList.add('lista'); lbl.childNodes[0].nodeValue = '✓ '; }
+        };
+        img.src = reader.result;
+    };
+    reader.readAsDataURL(file);
+}
+
+async function guardarTarea(id) {
+    const sel = document.getElementById(`tsel-${id}`);
+    const btn = document.querySelector(`[data-guardar="${id}"]`);
+    const quien = sel ? sel.value : '';
+    if (!quien) {
+        mostrarMensaje('Elige quién ha hecho la tarea', 'error');
+        return;
+    }
+
+    const body = {
+        instancia_id: id,
+        empleado: quien,
+        device_id: localStorage.getItem('device_id') || '',
+        ts_cliente: Date.now(),
+        origen_ui: 'inicio',
+        idempotency_key: `${id}-${quien}-${Date.now()}`,
+    };
+    const num = document.getElementById(`tnum-${id}`);
+    if (num && num.value !== '') body.valor_numerico = num.value;
+    const txt = document.getElementById(`ttxt-${id}`);
+    if (txt) body.texto = txt.value;
+    if (fotosTarea[id]) { body.foto_b64 = fotosTarea[id].b64; body.origen_captura = fotosTarea[id].origen; }
+
+    if (btn) { btn.disabled = true; btn.textContent = '...'; }
+    try {
+        const res = await fetch('/api/tareas?accion=completar', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-Auth-Token': sessionStorage.getItem('adminToken') || sessionStorage.getItem('encargadoToken') || '',
+            },
+            body: JSON.stringify(body),
+        });
+        let data = await res.json().catch(() => ({}));
+
+        // Si a esa persona le han asignado PIN, se lo pedimos y reintentamos.
+        // Mientras no tenga PIN, guardar es un solo toque.
+        if (!res.ok && res.status === 403 && /PIN/i.test(data.error || '')) {
+            const pin = prompt(`PIN de ${quien}:`);
+            if (!pin) {
+                if (btn) { btn.disabled = false; btn.textContent = 'Guardar'; }
+                return;
+            }
+            const res2 = await fetch('/api/tareas?accion=completar', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-Auth-Token': sessionStorage.getItem('adminToken') || sessionStorage.getItem('encargadoToken') || '',
+                },
+                body: JSON.stringify({ ...body, pin, idempotency_key: `${id}-${quien}-${Date.now()}` }),
+            });
+            data = await res2.json().catch(() => ({}));
+            if (!res2.ok) {
+                mostrarMensaje(data.error || 'No se pudo guardar la tarea', 'error');
+                if (btn) { btn.disabled = false; btn.textContent = 'Guardar'; }
+                return;
+            }
+        } else if (!res.ok) {
+            mostrarMensaje(data.error || 'No se pudo guardar la tarea', 'error');
+            if (btn) { btn.disabled = false; btn.textContent = 'Guardar'; }
+            return;
+        }
+        delete fotosTarea[id];
+        mostrarMensaje(data.aviso ? `✓ Guardada. ${data.aviso}` : `✓ ${quien}: tarea guardada`, 'success');
+        renderTareasPanel(true);
+    } catch {
+        mostrarMensaje('Error de conexión al guardar la tarea', 'error');
+        if (btn) { btn.disabled = false; btn.textContent = 'Guardar'; }
+    }
 }
