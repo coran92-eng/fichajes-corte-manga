@@ -61,6 +61,15 @@
         .b-rol { background: #dbeafe; color: #1e40af; }
 
         .form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px; margin-bottom: 12px; }
+        .dias-semana { display: flex; gap: 4px; flex-wrap: wrap; }
+        .dias-semana label {
+            display: inline-flex; align-items: center; gap: 3px; font-size: 13px; font-weight: 600;
+            background: white; border: 2px solid #e5e7eb; border-radius: 6px; padding: 6px 8px; cursor: pointer;
+        }
+        .dias-semana input { cursor: pointer; }
+        @media (prefers-color-scheme: dark) {
+            .dias-semana label { background: #4b5563; color: #e5e7eb; border-color: #6b7280; }
+        }
         .form-card { border: 1px solid #e5e7eb; border-radius: 10px; padding: 16px; margin-bottom: 18px; background: #fafafa; }
         .form-card h3 { font-size: 15px; color: #1f2937; margin-bottom: 12px; }
         .msg { padding: 11px 13px; border-radius: 8px; font-size: 13px; margin-bottom: 14px; display: none; }
@@ -169,18 +178,28 @@
                         <option value="OPCIONAL">Opcional</option>
                     </select>
                 </div>
-                <div class="campo"><label for="fRec">Recurrencia</label>
-                    <select id="fRec">
-                        <option value='{"tipo":"diaria"}'>Todos los días</option>
-                        <option value='{"tipo":"semanal","dias":[1]}'>Semanal · lunes</option>
-                        <option value='{"tipo":"semanal","dias":[2]}'>Semanal · martes</option>
-                        <option value='{"tipo":"semanal","dias":[3]}'>Semanal · miércoles</option>
-                        <option value='{"tipo":"semanal","dias":[4]}'>Semanal · jueves</option>
-                        <option value='{"tipo":"semanal","dias":[5]}'>Semanal · viernes</option>
-                        <option value='{"tipo":"semanal","dias":[6]}'>Semanal · sábado</option>
-                        <option value='{"tipo":"semanal","dias":[7]}'>Semanal · domingo</option>
-                        <option value='{"tipo":"mensual","dia":1}'>Mensual · día 1</option>
+                <div class="campo"><label for="fRecTipo">¿Cada cuánto?</label>
+                    <select id="fRecTipo">
+                        <option value="diaria">Todos los días</option>
+                        <option value="semanal">Días concretos de la semana</option>
+                        <option value="mensual">Una vez al mes</option>
                     </select>
+                </div>
+                <div class="campo" id="wrapDias" style="display:none">
+                    <label>Días de la semana</label>
+                    <div class="dias-semana" id="fDias">
+                        <label><input type="checkbox" value="1"> L</label>
+                        <label><input type="checkbox" value="2"> M</label>
+                        <label><input type="checkbox" value="3"> X</label>
+                        <label><input type="checkbox" value="4"> J</label>
+                        <label><input type="checkbox" value="5"> V</label>
+                        <label><input type="checkbox" value="6"> S</label>
+                        <label><input type="checkbox" value="7"> D</label>
+                    </div>
+                </div>
+                <div class="campo" id="wrapDiaMes" style="display:none">
+                    <label for="fDiaMes">Día del mes</label>
+                    <input type="number" id="fDiaMes" min="1" max="28" value="1">
                 </div>
                 <div class="campo"><label for="fCfg">Rango (solo número)</label><input type="text" id="fCfg" placeholder='{"unidad":"ºC","min":-22,"max":-18}'></div>
             </div>
@@ -213,6 +232,49 @@
     const esc = s => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
     const hhmm = ts => ts ? new Date(Number(ts)).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' }) : '—';
     const BLOQUE_LABEL = { APERTURA: 'Apertura', DURANTE_SERVICIO: 'Servicio', CAMBIO_TURNO: 'Cambio turno', CIERRE: 'Cierre', SEMANAL: 'Semanal', MENSUAL: 'Mensual' };
+    const DIA_LETRA = { 1: 'L', 2: 'M', 3: 'X', 4: 'J', 5: 'V', 6: 'S', 7: 'D' };
+
+    // Recurrencia: del formulario al JSON que guarda la API
+    function leerRecurrencia() {
+        const tipo = $('fRecTipo').value;
+        if (tipo === 'semanal') {
+            const dias = [...$('fDias').querySelectorAll('input:checked')].map(i => Number(i.value));
+            return dias.length ? JSON.stringify({ tipo: 'semanal', dias }) : null;
+        }
+        if (tipo === 'mensual') {
+            return JSON.stringify({ tipo: 'mensual', dia: Number($('fDiaMes').value || 1) });
+        }
+        return JSON.stringify({ tipo: 'diaria' });
+    }
+
+    // ...y del JSON guardado de vuelta al formulario
+    function escribirRecurrencia(raw) {
+        let r = { tipo: 'diaria' };
+        try { r = JSON.parse(raw || '{"tipo":"diaria"}'); } catch {}
+        $('fRecTipo').value = r.tipo || 'diaria';
+        $('fDias').querySelectorAll('input').forEach(i => {
+            i.checked = Array.isArray(r.dias) && r.dias.map(Number).includes(Number(i.value));
+        });
+        $('fDiaMes').value = r.dia || 1;
+        toggleRecurrencia();
+    }
+
+    function toggleRecurrencia() {
+        const tipo = $('fRecTipo').value;
+        $('wrapDias').style.display = tipo === 'semanal' ? 'flex' : 'none';
+        $('wrapDiaMes').style.display = tipo === 'mensual' ? 'flex' : 'none';
+    }
+
+    function recurrenciaLegible(raw) {
+        let r;
+        try { r = JSON.parse(raw || '{"tipo":"diaria"}'); } catch { return 'Diaria'; }
+        if (r.tipo === 'semanal') {
+            const dias = (r.dias || []).map(d => DIA_LETRA[Number(d)] || d).join(' ');
+            return dias ? `Semanal · ${dias}` : 'Semanal';
+        }
+        if (r.tipo === 'mensual') return `Mensual · día ${r.dia || 1}`;
+        return 'Diaria';
+    }
 
     function msg(txt, tipo = 'info', ms = 4500) {
         const el = $('msg');
@@ -249,13 +311,14 @@
             return;
         }
         cont.innerHTML = `<table><thead><tr>
-            <th>Tarea</th><th>Bloque</th><th>Rol</th><th>Ventana</th><th>Tol.</th>
+            <th>Tarea</th><th>Bloque</th><th>Rol</th><th>Cada cuánto</th><th>Ventana</th><th>Tol.</th>
             <th>Evidencia</th><th>Criticidad</th><th>v</th><th></th>
         </tr></thead><tbody>` + plantillas.map(p => `
             <tr>
                 <td><strong>${esc(p.nombre)}</strong>${p.instrucciones ? `<div class="nota-mini">${esc(p.instrucciones)}</div>` : ''}</td>
                 <td>${BLOQUE_LABEL[p.bloque] || esc(p.bloque)}</td>
                 <td><span class="badge b-rol">${esc(p.rol_responsable)}</span></td>
+                <td>${esc(recurrenciaLegible(p.recurrencia))}</td>
                 <td>${esc(p.ventana_inicio)} – ${esc(p.ventana_fin)}</td>
                 <td>${esc(p.tolerancia_min)}'</td>
                 <td>${esc(p.tipo_evidencia)}</td>
@@ -285,8 +348,7 @@
         $('fCrit').value = p.criticidad;
         $('fCfg').value = p.evidencia_config || '';
         $('fInstr').value = p.instrucciones || '';
-        const rec = $('fRec');
-        if ([...rec.options].some(o => o.value === p.recurrencia)) rec.value = p.recurrencia;
+        escribirRecurrencia(p.recurrencia);
         $('formTitulo').textContent = `Editando: ${p.nombre} (se creará la versión ${Number(p.version) + 1})`;
         $('btnCancelarEdicion').style.display = 'inline-flex';
         window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -295,6 +357,7 @@
     function limpiarForm() {
         $('familiaId').value = '';
         $('fNombre').value = ''; $('fInstr').value = ''; $('fCfg').value = '';
+        escribirRecurrencia('{"tipo":"diaria"}');
         $('formTitulo').textContent = 'Nueva tarea';
         $('btnCancelarEdicion').style.display = 'none';
     }
@@ -315,9 +378,10 @@
             tipo_evidencia: $('fEv').value,
             evidencia_config: $('fCfg').value.trim(),
             criticidad: $('fCrit').value,
-            recurrencia: $('fRec').value,
+            recurrencia: leerRecurrencia(),
         };
         if (!body.nombre) { msg('La tarea necesita un nombre', 'error'); return; }
+        if (!body.recurrencia) { msg('Marca al menos un día de la semana', 'error'); return; }
 
         try {
             const r = await fetch('/api/tarea-plantillas', {
@@ -459,6 +523,7 @@
         cargarRevision();
     });
     $('inpFecha').addEventListener('change', cargarRevision);
+    $('fRecTipo').addEventListener('change', toggleRecurrencia);
     $('btnGuardar').addEventListener('click', guardar);
     $('btnCancelarEdicion').addEventListener('click', limpiarForm);
     $('btnSeed').addEventListener('click', seed);
