@@ -616,9 +616,32 @@
         }
 
         /* Acento de color por rol en la ficha del empleado */
-        .empleado-tag.empleado-rol--cocina { border-color: #f97316; box-shadow: inset 3px 0 0 #f97316; }
-        .empleado-tag.empleado-rol--sala   { border-color: #3b82f6; box-shadow: inset 3px 0 0 #3b82f6; }
-        .empleado-tag.empleado-rol--mixto  { border-color: #a855f7; box-shadow: inset 3px 0 0 #a855f7; }
+        .empleado-tag.empleado-rol--cocina    { border-color: #f97316; box-shadow: inset 3px 0 0 #f97316; }
+        .empleado-tag.empleado-rol--sala      { border-color: #3b82f6; box-shadow: inset 3px 0 0 #3b82f6; }
+        .empleado-tag.empleado-rol--mixto     { border-color: #a855f7; box-shadow: inset 3px 0 0 #a855f7; }
+        .empleado-tag.empleado-rol--barra     { border-color: #a21caf; box-shadow: inset 3px 0 0 #a21caf; }
+        .empleado-tag.empleado-rol--limpieza  { border-color: #14b8a6; box-shadow: inset 3px 0 0 #14b8a6; }
+        .empleado-tag.empleado-rol--encargado { border-color: #eab308; box-shadow: inset 3px 0 0 #eab308; }
+
+        /* PIN del empleado (módulo de tareas) */
+        .empleado-tag .btn-pin {
+            font-size: 11px;
+            padding: 2px 8px;
+            border: 1px solid #d1d5db;
+            border-radius: 6px;
+            background: #f9fafb;
+            color: #374151;
+            cursor: pointer;
+            font-family: inherit;
+            font-weight: 600;
+        }
+        .empleado-tag .btn-pin.sin-pin { border-color: #fca5a5; color: #b91c1c; background: #fef2f2; }
+        .empleado-tag .btn-pin.con-pin { border-color: #6ee7b7; color: #065f46; background: #ecfdf5; }
+        @media (prefers-color-scheme: dark) {
+            .empleado-tag .btn-pin { background: #374151; color: #e5e7eb; border-color: #4b5563; }
+            .empleado-tag .btn-pin.sin-pin { background: #450a0a; color: #f87171; border-color: #7f1d1d; }
+            .empleado-tag .btn-pin.con-pin { background: #022c22; color: #6ee7b7; border-color: #064e3b; }
+        }
 
         @media (prefers-color-scheme: dark) {
             .empleado-tag .empleado-centro,
@@ -883,6 +906,9 @@
                 </button>
                 <button class="btn-export" id="btnHorasMes" style="background:#0891b2" aria-label="Ver horas del mes: previsto vs real">
                     <i data-lucide="calendar-range" aria-hidden="true" style="width:15px;height:15px"></i> Horas Mes
+                </button>
+                <button class="btn-export" id="btnTareasAdmin" style="background:#7c3aed" aria-label="Gestionar tareas operativas">
+                    <i data-lucide="clipboard-list" aria-hidden="true" style="width:15px;height:15px"></i> Tareas
                 </button>
                 <button class="btn-empleados" id="btnEmpleados" aria-label="Gestionar empleados">
                     <i data-lucide="users" aria-hidden="true" style="width:15px;height:15px"></i> Empleados

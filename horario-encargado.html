@@ -322,9 +322,15 @@
             border-radius: 3px;
         }
         /* Coloreado por rol del empleado — fallback si JS aún no pintó */
-        tr.rol-cocina .turno-bar-fill--1 { background: #f97316; }
-        tr.rol-sala   .turno-bar-fill--1 { background: #3b82f6; }
-        tr.rol-mixto  .turno-bar-fill--1 { background: #a855f7; }
+        tr.rol-cocina    .turno-bar-fill--1 { background: #f97316; }
+        tr.rol-sala      .turno-bar-fill--1 { background: #3b82f6; }
+        tr.rol-mixto     .turno-bar-fill--1 { background: #a855f7; }
+        tr.rol-barra     .turno-bar-fill--1 { background: #a21caf; }
+        tr.rol-limpieza  .turno-bar-fill--1 { background: #14b8a6; }
+        tr.rol-encargado .turno-bar-fill--1 { background: #eab308; }
+        tr.rol-barra     .td-empleado { border-left: 4px solid #a21caf; }
+        tr.rol-limpieza  .td-empleado { border-left: 4px solid #14b8a6; }
+        tr.rol-encargado .td-empleado { border-left: 4px solid #eab308; }
 
         /* Selector "rol de este día" (primera parte del turno) */
         .rol1-row {
@@ -546,10 +552,13 @@
             border-radius: 3px;
             display: inline-block;
         }
-        .leyenda-dot.cocina { background: #f97316; }
-        .leyenda-dot.sala   { background: #3b82f6; }
-        .leyenda-dot.mixto  { background: #a855f7; }
-        .leyenda-dot.sinrol { background: #9ca3af; }
+        .leyenda-dot.cocina    { background: #f97316; }
+        .leyenda-dot.sala      { background: #3b82f6; }
+        .leyenda-dot.mixto     { background: #a855f7; }
+        .leyenda-dot.barra     { background: #a21caf; }
+        .leyenda-dot.limpieza  { background: #14b8a6; }
+        .leyenda-dot.encargado { background: #eab308; }
+        .leyenda-dot.sinrol    { background: #9ca3af; }
         .leyenda-info {
             margin-left: auto;
             font-size: 11px;
@@ -838,8 +847,11 @@
 
         <!-- Leyenda de colores por rol -->
         <div class="leyenda" id="leyendaRoles" style="display:none">
-            <span class="leyenda-chip"><span class="leyenda-dot cocina"></span> Cocina</span>
             <span class="leyenda-chip"><span class="leyenda-dot sala"></span> Sala</span>
+            <span class="leyenda-chip"><span class="leyenda-dot cocina"></span> Cocina</span>
+            <span class="leyenda-chip"><span class="leyenda-dot barra"></span> Barra</span>
+            <span class="leyenda-chip"><span class="leyenda-dot limpieza"></span> Limpieza</span>
+            <span class="leyenda-chip"><span class="leyenda-dot encargado"></span> Encargado</span>
             <span class="leyenda-chip"><span class="leyenda-dot mixto"></span> Mixto</span>
             <span class="leyenda-chip"><span class="leyenda-dot sinrol"></span> Sin rol</span>
             <span class="leyenda-info">Rango operativo 07:30 → 03:00 · pasos de 30 min</span>

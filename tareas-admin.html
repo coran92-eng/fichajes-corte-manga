@@ -1,0 +1,474 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#2563eb">
+    <title>Tareas · Gestión</title>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <script>
+        const _adm = sessionStorage.getItem('adminToken') === 'auth-token-fichaje-admin';
+        const _enc = sessionStorage.getItem('encargadoToken') === 'auth-token-fichaje-encargado';
+        if (!_adm && !_enc) window.location.href = 'login.html';
+    </script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100dvh; padding: 20px;
+        }
+        .container {
+            background: white; border-radius: 12px; box-shadow: 0 20px 60px rgba(0,0,0,.3);
+            padding: 24px; max-width: 1150px; margin: 0 auto;
+        }
+        .header { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; margin-bottom: 18px; }
+        .header h1 { color: #1f2937; font-size: 22px; }
+        button { font-family: inherit; font-weight: 600; cursor: pointer; border: none; }
+        .btn { padding: 10px 15px; border-radius: 8px; font-size: 13px; display: inline-flex; align-items: center; gap: 6px; }
+        .btn-gris { background: #6b7280; color: white; }
+        .btn-azul { background: #2563eb; color: white; }
+        .btn-verde { background: #10b981; color: white; }
+        .btn-rojo { background: #ef4444; color: white; }
+        .btn-borde { background: white; color: #374151; border: 1px solid #d1d5db; }
+
+        .filtros { background: #f9fafb; padding: 14px; border-radius: 8px; display: flex; gap: 14px; align-items: flex-end; flex-wrap: wrap; margin-bottom: 16px; }
+        .campo { display: flex; flex-direction: column; gap: 4px; }
+        .campo label { font-size: 12px; font-weight: 700; color: #6b7280; }
+        .campo select, .campo input, .campo textarea {
+            padding: 8px 10px; border: 2px solid #e5e7eb; border-radius: 6px; font-size: 14px; font-family: inherit; background: white; color: #1f2937;
+        }
+        .tabs { display: flex; gap: 6px; border-bottom: 1px solid #e5e7eb; margin-bottom: 16px; }
+        .tab { background: none; color: #6b7280; padding: 10px 14px; border-bottom: 3px solid transparent; font-size: 14px; }
+        .tab.active { color: #2563eb; border-bottom-color: #2563eb; }
+        .hidden { display: none !important; }
+
+        table { width: 100%; border-collapse: collapse; font-size: 13px; }
+        thead { background: #f3f4f6; }
+        th, td { padding: 10px 12px; text-align: left; border-bottom: 1px solid #e5e7eb; vertical-align: middle; }
+        th { font-weight: 700; color: #374151; font-size: 12px; }
+        .tabla-wrap { overflow-x: auto; }
+
+        .badge { padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 700; white-space: nowrap; }
+        .b-bloq { background: #fee2e2; color: #b91c1c; }
+        .b-normal { background: #e5e7eb; color: #374151; }
+        .b-opcional { background: #f3f4f6; color: #6b7280; }
+        .b-ok { background: #d1fae5; color: #065f46; }
+        .b-pend { background: #fef3c7; color: #92400e; }
+        .b-venc { background: #fee2e2; color: #b91c1c; }
+        .b-na { background: #e5e7eb; color: #4b5563; }
+        .b-flag { background: #fee2e2; color: #b91c1c; margin-left: 4px; }
+        .b-rol { background: #dbeafe; color: #1e40af; }
+
+        .form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px; margin-bottom: 12px; }
+        .form-card { border: 1px solid #e5e7eb; border-radius: 10px; padding: 16px; margin-bottom: 18px; background: #fafafa; }
+        .form-card h3 { font-size: 15px; color: #1f2937; margin-bottom: 12px; }
+        .msg { padding: 11px 13px; border-radius: 8px; font-size: 13px; margin-bottom: 14px; display: none; }
+        .msg.ok { background: #d1fae5; color: #065f46; display: block; }
+        .msg.error { background: #fee2e2; color: #7f1d1d; display: block; }
+        .msg.info { background: #dbeafe; color: #1e40af; display: block; }
+        .vacio { text-align: center; padding: 34px; color: #9ca3af; font-size: 14px; }
+        .foto-mini { max-width: 130px; border-radius: 6px; display: block; margin-top: 6px; }
+        .nota-mini { font-size: 12px; color: #6b7280; }
+
+        @media (prefers-color-scheme: dark) {
+            body { background: #111827; }
+            .container { background: #1f2937; color: #e5e7eb; }
+            .header h1, .form-card h3 { color: #e5e7eb; }
+            .filtros, .form-card { background: #374151; border-color: #4b5563; }
+            .campo label { color: #9ca3af; }
+            .campo select, .campo input, .campo textarea { background: #4b5563; color: #e5e7eb; border-color: #6b7280; }
+            thead { background: #374151; }
+            th { color: #e5e7eb; }
+            th, td { border-bottom-color: #374151; }
+            td { color: #d1d5db; }
+            .tabs { border-bottom-color: #4b5563; }
+            .tab { color: #9ca3af; }
+            .tab.active { color: #60a5fa; border-bottom-color: #60a5fa; }
+            .btn-borde { background: #374151; color: #e5e7eb; border-color: #4b5563; }
+        }
+    </style>
+</head>
+<body>
+<div class="container">
+    <div class="header">
+        <h1><i data-lucide="clipboard-list" style="width:22px;height:22px;vertical-align:middle;margin-right:6px"></i> Tareas · Gestión</h1>
+        <div style="display:flex;gap:8px">
+            <button class="btn btn-gris" onclick="location.href='admin.html'">
+                <i data-lucide="arrow-left" style="width:14px;height:14px"></i> Volver
+            </button>
+        </div>
+    </div>
+
+    <div class="filtros">
+        <div class="campo">
+            <label for="selCentro">Centro</label>
+            <select id="selCentro"><option value="">-- Selecciona --</option></select>
+        </div>
+        <div class="campo" id="campoFecha">
+            <label for="inpFecha">Jornada (revisión)</label>
+            <input type="date" id="inpFecha">
+        </div>
+    </div>
+
+    <div class="tabs">
+        <button class="tab active" data-tab="revision">Revisión del día</button>
+        <button class="tab" data-tab="plantillas">Plantillas</button>
+    </div>
+
+    <div id="msg" class="msg"></div>
+
+    <!-- REVISIÓN -->
+    <div id="tabRevision">
+        <div id="resumenDia" style="margin-bottom:12px;font-size:14px;color:#6b7280"></div>
+        <div class="tabla-wrap"><div id="tablaRevision"><div class="vacio">Elige un centro.</div></div></div>
+    </div>
+
+    <!-- PLANTILLAS -->
+    <div id="tabPlantillas" class="hidden">
+        <div class="form-card">
+            <h3 id="formTitulo">Nueva tarea</h3>
+            <input type="hidden" id="familiaId">
+            <div class="form-grid">
+                <div class="campo"><label for="fNombre">Nombre</label><input type="text" id="fNombre" placeholder="Recogida de terraza"></div>
+                <div class="campo"><label for="fBloque">Bloque</label>
+                    <select id="fBloque">
+                        <option value="APERTURA">Apertura</option>
+                        <option value="DURANTE_SERVICIO">Durante el servicio</option>
+                        <option value="CAMBIO_TURNO">Cambio de turno</option>
+                        <option value="CIERRE">Cierre</option>
+                        <option value="SEMANAL">Semanal</option>
+                        <option value="MENSUAL">Mensual</option>
+                    </select>
+                </div>
+                <div class="campo"><label for="fRol">Rol responsable</label>
+                    <select id="fRol">
+                        <option value="SALA">Sala</option>
+                        <option value="COCINA">Cocina</option>
+                        <option value="BARRA">Barra</option>
+                        <option value="LIMPIEZA">Limpieza</option>
+                        <option value="ENCARGADO">Encargado</option>
+                    </select>
+                </div>
+                <div class="campo"><label for="fIni">Ventana desde</label><input type="time" id="fIni" step="300" value="09:00"></div>
+                <div class="campo"><label for="fFin">Ventana hasta</label><input type="time" id="fFin" step="300" value="12:00"></div>
+                <div class="campo"><label for="fTol">Tolerancia (min)</label><input type="number" id="fTol" value="30" min="0" max="180"></div>
+                <div class="campo"><label for="fEv">Evidencia</label>
+                    <select id="fEv">
+                        <option value="CHECK">Check</option>
+                        <option value="FOTO">Foto</option>
+                        <option value="NUMERO">Número</option>
+                        <option value="TEXTO">Texto</option>
+                        <option value="FOTO+NUMERO">Foto + número</option>
+                    </select>
+                </div>
+                <div class="campo"><label for="fCrit">Criticidad</label>
+                    <select id="fCrit">
+                        <option value="NORMAL">Normal</option>
+                        <option value="BLOQUEANTE">Bloqueante</option>
+                        <option value="OPCIONAL">Opcional</option>
+                    </select>
+                </div>
+                <div class="campo"><label for="fRec">Recurrencia</label>
+                    <select id="fRec">
+                        <option value='{"tipo":"diaria"}'>Todos los días</option>
+                        <option value='{"tipo":"semanal","dias":[1]}'>Semanal · lunes</option>
+                        <option value='{"tipo":"semanal","dias":[2]}'>Semanal · martes</option>
+                        <option value='{"tipo":"semanal","dias":[3]}'>Semanal · miércoles</option>
+                        <option value='{"tipo":"semanal","dias":[4]}'>Semanal · jueves</option>
+                        <option value='{"tipo":"semanal","dias":[5]}'>Semanal · viernes</option>
+                        <option value='{"tipo":"semanal","dias":[6]}'>Semanal · sábado</option>
+                        <option value='{"tipo":"semanal","dias":[7]}'>Semanal · domingo</option>
+                        <option value='{"tipo":"mensual","dia":1}'>Mensual · día 1</option>
+                    </select>
+                </div>
+                <div class="campo"><label for="fCfg">Rango (solo número)</label><input type="text" id="fCfg" placeholder='{"unidad":"ºC","min":-22,"max":-18}'></div>
+            </div>
+            <div class="campo" style="margin-bottom:12px">
+                <label for="fInstr">Instrucciones (se muestran al empleado)</label>
+                <textarea id="fInstr" rows="2" placeholder="Cómo se hace, paso a paso"></textarea>
+            </div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap">
+                <button class="btn btn-verde" id="btnGuardar">Guardar tarea</button>
+                <button class="btn btn-borde" id="btnCancelarEdicion" style="display:none">Cancelar edición</button>
+                <button class="btn btn-borde" id="btnSeed" style="margin-left:auto">Cargar catálogo inicial (11 tareas)</button>
+            </div>
+        </div>
+
+        <div class="tabla-wrap"><div id="tablaPlantillas"><div class="vacio">Elige un centro.</div></div></div>
+    </div>
+</div>
+
+<script>
+(function () {
+    const $ = id => document.getElementById(id);
+    const token = sessionStorage.getItem('adminToken') || sessionStorage.getItem('encargadoToken') || '';
+    const esAdmin = sessionStorage.getItem('adminToken') === 'auth-token-fichaje-admin';
+    const H = { 'Content-Type': 'application/json', 'X-Auth-Token': token };
+
+    let centro = '';
+    let plantillas = [];
+    let revision = null;
+
+    const esc = s => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    const hhmm = ts => ts ? new Date(Number(ts)).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' }) : '—';
+    const BLOQUE_LABEL = { APERTURA: 'Apertura', DURANTE_SERVICIO: 'Servicio', CAMBIO_TURNO: 'Cambio turno', CIERRE: 'Cierre', SEMANAL: 'Semanal', MENSUAL: 'Mensual' };
+
+    function msg(txt, tipo = 'info', ms = 4500) {
+        const el = $('msg');
+        if (!txt) { el.className = 'msg'; el.textContent = ''; return; }
+        el.className = 'msg ' + tipo; el.textContent = txt;
+        if (ms) setTimeout(() => { if (el.textContent === txt) { el.className = 'msg'; el.textContent = ''; } }, ms);
+    }
+
+    async function cargarCentros() {
+        try {
+            const cfg = await (await fetch('/config.json')).json();
+            const sel = $('selCentro');
+            (cfg.centros || []).forEach(c => {
+                const o = document.createElement('option');
+                o.value = c; o.textContent = c; sel.appendChild(o);
+            });
+        } catch { msg('No se pudieron cargar los centros', 'error'); }
+    }
+
+    // ── Plantillas ────────────────────────────────────────────
+    async function cargarPlantillas() {
+        if (!centro) return;
+        try {
+            const r = await fetch(`/api/tarea-plantillas?centro=${encodeURIComponent(centro)}`, { cache: 'no-store' });
+            plantillas = await r.json();
+        } catch { plantillas = []; }
+        renderPlantillas();
+    }
+
+    function renderPlantillas() {
+        const cont = $('tablaPlantillas');
+        if (!plantillas.length) {
+            cont.innerHTML = '<div class="vacio">Este centro no tiene tareas. Crea una o carga el catálogo inicial.</div>';
+            return;
+        }
+        cont.innerHTML = `<table><thead><tr>
+            <th>Tarea</th><th>Bloque</th><th>Rol</th><th>Ventana</th><th>Tol.</th>
+            <th>Evidencia</th><th>Criticidad</th><th>v</th><th></th>
+        </tr></thead><tbody>` + plantillas.map(p => `
+            <tr>
+                <td><strong>${esc(p.nombre)}</strong>${p.instrucciones ? `<div class="nota-mini">${esc(p.instrucciones)}</div>` : ''}</td>
+                <td>${BLOQUE_LABEL[p.bloque] || esc(p.bloque)}</td>
+                <td><span class="badge b-rol">${esc(p.rol_responsable)}</span></td>
+                <td>${esc(p.ventana_inicio)} – ${esc(p.ventana_fin)}</td>
+                <td>${esc(p.tolerancia_min)}'</td>
+                <td>${esc(p.tipo_evidencia)}</td>
+                <td><span class="badge ${p.criticidad === 'BLOQUEANTE' ? 'b-bloq' : p.criticidad === 'OPCIONAL' ? 'b-opcional' : 'b-normal'}">${esc(p.criticidad)}</span></td>
+                <td>${esc(p.version)}</td>
+                <td style="white-space:nowrap">
+                    <button class="btn btn-borde" data-edit="${esc(p.familia_id)}">Editar</button>
+                    ${esAdmin ? `<button class="btn btn-rojo" data-baja="${esc(p.familia_id)}">Baja</button>` : ''}
+                </td>
+            </tr>`).join('') + '</tbody></table>';
+
+        cont.querySelectorAll('[data-edit]').forEach(b => b.addEventListener('click', () => editar(b.dataset.edit)));
+        cont.querySelectorAll('[data-baja]').forEach(b => b.addEventListener('click', () => darBaja(b.dataset.baja)));
+    }
+
+    function editar(familiaId) {
+        const p = plantillas.find(x => x.familia_id === familiaId);
+        if (!p) return;
+        $('familiaId').value = p.familia_id;
+        $('fNombre').value = p.nombre;
+        $('fBloque').value = p.bloque;
+        $('fRol').value = p.rol_responsable;
+        $('fIni').value = p.ventana_inicio;
+        $('fFin').value = p.ventana_fin;
+        $('fTol').value = p.tolerancia_min;
+        $('fEv').value = p.tipo_evidencia;
+        $('fCrit').value = p.criticidad;
+        $('fCfg').value = p.evidencia_config || '';
+        $('fInstr').value = p.instrucciones || '';
+        const rec = $('fRec');
+        if ([...rec.options].some(o => o.value === p.recurrencia)) rec.value = p.recurrencia;
+        $('formTitulo').textContent = `Editando: ${p.nombre} (se creará la versión ${Number(p.version) + 1})`;
+        $('btnCancelarEdicion').style.display = 'inline-flex';
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+
+    function limpiarForm() {
+        $('familiaId').value = '';
+        $('fNombre').value = ''; $('fInstr').value = ''; $('fCfg').value = '';
+        $('formTitulo').textContent = 'Nueva tarea';
+        $('btnCancelarEdicion').style.display = 'none';
+    }
+
+    async function guardar() {
+        if (!centro) { msg('Elige un centro primero', 'error'); return; }
+        const familiaId = $('familiaId').value;
+        const body = {
+            familia_id: familiaId || undefined,
+            centro,
+            nombre: $('fNombre').value.trim(),
+            instrucciones: $('fInstr').value.trim(),
+            bloque: $('fBloque').value,
+            rol_responsable: $('fRol').value,
+            ventana_inicio: $('fIni').value,
+            ventana_fin: $('fFin').value,
+            tolerancia_min: Number($('fTol').value || 30),
+            tipo_evidencia: $('fEv').value,
+            evidencia_config: $('fCfg').value.trim(),
+            criticidad: $('fCrit').value,
+            recurrencia: $('fRec').value,
+        };
+        if (!body.nombre) { msg('La tarea necesita un nombre', 'error'); return; }
+
+        try {
+            const r = await fetch('/api/tarea-plantillas', {
+                method: familiaId ? 'PUT' : 'POST', headers: H, body: JSON.stringify(body),
+            });
+            const data = await r.json().catch(() => ({}));
+            if (!r.ok) { msg(data.error || 'No se pudo guardar', 'error', 7000); return; }
+            msg(familiaId ? '✓ Nueva versión guardada' : '✓ Tarea creada', 'ok');
+            limpiarForm();
+            cargarPlantillas();
+        } catch { msg('Error de conexión', 'error'); }
+    }
+
+    async function darBaja(familiaId) {
+        if (!confirm('¿Dar de baja esta tarea? Dejará de generarse, pero el histórico se conserva.')) return;
+        try {
+            const r = await fetch(`/api/tarea-plantillas?familia_id=${encodeURIComponent(familiaId)}`, { method: 'DELETE', headers: H });
+            if (!r.ok) { msg('No se pudo dar de baja', 'error'); return; }
+            msg('✓ Tarea dada de baja', 'ok');
+            cargarPlantillas();
+        } catch { msg('Error de conexión', 'error'); }
+    }
+
+    async function seed() {
+        if (!centro) { msg('Elige un centro primero', 'error'); return; }
+        if (!confirm(`¿Cargar el catálogo inicial de 11 tareas en "${centro}"?`)) return;
+        try {
+            const r = await fetch('/api/tarea-plantillas?accion=seed', { method: 'POST', headers: H, body: JSON.stringify({ centro }) });
+            const data = await r.json().catch(() => ({}));
+            if (!r.ok) { msg(data.error || 'No se pudo cargar el catálogo', 'error', 7000); return; }
+            msg(`✓ ${data.creadas} tareas creadas`, 'ok');
+            cargarPlantillas();
+        } catch { msg('Error de conexión', 'error'); }
+    }
+
+    // ── Revisión del día ──────────────────────────────────────
+    async function cargarRevision() {
+        if (!centro) return;
+        const fecha = $('inpFecha').value;
+        try {
+            let url = `/api/tareas?centro=${encodeURIComponent(centro)}`;
+            if (fecha) url += `&fecha_operativa=${fecha}`;
+            const r = await fetch(url, { cache: 'no-store' });
+            revision = await r.json();
+        } catch { revision = null; }
+        renderRevision();
+    }
+
+    function renderRevision() {
+        const cont = $('tablaRevision');
+        if (!revision || !revision.tareas) { cont.innerHTML = '<div class="vacio">Sin datos.</div>'; return; }
+        const r = revision.resumen;
+        const pct = r.total ? Math.round((r.completadas / r.total) * 100) : 0;
+        $('resumenDia').textContent =
+            `Jornada ${revision.fecha_operativa} · ${r.completadas}/${r.total} completadas (${pct}%)` +
+            (r.bloqueantes_pendientes ? ` · ${r.bloqueantes_pendientes} bloqueantes sin cerrar` : '');
+        $('inpFecha').value = revision.fecha_operativa;
+
+        if (!revision.tareas.length) { cont.innerHTML = '<div class="vacio">No hay tareas generadas para esta jornada.</div>'; return; }
+
+        cont.innerHTML = `<table><thead><tr>
+            <th>Tarea</th><th>Bloque</th><th>Ventana</th><th>Estado</th><th>Quién</th><th>Hora</th><th>Evidencia</th><th></th>
+        </tr></thead><tbody>` + revision.tareas.map(t => {
+            const cerrada = t.estado === 'COMPLETADA' || t.estado === 'COMPLETADA_TARDIA';
+            const cls = cerrada ? 'b-ok' : t.estado === 'VENCIDA' ? 'b-venc' : t.estado === 'NO_APLICA' ? 'b-na' : 'b-pend';
+            let flags = '';
+            if (t.fuera_de_plazo) flags += '<span class="badge b-flag">tarde</span>';
+            if (t.flag_rafaga) flags += '<span class="badge b-flag">ráfaga</span>';
+            if (t.sincronizada_offline) flags += '<span class="badge b-flag">offline</span>';
+            const extra = t.motivo_no_aplica ? `<div class="nota-mini">Motivo: ${esc(t.motivo_no_aplica)}</div>`
+                        : t.nota ? `<div class="nota-mini">${esc(t.nota)}</div>` : '';
+            return `<tr>
+                <td><strong>${esc(t.nombre)}</strong>
+                    ${t.criticidad === 'BLOQUEANTE' ? '<span class="badge b-bloq">Bloqueante</span>' : ''}
+                    ${extra}</td>
+                <td>${BLOQUE_LABEL[t.bloque] || esc(t.bloque)}</td>
+                <td>${hhmm(t.ventana_inicio_ts)}–${hhmm(t.ventana_fin_ts)}</td>
+                <td><span class="badge ${cls}">${esc(t.estado)}</span>${flags}</td>
+                <td>${esc(t.completada_por || '—')}</td>
+                <td>${hhmm(t.completada_ts_servidor)}</td>
+                <td>${t.evidencia_id ? `<button class="btn btn-borde" data-foto="${t.evidencia_id}">Ver evidencia</button><div id="ev-${t.evidencia_id}"></div>` : '—'}</td>
+                <td style="white-space:nowrap">
+                    ${(t.estado === 'PENDIENTE' || t.estado === 'VENCIDA')
+                        ? `<button class="btn btn-borde" data-na="${t.id}">No aplica</button>` : ''}
+                    ${(cerrada || t.estado === 'NO_APLICA')
+                        ? `<button class="btn btn-borde" data-re="${t.id}">Reabrir</button>` : ''}
+                </td>
+            </tr>`;
+        }).join('') + '</tbody></table>';
+
+        cont.querySelectorAll('[data-foto]').forEach(b => b.addEventListener('click', () => verEvidencia(b.dataset.foto)));
+        cont.querySelectorAll('[data-na]').forEach(b => b.addEventListener('click', () => accion(b.dataset.na, 'no-aplica')));
+        cont.querySelectorAll('[data-re]').forEach(b => b.addEventListener('click', () => accion(b.dataset.re, 'reabrir')));
+    }
+
+    // La imagen va protegida por token: se pide con fetch y se muestra como blob.
+    async function verEvidencia(id) {
+        const destino = $(`ev-${id}`);
+        if (!destino) return;
+        if (destino.dataset.cargada) { destino.innerHTML = ''; delete destino.dataset.cargada; return; }
+        try {
+            const r = await fetch(`/api/tareas-evidencia?id=${id}`, { headers: { 'X-Auth-Token': token } });
+            if (!r.ok) { const d = await r.json().catch(() => ({})); msg(d.error || 'No se pudo abrir la evidencia', 'error'); return; }
+            const blob = await r.blob();
+            destino.innerHTML = `<img class="foto-mini" src="${URL.createObjectURL(blob)}" alt="Evidencia">`;
+            destino.dataset.cargada = '1';
+        } catch { msg('Error al cargar la evidencia', 'error'); }
+    }
+
+    async function accion(id, tipo) {
+        const motivo = prompt(tipo === 'no-aplica' ? 'Motivo (obligatorio):' : 'Motivo de la reapertura (obligatorio):');
+        if (!motivo || !motivo.trim()) return;
+        try {
+            const r = await fetch(`/api/tareas?accion=${tipo}`, {
+                method: 'POST', headers: H,
+                body: JSON.stringify({ instancia_id: Number(id), motivo: motivo.trim(), empleado: 'Encargado' }),
+            });
+            const d = await r.json().catch(() => ({}));
+            if (!r.ok) { msg(d.error || 'No se pudo aplicar', 'error', 6000); return; }
+            msg('✓ Hecho', 'ok');
+            cargarRevision();
+        } catch { msg('Error de conexión', 'error'); }
+    }
+
+    // ── Init ──────────────────────────────────────────────────
+    document.querySelectorAll('.tab').forEach(tab => tab.addEventListener('click', () => {
+        document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+        tab.classList.add('active');
+        const esRev = tab.dataset.tab === 'revision';
+        $('tabRevision').classList.toggle('hidden', !esRev);
+        $('tabPlantillas').classList.toggle('hidden', esRev);
+        $('campoFecha').style.display = esRev ? 'flex' : 'none';
+    }));
+
+    $('selCentro').addEventListener('change', e => {
+        centro = e.target.value;
+        if (!centro) return;
+        cargarPlantillas();
+        cargarRevision();
+    });
+    $('inpFecha').addEventListener('change', cargarRevision);
+    $('btnGuardar').addEventListener('click', guardar);
+    $('btnCancelarEdicion').addEventListener('click', limpiarForm);
+    $('btnSeed').addEventListener('click', seed);
+
+    document.addEventListener('DOMContentLoaded', async () => {
+        await cargarCentros();
+        if (!esAdmin) $('btnSeed').style.display = 'none';
+        if (typeof lucide !== 'undefined') lucide.createIcons();
+    });
+})();
+</script>
+</body>
+</html>

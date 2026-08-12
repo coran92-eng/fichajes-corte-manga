@@ -123,17 +123,21 @@ async function renderEmpleados(intento = 0) {
             ).join('');
 
         const ROLES = [
-            { value: '',       label: 'Sin rol' },
-            { value: 'cocina', label: 'Cocina' },
-            { value: 'sala',   label: 'Sala' },
-            { value: 'mixto',  label: 'Mixto' },
+            { value: '',          label: 'Sin rol' },
+            { value: 'sala',      label: 'Sala' },
+            { value: 'cocina',    label: 'Cocina' },
+            { value: 'barra',     label: 'Barra' },
+            { value: 'limpieza',  label: 'Limpieza' },
+            { value: 'encargado', label: 'Encargado' },
+            { value: 'mixto',     label: 'Mixto (sala+cocina)' },
         ];
         const opcionesRol = (sel) => ROLES.map(r =>
             `<option value="${r.value}"${r.value === (sel || '') ? ' selected' : ''}>${r.label}</option>`
         ).join('');
 
-        contenedor.innerHTML = lista.map(({ nombre, centro, rol }) => {
+        contenedor.innerHTML = lista.map(({ nombre, centro, rol, tiene_pin }) => {
             const nEsc = nombre.replace(/"/g, '&quot;');
+            const nJs = nombre.replace(/'/g, "\\'");
             return `
             <div class="empleado-tag empleado-rol--${rol || 'sin'}">
                 ${nombre}
@@ -143,7 +147,12 @@ async function renderEmpleados(intento = 0) {
                 <select class="empleado-rol" data-nombre="${nEsc}" title="Rol de ${nombre}">
                     ${opcionesRol(rol)}
                 </select>
-                <button type="button" title="Eliminar ${nombre}" onclick="window.confirmarEliminarEmpleado('${nombre.replace(/'/g, "\\'")}')">✕</button>
+                <button type="button" class="btn-pin ${tiene_pin ? 'con-pin' : 'sin-pin'}"
+                        title="PIN de ${nombre} (tareas)"
+                        onclick="window.gestionarPin('${nJs}', ${tiene_pin ? 'true' : 'false'})">
+                    ${tiene_pin ? 'PIN ✓' : 'Sin PIN'}
+                </button>
+                <button type="button" title="Eliminar ${nombre}" onclick="window.confirmarEliminarEmpleado('${nJs}')">✕</button>
             </div>`;
         }).join('');
 
@@ -198,6 +207,38 @@ window.asignarCentroEmpleado = async function(nombre, centro) {
     } catch {
         mostrarMensaje(`✗ Error al asignar centro a "${nombre}"`, 'error');
         renderEmpleados();
+    }
+};
+
+// PIN del empleado para el módulo de tareas (tablet compartida).
+window.gestionarPin = async function(nombre, tienePin) {
+    const texto = tienePin
+        ? `Nuevo PIN para "${nombre}" (4-6 dígitos).\nDéjalo vacío para quitarle el PIN:`
+        : `PIN para "${nombre}" (4-6 dígitos):`;
+    const pin = prompt(texto);
+    if (pin === null) return;
+
+    const limpio = pin.trim();
+    if (limpio !== '' && !/^\d{4,6}$/.test(limpio)) {
+        mostrarMensaje('✗ El PIN debe tener entre 4 y 6 dígitos', 'error');
+        return;
+    }
+
+    try {
+        const response = await fetch('/api/empleados', {
+            method: 'PUT',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-Auth-Token': sessionStorage.getItem('adminToken') || '',
+            },
+            body: JSON.stringify({ nombre, pin: limpio })
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(data.error || '');
+        mostrarMensaje(limpio ? `✓ PIN actualizado para "${nombre}"` : `✓ PIN eliminado a "${nombre}"`, 'success');
+        renderEmpleados();
+    } catch (e) {
+        mostrarMensaje(`✗ ${e.message || 'Error al guardar el PIN'}`, 'error');
     }
 };
 
@@ -499,6 +540,10 @@ function configurarBotones() {
 
     document.getElementById('btnHorasMes')?.addEventListener('click', () => {
         window.location.href = 'horas-mes.html';
+    });
+
+    document.getElementById('btnTareasAdmin')?.addEventListener('click', () => {
+        window.location.href = 'tareas-admin.html';
     });
 
     document.getElementById('btnEmpleados').addEventListener('click', () => {

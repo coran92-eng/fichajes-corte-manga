@@ -75,7 +75,8 @@ async function cargarEmpleados() {
     }
 
     cont.innerHTML = '';
-    empleados.forEach(({ nombre }) => {
+    empleados.forEach(({ nombre, rol }) => {
+        rolPorEmpleado[nombre] = (rol || '').toLowerCase();
         const btn = document.createElement('button');
         btn.type = 'button';
         btn.className = 'btn-emp';
@@ -91,6 +92,7 @@ function seleccionarEmpleado(nombre, btn) {
     btn.classList.add('selected');
     document.getElementById('empleado').value = nombre;
     actualizarUltimaAccion();
+    actualizarBadgeTareas();
 }
 
 function actualizarReloj() {
@@ -130,7 +132,8 @@ async function iniciarLectorNFC() {
 
 function configurarBotones() {
     document.getElementById('btnEntrada').addEventListener('click', () => registrarFichaje('entrada'));
-    document.getElementById('btnSalida').addEventListener('click', () => registrarFichaje('salida'));
+    // La salida avisa de tareas pendientes pero nunca se bloquea (§6.3).
+    document.getElementById('btnSalida').addEventListener('click', () => confirmarSalida());
     document.getElementById('btnDescansoIni').addEventListener('click', () => registrarFichaje('inicio_descanso'));
     document.getElementById('btnDescansoFin').addEventListener('click', () => registrarFichaje('fin_descanso'));
     document.getElementById('btnAdmin').addEventListener('click', () => {
@@ -147,6 +150,8 @@ function configurarBotones() {
             : '/horario-empleado.html';
         window.location.href = url;
     });
+
+    document.getElementById('btnVerTareas')?.addEventListener('click', () => irATareas());
     document.getElementById('btnSolCancelar')?.addEventListener('click', cerrarModalSolicitud);
     document.getElementById('btnSolEnviar')?.addEventListener('click', enviarSolicitud);
     document.getElementById('solCaso')?.addEventListener('change', actualizarVisibilidadHora);
@@ -792,4 +797,126 @@ function actualizarEstadoBotones(tipo) {
             btnDescansoFin.disabled = true;
             if (badge) badge.style.display = 'none';
     }
+}
+
+// ── Tareas operativas ─────────────────────────────────────────
+const rolPorEmpleado = {};
+let tareasCache = null;
+let tareasCacheTs = 0;
+
+function irATareas() {
+    if (!centroActual) return;
+    const empleado = document.getElementById('empleado')?.value || '';
+    let url = `/tareas.html?centro=${encodeURIComponent(centroActual)}`;
+    if (empleado) url += `&empleado=${encodeURIComponent(empleado)}`;
+    window.location.href = url;
+}
+
+async function cargarTareasCentro(forzar = false) {
+    if (!centroActual) return null;
+    if (!forzar && tareasCache && (Date.now() - tareasCacheTs) < 30000) return tareasCache;
+    try {
+        const ctrl = new AbortController();
+        const to = setTimeout(() => ctrl.abort(), 8000);
+        const res = await fetch(`/api/tareas?centro=${encodeURIComponent(centroActual)}`, {
+            signal: ctrl.signal, cache: 'no-store'
+        });
+        clearTimeout(to);
+        if (!res.ok) return null;
+        tareasCache = await res.json();
+        tareasCacheTs = Date.now();
+        return tareasCache;
+    } catch {
+        return null;
+    }
+}
+
+// El rol "mixto" cubre sala y cocina.
+function tareaEsDe(tarea, rol) {
+    if (!rol) return false;
+    if (rol === 'mixto') return tarea.rol_responsable === 'SALA' || tarea.rol_responsable === 'COCINA';
+    return rol.toUpperCase() === tarea.rol_responsable;
+}
+
+function pendientesDe(datos, empleado) {
+    if (!datos || !Array.isArray(datos.tareas)) return [];
+    const rol = rolPorEmpleado[empleado] || '';
+    return datos.tareas.filter(t =>
+        (t.estado === 'PENDIENTE' || t.estado === 'VENCIDA') && tareaEsDe(t, rol));
+}
+
+async function actualizarBadgeTareas() {
+    const badge = document.getElementById('tareasBadge');
+    if (!badge) return;
+    const empleado = document.getElementById('empleado')?.value || '';
+    if (!empleado) { badge.style.display = 'none'; return; }
+
+    const datos = await cargarTareasCentro();
+    const pend = pendientesDe(datos, empleado);
+    if (pend.length) {
+        badge.textContent = pend.length;
+        badge.style.display = 'inline-block';
+    } else {
+        badge.style.display = 'none';
+    }
+}
+
+// §6.1 — al fichar entrada se informa de las tareas del turno (no bloquea).
+async function avisarTareasTrasEntrada(empleado) {
+    const datos = await cargarTareasCentro(true);
+    const pend = pendientesDe(datos, empleado);
+    if (!pend.length) return;
+
+    const porBloque = {};
+    pend.forEach(t => { porBloque[t.bloque] = (porBloque[t.bloque] || 0) + 1; });
+    const etiquetas = { APERTURA: 'apertura', DURANTE_SERVICIO: 'servicio', CAMBIO_TURNO: 'cambio de turno', CIERRE: 'cierre', SEMANAL: 'semanales', MENSUAL: 'mensuales' };
+    const detalle = Object.entries(porBloque)
+        .map(([b, n]) => `${n} de ${etiquetas[b] || b.toLowerCase()}`)
+        .join(' · ');
+
+    setTimeout(() => {
+        if (confirm(`Hola, ${empleado}. Tienes ${pend.length} tarea${pend.length !== 1 ? 's' : ''} en tu turno.\n${detalle}\n\n¿Quieres verlas ahora?`)) {
+            irATareas();
+        }
+    }, 3200);
+}
+
+// §6.3 — aviso antes de la salida. La salida se registra SIEMPRE.
+async function confirmarSalida() {
+    const empleado = document.getElementById('empleado')?.value || '';
+    if (!empleado) {
+        mostrarMensaje('Por favor selecciona tu nombre', 'error');
+        return;
+    }
+
+    const datos = await cargarTareasCentro(true);
+    const pend = pendientesDe(datos, empleado);
+
+    if (pend.length) {
+        const lista = pend.slice(0, 6)
+            .map(t => `· ${t.nombre}${t.criticidad === 'BLOQUEANTE' ? ' (bloqueante)' : ''}`)
+            .join('\n');
+        const resto = pend.length > 6 ? `\n… y ${pend.length - 6} más` : '';
+        const seguir = confirm(
+            `Te quedan ${pend.length} tarea${pend.length !== 1 ? 's' : ''} pendientes de tu turno:\n${lista}${resto}\n\n` +
+            `Aceptar = fichar salida igualmente\nCancelar = ir a completarlas`
+        );
+        if (!seguir) { irATareas(); return; }
+
+        // Queda constancia de la salida con pendientes; el encargado lo verá.
+        try {
+            await fetch('/api/tareas?accion=evento-salida', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    empleado,
+                    centro: centroActual || '',
+                    device_id: localStorage.getItem('device_id') || '',
+                    pendientes: pend.map(t => ({ id: t.id, nombre: t.nombre, criticidad: t.criticidad })),
+                }),
+            });
+        } catch {}
+    }
+
+    registrarFichaje('salida');
 }
