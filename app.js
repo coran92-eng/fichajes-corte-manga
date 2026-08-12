@@ -812,12 +812,12 @@ function irATareas() {
     window.location.href = url;
 }
 
-async function cargarTareasCentro(forzar = false) {
+async function cargarTareasCentro(forzar = false, timeoutMs = 8000) {
     if (!centroActual) return null;
     if (!forzar && tareasCache && (Date.now() - tareasCacheTs) < 30000) return tareasCache;
     try {
         const ctrl = new AbortController();
-        const to = setTimeout(() => ctrl.abort(), 8000);
+        const to = setTimeout(() => ctrl.abort(), timeoutMs);
         const res = await fetch(`/api/tareas?centro=${encodeURIComponent(centroActual)}`, {
             signal: ctrl.signal, cache: 'no-store'
         });
@@ -889,7 +889,9 @@ async function confirmarSalida() {
         return;
     }
 
-    const datos = await cargarTareasCentro(true);
+    // Tope corto: si las tareas tardan, se ficha la salida igualmente. El
+    // registro de jornada no puede depender de este aviso.
+    const datos = await cargarTareasCentro(true, 2500);
     const pend = pendientesDe(datos, empleado);
 
     if (pend.length) {

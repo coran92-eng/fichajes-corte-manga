@@ -18,7 +18,13 @@ export const RAFAGA_MIN = 3;
 export const HASH_LOOKBACK = 30;
 
 // ── Esquema ───────────────────────────────────────────────────
+// Las sentencias son idempotentes, pero ejecutarlas en cada petición añade
+// latencia al fichaje. Se hacen una vez por instancia (Vercel reutiliza la
+// lambda en caliente; un despliegue nuevo vuelve a ejecutarlas).
+let schemaListo = false;
+
 export async function initSchema(db) {
+  if (schemaListo) return;
   await db.execute(`
     CREATE TABLE IF NOT EXISTS centros_cfg (
       centro TEXT PRIMARY KEY,
@@ -137,6 +143,8 @@ export async function initSchema(db) {
       ts INTEGER NOT NULL
     )
   `);
+
+  schemaListo = true;
 }
 
 // ── Retención (§11.5) ─────────────────────────────────────────
