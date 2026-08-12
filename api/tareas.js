@@ -234,24 +234,25 @@ export default async function handler(req, res) {
     }
 
     const ahora = Date.now();
-    const limite = Number(t.ventana_fin_ts) + Number(t.tolerancia_min || 30) * 60000;
+    const inicioTs = Number(t.ventana_inicio_ts);
+    const finTs = Number(t.ventana_fin_ts);
+    const limite = finTs + Number(t.tolerancia_min || 30) * 60000;
 
-    // Ventana estricta (§8.2): ni antes de tiempo ni pasada la tolerancia.
-    if (ahora < Number(t.ventana_inicio_ts)) {
-      return res.status(409).json({ error: "Todavía no toca esta tarea", disponible_desde: Number(t.ventana_inicio_ts) });
-    }
+    // Una tarea se puede registrar a cualquier hora: en un local no siempre da
+    // tiempo a marcarla dentro de su franja y bloquearlo solo consigue que se
+    // quede sin registrar. Lo que sí se conserva es CUÁNDO se hizo respecto a
+    // su ventana, que es la información que sirve para revisar después.
     let estadoFinal = 'COMPLETADA';
-    if (ahora > limite) {
-      // Vencida: solo el encargado puede cerrarla, y queda como COMPLETADA_TARDIA (§4.4).
-      if (!esEncargadoOSuperior(req)) {
-        return res.status(409).json({ error: "Esta tarea ha vencido. Solo el encargado puede completarla ahora." });
-      }
-      if (!String(b.nota || '').trim()) {
-        return res.status(422).json({ error: "Al completar una tarea vencida hay que dejar una nota" });
-      }
+    let momento = 'en_ventana';
+    if (ahora < inicioTs) {
+      momento = 'antes_de_tiempo';
+    } else if (ahora > limite) {
+      momento = 'vencida';
       estadoFinal = 'COMPLETADA_TARDIA';
+    } else if (ahora > finTs) {
+      momento = 'en_tolerancia';
     }
-    const fueraDePlazo = ahora > Number(t.ventana_fin_ts);
+    const fueraDePlazo = momento !== 'en_ventana';
 
     // Evidencia
     const val = validarEvidencia(t.tipo_evidencia, t.evidencia_config, b);
@@ -351,13 +352,15 @@ export default async function handler(req, res) {
         rol_tarea: t.rol_responsable, en_descanso: enDescanso,
         offline: !!b.offline, ts_cliente: b.ts_cliente || null,
         sin_pin: !!pin.sinPin, turno_abierto: conTurno,
-        origen_ui: b.origen_ui || 'tareas',
+        origen_ui: b.origen_ui || 'tareas', momento,
+        ventana: `${t.ventana_inicio || ''}-${t.ventana_fin || ''}`,
       },
     });
 
     return res.status(200).json({
       success: true,
       estado: estadoFinal,
+      momento,
       fuera_de_plazo: fueraDePlazo,
       flag_rafaga: esRafaga,
       aviso: val.fueraRango ? 'El valor está fuera del rango esperado: avisa al encargado' : undefined,

@@ -994,19 +994,16 @@ function filaTarea(t, ahora) {
     </div>`;
 
     if (hecha) {
+        // Se registra igual, pero se distingue si se hizo fuera de su franja.
+        const tarde = Number(t.fuera_de_plazo) === 1;
         return `<div class="tarea-row hecha"><span class="tarea-punto"></span>${nombre}
-            <span class="tarea-hecha-info">✓ ${escTarea(t.completada_por)} · ${horaCorta(t.completada_ts_servidor)}</span></div>`;
+            <span class="tarea-hecha-info${tarde ? ' tarde' : ''}">✓ ${escTarea(t.completada_por)} · ${horaCorta(t.completada_ts_servidor)}${tarde ? ' ⚠' : ''}</span></div>`;
     }
     if (noAplica) {
         return `<div class="tarea-row"><span class="tarea-punto"></span>${nombre}
             <span class="tarea-hecha-info" style="color:#6b7280">No aplica</span></div>`;
     }
-    if (futura) {
-        return `<div class="tarea-row futura"><span class="tarea-punto"></span>${nombre}
-            <span class="tarea-hecha-info" style="color:#94a3b8">desde ${horaCorta(t.ventana_inicio_ts)}</span></div>`;
-    }
-
-    // Pendiente o vencida: se puede marcar
+    // Pendiente, vencida o aún por llegar: siempre se puede marcar
     const opciones = ['<option value="">¿Quién?</option>']
         .concat(listaEmpleados.map(n => `<option value="${escTarea(n)}">${escTarea(n)}</option>`))
         .join('');
@@ -1031,6 +1028,7 @@ function filaTarea(t, ahora) {
         <select class="tarea-sel" id="tsel-${t.id}">${opciones}</select>
         ${extras}
         <button type="button" class="tarea-guardar" data-guardar="${t.id}">Guardar</button>
+        <div class="tarea-error" id="terr-${t.id}"></div>
     </div>`;
 }
 
@@ -1061,12 +1059,19 @@ function capturarFotoTarea(ev, id) {
     reader.readAsDataURL(file);
 }
 
+function errorEnFila(id, texto) {
+    const el = document.getElementById(`terr-${id}`);
+    if (el) el.textContent = texto || '';
+    if (texto) mostrarMensaje(texto, 'error');
+}
+
 async function guardarTarea(id) {
     const sel = document.getElementById(`tsel-${id}`);
     const btn = document.querySelector(`[data-guardar="${id}"]`);
     const quien = sel ? sel.value : '';
+    errorEnFila(id, '');
     if (!quien) {
-        mostrarMensaje('Elige quién ha hecho la tarea', 'error');
+        errorEnFila(id, 'Elige quién ha hecho la tarea');
         return;
     }
 
@@ -1114,20 +1119,23 @@ async function guardarTarea(id) {
             });
             data = await res2.json().catch(() => ({}));
             if (!res2.ok) {
-                mostrarMensaje(data.error || 'No se pudo guardar la tarea', 'error');
+                errorEnFila(id, data.error || 'No se pudo guardar la tarea');
                 if (btn) { btn.disabled = false; btn.textContent = 'Guardar'; }
                 return;
             }
         } else if (!res.ok) {
-            mostrarMensaje(data.error || 'No se pudo guardar la tarea', 'error');
+            errorEnFila(id, data.error || 'No se pudo guardar la tarea');
             if (btn) { btn.disabled = false; btn.textContent = 'Guardar'; }
             return;
         }
         delete fotosTarea[id];
-        mostrarMensaje(data.aviso ? `✓ Guardada. ${data.aviso}` : `✓ ${quien}: tarea guardada`, 'success');
+        const fueraTxt = data.momento === 'vencida' ? ' (fuera de su franja)'
+                       : data.momento === 'antes_de_tiempo' ? ' (antes de su franja)' : '';
+        mostrarMensaje(data.aviso ? `✓ Guardada${fueraTxt}. ${data.aviso}`
+                                  : `✓ ${quien}: tarea guardada${fueraTxt}`, 'success');
         renderTareasPanel(true);
     } catch {
-        mostrarMensaje('Error de conexión al guardar la tarea', 'error');
+        errorEnFila(id, 'Error de conexión al guardar la tarea');
         if (btn) { btn.disabled = false; btn.textContent = 'Guardar'; }
     }
 }
