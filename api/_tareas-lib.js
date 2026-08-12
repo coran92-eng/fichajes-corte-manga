@@ -304,10 +304,17 @@ export function hashArchivo(base64) {
   return crypto.createHash('sha256').update(Buffer.from(limpio, 'base64')).digest('hex');
 }
 
-/** Verifica el PIN del empleado. Devuelve {ok, motivo}. */
+/**
+ * Verifica la identidad del empleado.
+ *
+ * El PIN es opcional por diseño: si el empleado no tiene PIN asignado se
+ * permite registrar la tarea sin él (modo simple, un toque desde la pantalla
+ * de fichaje) y queda anotado en la auditoría como `sin_pin`. En cuanto se le
+ * asigna un PIN pasa a modo estricto y se exige siempre.
+ * Devuelve {ok, motivo, sinPin}.
+ */
 export async function verificarPin(db, nombre, pin) {
   if (!nombre) return { ok: false, motivo: 'Falta el empleado' };
-  if (!pin) return { ok: false, motivo: 'Falta el PIN' };
 
   const r = await db.execute({
     sql: "SELECT nombre, pin_hash FROM empleados WHERE LOWER(TRIM(nombre)) = LOWER(TRIM(?))",
@@ -316,9 +323,11 @@ export async function verificarPin(db, nombre, pin) {
   if (!r.rows.length) return { ok: false, motivo: 'Empleado no encontrado' };
 
   const hash = r.rows[0].pin_hash || '';
-  if (!hash) return { ok: false, motivo: 'Este empleado aún no tiene PIN. Pídeselo al encargado.' };
+  if (!hash) return { ok: true, sinPin: true };
+
+  if (!pin) return { ok: false, motivo: 'Falta el PIN' };
   if (hash !== hashPin(r.rows[0].nombre, pin)) return { ok: false, motivo: 'PIN incorrecto' };
-  return { ok: true };
+  return { ok: true, sinPin: false };
 }
 
 /**

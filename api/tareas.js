@@ -218,8 +218,11 @@ export default async function handler(req, res) {
     const pin = await verificarPin(db, empleado, b.pin);
     if (!pin.ok) return res.status(403).json({ error: pin.motivo });
 
-    // Sin turno abierto no se completan tareas (§6.6): elimina el marcado desde casa.
-    if (!(await turnoAbierto(db, empleado, centro))) {
+    // §6.6 — con PIN asignado (modo estricto) hay que tener turno abierto: es lo
+    // que impide marcar desde casa. Sin PIN (modo simple) no se bloquea, pero
+    // queda anotado en la auditoría para que el encargado lo vea.
+    const conTurno = await turnoAbierto(db, empleado, centro);
+    if (!conTurno && !pin.sinPin) {
       return res.status(403).json({ error: "Debes fichar tu entrada para registrar tareas" });
     }
 
@@ -347,6 +350,8 @@ export default async function handler(req, res) {
         estado: estadoFinal, tarea: t.nombre, fuera_de_plazo: fueraDePlazo,
         rol_tarea: t.rol_responsable, en_descanso: enDescanso,
         offline: !!b.offline, ts_cliente: b.ts_cliente || null,
+        sin_pin: !!pin.sinPin, turno_abierto: conTurno,
+        origen_ui: b.origen_ui || 'tareas',
       },
     });
 
