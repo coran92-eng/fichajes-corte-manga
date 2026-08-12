@@ -600,6 +600,32 @@
             box-shadow: 0 5px 15px rgba(37, 99, 235, 0.3);
         }
 
+        .btn-tareas {
+            width: 100%;
+            background: #0891b2;
+            color: white;
+            margin-bottom: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            padding: 12px 20px;
+            font-size: 13px;
+        }
+        .btn-tareas:hover {
+            background: #0e7490;
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(8, 145, 178, 0.3);
+        }
+        .tareas-badge {
+            background: white;
+            color: #0e7490;
+            border-radius: 10px;
+            padding: 1px 8px;
+            font-size: 12px;
+            font-weight: 800;
+        }
+
         .sol-modal {
             display: none;
             position: fixed;
@@ -791,6 +817,12 @@
         <button class="btn-horario" id="btnVerHorario" type="button">
             <i data-lucide="calendar-days" aria-hidden="true" style="width:16px;height:16px"></i>
             Horario
+        </button>
+
+        <button class="btn-tareas" id="btnVerTareas" type="button">
+            <i data-lucide="clipboard-check" aria-hidden="true" style="width:16px;height:16px"></i>
+            Tareas
+            <span class="tareas-badge" id="tareasBadge" style="display:none"></span>
         </button>
 
         <div class="admin-sep"></div>

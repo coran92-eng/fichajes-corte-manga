@@ -54,17 +54,23 @@ function formatDur(min) {
 
 // Colores por rol (usados para pintar los tramos de la barra en línea)
 const ROL_COLOR = {
-    cocina: '#f97316',
-    sala:   '#3b82f6',
-    mixto:  '#a855f7',
-    '':     '#9ca3af',
+    cocina:    '#f97316',
+    sala:      '#3b82f6',
+    mixto:     '#a855f7',
+    barra:     '#a21caf',
+    limpieza:  '#14b8a6',
+    encargado: '#eab308',
+    '':        '#9ca3af',
 };
 function colorRol(rol) { return ROL_COLOR[rol || ''] || '#9ca3af'; }
 
 const ROLES_CAMBIO = [
-    { value: 'cocina', label: 'Cocina' },
-    { value: 'sala',   label: 'Sala' },
-    { value: 'mixto',  label: 'Mixto' },
+    { value: 'sala',      label: 'Sala' },
+    { value: 'cocina',    label: 'Cocina' },
+    { value: 'barra',     label: 'Barra' },
+    { value: 'limpieza',  label: 'Limpieza' },
+    { value: 'encargado', label: 'Encargado' },
+    { value: 'mixto',     label: 'Mixto' },
 ];
 
 // ── Helpers de fecha ──────────────────────────────────────────
