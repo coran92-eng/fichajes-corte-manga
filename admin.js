@@ -135,7 +135,7 @@ async function renderEmpleados(intento = 0) {
             `<option value="${r.value}"${r.value === (sel || '') ? ' selected' : ''}>${r.label}</option>`
         ).join('');
 
-        contenedor.innerHTML = lista.map(({ nombre, centro, rol, tiene_pin }) => {
+        contenedor.innerHTML = lista.map(({ nombre, centro, rol, tiene_pin, horario_habitual }) => {
             const nEsc = nombre.replace(/"/g, '&quot;');
             const nJs = nombre.replace(/'/g, "\\'");
             return `
@@ -147,6 +147,11 @@ async function renderEmpleados(intento = 0) {
                 <select class="empleado-rol" data-nombre="${nEsc}" title="Rol de ${nombre}">
                     ${opcionesRol(rol)}
                 </select>
+                <button type="button" class="btn-hab ${horario_habitual ? 'puesto' : ''}"
+                        title="Horario habitual de ${nombre}"
+                        onclick="window.abrirHorarioHabitual('${nJs}')">
+                    ${horario_habitual ? 'Horario ✓' : 'Horario'}
+                </button>
                 <button type="button" class="btn-pin ${tiene_pin ? 'con-pin' : 'sin-pin'}"
                         title="PIN de ${nombre} (tareas)"
                         onclick="window.gestionarPin('${nJs}', ${tiene_pin ? 'true' : 'false'})">
@@ -173,6 +178,70 @@ async function renderEmpleados(intento = 0) {
     }
 }
 window.renderEmpleados = renderEmpleados;
+
+// ── Horario habitual por empleado ─────────────────────────────
+// Se configura una vez y evita depender de que se suba el horario semanal.
+const DIAS_SEMANA = [
+    { n: 1, label: 'Lunes' }, { n: 2, label: 'Martes' }, { n: 3, label: 'Miércoles' },
+    { n: 4, label: 'Jueves' }, { n: 5, label: 'Viernes' }, { n: 6, label: 'Sábado' },
+    { n: 7, label: 'Domingo' },
+];
+let habEmpleadoActual = '';
+
+window.abrirHorarioHabitual = async function(nombre) {
+    habEmpleadoActual = nombre;
+    document.getElementById('habTitulo').textContent = `Horario habitual · ${nombre}`;
+
+    let actual = {};
+    try {
+        const res = await fetch('/api/empleados');
+        const lista = await res.json();
+        const emp = lista.find(e => e.nombre === nombre);
+        if (emp && emp.horario_habitual) actual = JSON.parse(emp.horario_habitual);
+    } catch {}
+
+    document.getElementById('habDias').innerHTML = DIAS_SEMANA.map(d => `
+        <div class="hab-fila">
+            <span>${d.label}</span>
+            <input type="time" step="300" id="hab-${d.n}" value="${actual[d.n] || ''}">
+            <button type="button" onclick="document.getElementById('hab-${d.n}').value=''">Libra</button>
+        </div>`).join('');
+
+    document.getElementById('modalHabitual').classList.add('visible');
+};
+
+window.cerrarHorarioHabitual = function() {
+    document.getElementById('modalHabitual').classList.remove('visible');
+};
+
+window.guardarHorarioHabitual = async function() {
+    const horario = {};
+    DIAS_SEMANA.forEach(d => {
+        const v = document.getElementById(`hab-${d.n}`)?.value;
+        if (v) horario[d.n] = v;
+    });
+
+    try {
+        const res = await fetch('/api/empleados', {
+            method: 'PUT',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-Auth-Token': sessionStorage.getItem('adminToken') || '',
+            },
+            body: JSON.stringify({
+                nombre: habEmpleadoActual,
+                horario_habitual: Object.keys(horario).length ? JSON.stringify(horario) : '',
+            }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || '');
+        mostrarMensaje(`✓ Horario habitual guardado para "${habEmpleadoActual}"`, 'success');
+        window.cerrarHorarioHabitual();
+        renderEmpleados();
+    } catch (e) {
+        mostrarMensaje(`✗ ${e.message || 'Error al guardar el horario'}`, 'error');
+    }
+};
 
 window.confirmarEliminarEmpleado = function(nombre) {
     mostrarModal(
@@ -548,6 +617,12 @@ function configurarBotones() {
 
     document.getElementById('btnResumenDia')?.addEventListener('click', () => {
         window.location.href = 'resumen-dia.html';
+    });
+
+    document.getElementById('btnHabCerrar')?.addEventListener('click', window.cerrarHorarioHabitual);
+    document.getElementById('btnHabGuardar')?.addEventListener('click', window.guardarHorarioHabitual);
+    document.getElementById('modalHabitual')?.addEventListener('click', (e) => {
+        if (e.target.id === 'modalHabitual') window.cerrarHorarioHabitual();
     });
 
     document.getElementById('btnEmpleados').addEventListener('click', () => {
