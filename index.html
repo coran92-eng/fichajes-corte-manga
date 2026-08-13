@@ -600,6 +600,16 @@
             border: 1px solid #fcd34d; background: white; color: #92400e; cursor: pointer;
         }
         .btn-nota.inc { border-color: #fca5a5; color: #b91c1c; }
+        .btn-nota.falta { border-color: #a5b4fc; color: #4338ca; }
+        .nota-item.falta { border-color: #c7d2fe; }
+        .notas-grupo {
+            font-size: 11px; font-weight: 800; color: #92400e; text-transform: uppercase;
+            letter-spacing: .4px; margin: 10px 0 5px;
+        }
+        @media (prefers-color-scheme: dark) {
+            .nota-item.falta { border-color: #3730a3; }
+            .notas-grupo { color: #fcd34d; }
+        }
         .btn-nota:hover { background: #fffbeb; }
         .nota-item {
             background: white; border: 1px solid #fde68a; border-radius: 8px;
@@ -969,12 +979,13 @@
         <!-- Libro de turno: avisos entre turnos e incidencias del local -->
         <div class="turno-panel" id="notasPanel" style="display:none">
             <div class="turno-header">
-                <span class="turno-title">Avisos del turno</span>
+                <span class="turno-title">Parte del turno</span>
                 <span class="turno-count" id="notasCount"></span>
             </div>
             <div class="notas-acciones">
-                <button type="button" class="btn-nota" id="btnNuevaNota">+ Dejar aviso</button>
-                <button type="button" class="btn-nota inc" id="btnNuevaIncidencia">+ Avería / incidencia</button>
+                <button type="button" class="btn-nota" id="btnNuevaNota">+ Para el siguiente turno</button>
+                <button type="button" class="btn-nota inc" id="btnNuevaIncidencia">+ Algo roto o averiado</button>
+                <button type="button" class="btn-nota falta" id="btnNuevaFalta">+ Se ha acabado algo</button>
             </div>
             <div class="nota-form" id="notaForm">
                 <textarea id="notaTexto" placeholder="Qué tiene que saber el siguiente turno..."></textarea>

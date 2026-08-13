@@ -1181,20 +1181,29 @@ async function cargarNotas() {
     }
 
     const incidencias = datos.incidencias || [];
+    const faltas = datos.faltas || [];
     const notas = datos.notas || [];
     const abiertas = incidencias.filter(i => i.estado !== 'resuelta').length;
-    countEl.textContent = abiertas
-        ? `${abiertas} incidencia${abiertas !== 1 ? 's' : ''} abierta${abiertas !== 1 ? 's' : ''}`
-        : (notas.length ? `${notas.length} aviso${notas.length !== 1 ? 's' : ''}` : 'Sin avisos');
+    const faltan = faltas.filter(f => f.estado !== 'resuelta').length;
 
-    if (!incidencias.length && !notas.length) {
-        lista.innerHTML = '<div class="notas-vacio">No hay avisos. Deja uno si hay algo que el siguiente turno deba saber.</div>';
+    const resumen = [];
+    if (abiertas) resumen.push(`${abiertas} sin arreglar`);
+    if (faltan) resumen.push(`${faltan} por pedir`);
+    if (!resumen.length && notas.length) resumen.push(`${notas.length} aviso${notas.length !== 1 ? 's' : ''}`);
+    countEl.textContent = resumen.join(' · ') || 'Todo en orden';
+
+    if (!incidencias.length && !faltas.length && !notas.length) {
+        lista.innerHTML = '<div class="notas-vacio">Nada que reportar. Usa los botones si hay algo que el siguiente turno deba saber, algo roto o algún producto agotado.</div>';
         return;
     }
 
+    const grupo = (titulo, items, render) =>
+        items.length ? `<div class="notas-grupo">${titulo}</div>` + items.map(render).join('') : '';
+
     lista.innerHTML =
-        incidencias.map(itemIncidencia).join('') +
-        notas.map(itemNota).join('');
+        grupo('Roto o averiado', incidencias, itemIncidencia) +
+        grupo('Falta / hay que pedir', faltas, itemIncidencia) +
+        grupo('Para el siguiente turno', notas, itemNota);
 
     lista.querySelectorAll('[data-visto]').forEach(b =>
         b.addEventListener('click', () => marcarVisto(Number(b.dataset.visto))));
@@ -1209,17 +1218,22 @@ function fechaCorta(ts) {
 }
 
 function itemIncidencia(i) {
+    const esFalta = i.tipo === 'falta';
     const resuelta = i.estado === 'resuelta';
-    const cls = `nota-item inc${i.prioridad === 'alta' ? ' alta' : ''}${resuelta ? ' resuelta' : ''}`;
-    const etiqueta = resuelta ? '✓ Resuelta' : i.estado === 'en_curso' ? '⏳ En curso' : '⚠ Abierta';
+    const cls = `nota-item ${esFalta ? 'falta' : 'inc'}${i.prioridad === 'alta' ? ' alta' : ''}${resuelta ? ' resuelta' : ''}`;
+    const etiqueta = esFalta
+        ? (resuelta ? '✓ Repuesto' : i.estado === 'en_curso' ? '⏳ Pedido' : '🛒 Falta')
+        : (resuelta ? '✓ Arreglado' : i.estado === 'en_curso' ? '⏳ En curso' : '⚠ Sin arreglar');
     const foto = Number(i.tiene_foto) === 1
         ? ` · <a href="/api/turno-notas?foto=${i.id}" target="_blank" rel="noopener">ver foto</a>` : '';
 
     let acciones = '';
     if (!resuelta) {
+        const intermedio = esFalta ? 'Ya pedido' : 'En curso';
+        const final = esFalta ? 'Ya repuesto' : 'Arreglado';
         acciones = `
-            ${i.estado === 'abierta' ? `<button type="button" class="nota-btn-mini" data-incestado="${i.id}" data-estado="en_curso">En curso</button>` : ''}
-            <button type="button" class="nota-btn-mini" data-incestado="${i.id}" data-estado="resuelta">Resuelta</button>`;
+            ${i.estado === 'abierta' ? `<button type="button" class="nota-btn-mini" data-incestado="${i.id}" data-estado="en_curso">${intermedio}</button>` : ''}
+            <button type="button" class="nota-btn-mini" data-incestado="${i.id}" data-estado="resuelta">${final}</button>`;
     }
 
     return `<div class="${cls}">
@@ -1227,7 +1241,7 @@ function itemIncidencia(i) {
         <div class="nota-meta">
             <strong>${etiqueta}</strong>
             <span>${escTarea(i.autor || 'Sin nombre')} · ${fechaCorta(i.creado_en)}${foto}</span>
-            ${resuelta && i.resuelto_por ? `<span>Resuelta por ${escTarea(i.resuelto_por)}</span>` : ''}
+            ${resuelta && i.resuelto_por ? `<span>Por ${escTarea(i.resuelto_por)}</span>` : ''}
             ${acciones}
         </div>
     </div>`;
@@ -1257,11 +1271,12 @@ function abrirFormNota(tipo) {
     if (!form) return;
 
     form.classList.add('abierto');
-    if (prio) prio.style.display = tipo === 'incidencia' ? 'block' : 'none';
+    if (prio) prio.style.display = tipo === 'nota' ? 'none' : 'block';
     if (txt) {
-        txt.placeholder = tipo === 'incidencia'
-            ? 'Qué ha pasado: la nevera no enfría, se ha roto una silla...'
-            : 'Qué tiene que saber el siguiente turno...';
+        txt.placeholder =
+            tipo === 'incidencia' ? 'Qué está roto: la nevera no enfría, silla rota...' :
+            tipo === 'falta'      ? 'Qué falta y cuánto: zumo de naranja (2 cajas), servilletas...' :
+                                    'Qué tiene que saber el siguiente turno...';
         txt.focus();
     }
     // Si hay alguien seleccionado arriba, lo damos por autor
@@ -1299,7 +1314,10 @@ async function enviarNota() {
         const lbl = document.getElementById('notaFotoLbl');
         if (lbl) { lbl.classList.remove('lista'); lbl.childNodes[0].nodeValue = '📷'; }
         document.getElementById('notaForm')?.classList.remove('abierto');
-        mostrarMensaje(notaTipoActual === 'incidencia' ? '✓ Incidencia registrada' : '✓ Aviso publicado', 'success');
+        mostrarMensaje(
+            notaTipoActual === 'incidencia' ? '✓ Avería registrada' :
+            notaTipoActual === 'falta'      ? '✓ Apuntado para pedir' :
+                                              '✓ Aviso publicado', 'success');
         cargarNotas();
     } catch {
         mostrarMensaje('Error de conexión', 'error');
@@ -1338,7 +1356,7 @@ async function cambiarEstadoIncidencia(id, estado) {
             }),
         });
         if (!res.ok) { mostrarMensaje('No se pudo actualizar', 'error'); return; }
-        mostrarMensaje(estado === 'resuelta' ? '✓ Incidencia resuelta' : '✓ Marcada en curso', 'success');
+        mostrarMensaje(estado === 'resuelta' ? '✓ Marcado como resuelto' : '✓ Actualizado', 'success');
         cargarNotas();
     } catch { mostrarMensaje('Error de conexión', 'error'); }
 }
@@ -1346,6 +1364,7 @@ async function cambiarEstadoIncidencia(id, estado) {
 function configurarNotas() {
     document.getElementById('btnNuevaNota')?.addEventListener('click', () => abrirFormNota('nota'));
     document.getElementById('btnNuevaIncidencia')?.addEventListener('click', () => abrirFormNota('incidencia'));
+    document.getElementById('btnNuevaFalta')?.addEventListener('click', () => abrirFormNota('falta'));
     document.getElementById('btnEnviarNota')?.addEventListener('click', enviarNota);
     document.getElementById('notaFoto')?.addEventListener('change', ev => {
         const file = ev.target.files && ev.target.files[0];

@@ -6,6 +6,10 @@ import {
 const MAX_FOTO_B64 = 700 * 1024;
 const PRIORIDADES = ['baja', 'normal', 'alta'];
 const ESTADOS_INC = ['abierta', 'en_curso', 'resuelta'];
+// nota      → información para el turno siguiente
+// incidencia→ algo roto o averiado, hasta que se arregla
+// falta     → producto agotado, hasta que se repone (alimenta el pedido)
+const TIPOS = ['nota', 'incidencia', 'falta'];
 
 async function initNotas(db) {
   await db.execute(`
@@ -83,20 +87,23 @@ export default async function handler(req, res) {
         args: [centro, fechaOperativa, `-${dias} day`],
       });
 
-      // Incidencias: las abiertas siguen visibles aunque sean de días
-      // anteriores; una avería no deja de existir porque cambie la jornada.
-      const incidencias = await db.execute({
+      // Averías y faltas: las abiertas siguen visibles aunque sean de días
+      // anteriores; una nevera rota o un producto agotado no dejan de existir
+      // porque cambie la jornada.
+      const pendientes = await db.execute({
         sql: `SELECT id, centro, fecha_operativa, tipo, texto, autor, prioridad, estado,
                      resuelto_por, resuelto_en, resolucion, hash_sha256, creado_en,
                      CASE WHEN foto_b64 IS NULL THEN 0 ELSE 1 END AS tiene_foto
               FROM turno_notas
-              WHERE centro = ? AND tipo = 'incidencia'
+              WHERE centro = ? AND tipo IN ('incidencia','falta')
                 AND (estado IN ('abierta','en_curso') OR fecha_operativa = ?)
               ORDER BY CASE prioridad WHEN 'alta' THEN 0 WHEN 'normal' THEN 1 ELSE 2 END,
                        creado_en DESC
-              LIMIT 40`,
+              LIMIT 60`,
         args: [centro, fechaOperativa],
       });
+      const incidencias = pendientes.rows.filter(r => r.tipo === 'incidencia');
+      const faltas = pendientes.rows.filter(r => r.tipo === 'falta');
 
       // Acuses de lectura de las notas mostradas
       const ids = notas.rows.map(n => n.id);
@@ -115,8 +122,10 @@ export default async function handler(req, res) {
         centro,
         fecha_operativa: fechaOperativa,
         notas: notas.rows.map(n => ({ ...n, vistos: vistos[n.id] || [] })),
-        incidencias: incidencias.rows,
-        abiertas: incidencias.rows.filter(i => i.estado !== 'resuelta').length,
+        incidencias,
+        faltas,
+        abiertas: incidencias.filter(i => i.estado !== 'resuelta').length,
+        faltan: faltas.filter(f => f.estado !== 'resuelta').length,
       });
     }
 
@@ -125,7 +134,7 @@ export default async function handler(req, res) {
       const b = req.body || {};
       const centro = b.centro;
       const texto = String(b.texto || '').trim();
-      const tipo = b.tipo === 'incidencia' ? 'incidencia' : 'nota';
+      const tipo = TIPOS.includes(b.tipo) ? b.tipo : 'nota';
 
       if (!centro) return res.status(400).json({ error: "Centro requerido" });
       if (!texto) return res.status(422).json({ error: "Escribe el aviso" });
@@ -144,13 +153,14 @@ export default async function handler(req, res) {
                foto_b64, hash_sha256, device_id, creado_en)
               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         args: [centro, fechaOperativa, tipo, texto, b.autor || '', prioridad,
-               tipo === 'incidencia' ? 'abierta' : '',
+               tipo === 'nota' ? '' : 'abierta',
                b.foto_b64 || null, b.foto_b64 ? hashArchivo(b.foto_b64) : '',
                b.device_id || '', Date.now()],
       });
 
       await auditar(db, req, {
-        tipo_evento: tipo === 'incidencia' ? 'INCIDENCIA_ABIERTA' : 'NOTA_TURNO',
+        tipo_evento: tipo === 'incidencia' ? 'INCIDENCIA_ABIERTA'
+                   : tipo === 'falta' ? 'FALTA_PRODUCTO' : 'NOTA_TURNO',
         entidad: 'turno_notas', entidad_id: r.lastInsertRowid?.toString(),
         empleado: b.autor || '', centro, device_id: b.device_id,
         payload: { texto: texto.slice(0, 200), prioridad },
@@ -186,7 +196,7 @@ export default async function handler(req, res) {
               SET estado = ?, resolucion = ?,
                   resuelto_por = CASE WHEN ? = 'resuelta' THEN ? ELSE resuelto_por END,
                   resuelto_en = CASE WHEN ? = 'resuelta' THEN ? ELSE resuelto_en END
-              WHERE id = ? AND tipo = 'incidencia'`,
+              WHERE id = ? AND tipo IN ('incidencia','falta')`,
         args: [estado, String(b.resolucion || ''), estado, b.empleado || '',
                estado, Date.now(), id],
       });
