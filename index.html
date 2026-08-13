@@ -545,6 +545,62 @@
             .tarea-bloque { color: #94a3b8; }
         }
 
+        /* Libro de turno e incidencias */
+        #notasPanel { background: #fffbeb; border-color: #fde68a; }
+        #notasPanel .turno-title { color: #92400e; }
+        .notas-acciones { display: flex; gap: 6px; margin-bottom: 8px; flex-wrap: wrap; }
+        .btn-nota {
+            padding: 7px 12px; font-size: 13px; font-weight: 700; border-radius: 7px;
+            border: 1px solid #fcd34d; background: white; color: #92400e; cursor: pointer;
+        }
+        .btn-nota.inc { border-color: #fca5a5; color: #b91c1c; }
+        .btn-nota:hover { background: #fffbeb; }
+        .nota-item {
+            background: white; border: 1px solid #fde68a; border-radius: 8px;
+            padding: 8px 10px; margin-bottom: 5px; font-size: 13px;
+        }
+        .nota-item.inc { border-color: #fecaca; }
+        .nota-item.inc.alta { border-left: 4px solid #ef4444; }
+        .nota-item.resuelta { opacity: .6; border-color: #bbf7d0; }
+        .nota-texto { color: #1f2937; white-space: pre-wrap; }
+        .nota-meta { font-size: 11px; color: #92400e; margin-top: 4px; display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+        .nota-item.inc .nota-meta { color: #b91c1c; }
+        .nota-btn-mini {
+            padding: 3px 8px; font-size: 11px; font-weight: 700; border-radius: 6px;
+            border: 1px solid #d1d5db; background: white; color: #374151; cursor: pointer;
+        }
+        .nota-vistos { font-size: 11px; color: #16a34a; font-weight: 600; }
+        .nota-form { display: none; flex-direction: column; gap: 6px; margin-bottom: 8px; }
+        .nota-form.abierto { display: flex; }
+        .nota-form textarea {
+            width: 100%; padding: 9px; border: 1px solid #d1d5db; border-radius: 7px;
+            font-size: 14px; font-family: inherit; min-height: 56px; resize: vertical;
+        }
+        .nota-form-fila { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+        .nota-form select, .nota-form .nota-foto-lbl {
+            padding: 7px 9px; font-size: 13px; border: 1px solid #d1d5db;
+            border-radius: 7px; background: white; color: #1f2937; cursor: pointer; font-family: inherit;
+        }
+        .nota-form .nota-foto-lbl.lista { background: #10b981; color: white; border-color: #10b981; }
+        .nota-enviar {
+            padding: 8px 14px; font-size: 13px; font-weight: 700; border-radius: 7px;
+            border: none; background: #2563eb; color: white; cursor: pointer; margin-left: auto;
+        }
+        .notas-vacio { font-size: 13px; color: #a16207; padding: 4px 0; }
+        @media (prefers-color-scheme: dark) {
+            #notasPanel { background: #271a05; border-color: #78350f; }
+            #notasPanel .turno-title { color: #fcd34d; }
+            .nota-item { background: #1f2937; border-color: #78350f; }
+            .nota-item.inc { border-color: #7f1d1d; }
+            .nota-texto { color: #e5e7eb; }
+            .nota-meta { color: #fcd34d; }
+            .btn-nota, .nota-btn-mini, .nota-form select, .nota-form .nota-foto-lbl,
+            .nota-form textarea {
+                background: #374151; color: #e5e7eb; border-color: #4b5563;
+            }
+            .notas-vacio { color: #d97706; }
+        }
+
         /* Panel "Ayer": tono gris/neutro para que no parezca turno activo */
         #ayerPanel { background: #f9fafb; border-color: #e5e7eb; }
         #ayerPanel .turno-title { color: #6b7280; }
@@ -862,6 +918,34 @@
                 <span class="turno-count" id="tareasCount"></span>
             </div>
             <div class="turno-lista" id="tareasLista"></div>
+        </div>
+
+        <!-- Libro de turno: avisos entre turnos e incidencias del local -->
+        <div class="turno-panel" id="notasPanel" style="display:none">
+            <div class="turno-header">
+                <span class="turno-title">Avisos del turno</span>
+                <span class="turno-count" id="notasCount"></span>
+            </div>
+            <div class="notas-acciones">
+                <button type="button" class="btn-nota" id="btnNuevaNota">+ Dejar aviso</button>
+                <button type="button" class="btn-nota inc" id="btnNuevaIncidencia">+ Avería / incidencia</button>
+            </div>
+            <div class="nota-form" id="notaForm">
+                <textarea id="notaTexto" placeholder="Qué tiene que saber el siguiente turno..."></textarea>
+                <div class="nota-form-fila">
+                    <select id="notaAutor"><option value="">¿Quién avisa?</option></select>
+                    <select id="notaPrioridad" style="display:none">
+                        <option value="normal">Normal</option>
+                        <option value="alta">Urgente</option>
+                        <option value="baja">Cuando se pueda</option>
+                    </select>
+                    <label class="nota-foto-lbl" id="notaFotoLbl">📷
+                        <input type="file" accept="image/*" capture="environment" id="notaFoto" style="display:none">
+                    </label>
+                    <button type="button" class="nota-enviar" id="btnEnviarNota">Publicar</button>
+                </div>
+            </div>
+            <div class="turno-lista" id="notasLista"></div>
         </div>
 
         <!-- Resumen: hoy ya se fueron + turno anterior (07:00→07:00) -->

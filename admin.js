@@ -546,6 +546,10 @@ function configurarBotones() {
         window.location.href = 'tareas-admin.html';
     });
 
+    document.getElementById('btnResumenDia')?.addEventListener('click', () => {
+        window.location.href = 'resumen-dia.html';
+    });
+
     document.getElementById('btnEmpleados').addEventListener('click', () => {
         const panel = document.getElementById('panelEmpleados');
         panel.classList.toggle('visible');
