@@ -132,7 +132,9 @@ async function iniciarLectorNFC() {
 }
 
 function configurarBotones() {
-    document.getElementById('btnEntrada').addEventListener('click', () => registrarFichaje('entrada'));
+    // La entrada comprueba antes que no se está fichando antes de hora (§ control
+    // de entradas anticipadas).
+    document.getElementById('btnEntrada').addEventListener('click', () => confirmarEntrada());
     // La salida avisa de tareas pendientes pero nunca se bloquea (§6.3).
     document.getElementById('btnSalida').addEventListener('click', () => confirmarSalida());
     document.getElementById('btnDescansoIni').addEventListener('click', () => registrarFichaje('inicio_descanso'));
@@ -1370,4 +1372,132 @@ function configurarNotas() {
     cargarNotas();
     if (notasRefreshInterval) clearInterval(notasRefreshInterval);
     notasRefreshInterval = setInterval(cargarNotas, 2 * 60 * 1000);
+}
+
+// ── Control de entradas anticipadas ───────────────────────────
+// Hay quien llega 10-15 min antes y empieza por su cuenta. La entrada se
+// bloquea hasta su hora, con un margen pequeño, pero SIEMPRE queda la vía de
+// autorizarla: si de verdad se empieza antes, ese tiempo debe quedar
+// registrado (un fichaje que no refleja el trabajo real no vale de nada).
+const MARGEN_ENTRADA_MIN = 5;
+const horaPrevistaManual = {};   // empleado → "HH:MM" declarada a mano
+
+function minutosDeHHMM(hhmm) {
+    const m = /^(\d{1,2}):(\d{2})/.exec(String(hhmm || '').trim());
+    if (!m) return null;
+    const h = Number(m[1]), min = Number(m[2]);
+    if (h > 23 || min > 59) return null;
+    return h * 60 + min;
+}
+
+function formatoEspera(min) {
+    if (min >= 60) {
+        const h = Math.floor(min / 60);
+        const resto = min % 60;
+        return resto ? `${h} h y ${resto} min` : `${h} h`;
+    }
+    return `${min} min`;
+}
+
+async function confirmarEntrada() {
+    const empleado = document.getElementById('empleado')?.value || '';
+    if (!empleado) {
+        mostrarMensaje('Por favor selecciona tu nombre', 'error');
+        return;
+    }
+
+    // 1) Su hora de entrada: la del horario validado si existe; si no, se le pregunta.
+    let horaPrevista = horarioHoy?.hora_entrada || horaPrevistaManual[empleado] || null;
+    if (!horaPrevista) {
+        const respuesta = prompt(`${empleado}, ¿a qué hora entras hoy? (por ejemplo 10:00)`);
+        if (respuesta === null) return;             // ha cancelado: no se ficha
+        if (minutosDeHHMM(respuesta) === null) {
+            mostrarMensaje('Escribe la hora como HH:MM (por ejemplo 10:00)', 'error');
+            return;
+        }
+        horaPrevista = respuesta.trim();
+        horaPrevistaManual[empleado] = horaPrevista;
+    }
+
+    const prevMin = minutosDeHHMM(horaPrevista);
+    if (prevMin === null) { registrarFichaje('entrada'); return; }
+
+    const ahora = new Date();
+    const ahoraMin = ahora.getHours() * 60 + ahora.getMinutes();
+    // Diferencia hasta su hora, resuelta al lado más cercano del reloj para que
+    // los turnos que cruzan medianoche no se interpreten como medio día de
+    // adelanto (23:00 fichando a las 00:30 son 90 min tarde, no 13 h antes).
+    let faltan = prevMin - ahoraMin;
+    if (faltan > 12 * 60) faltan -= 24 * 60;
+    if (faltan < -12 * 60) faltan += 24 * 60;
+
+    // Dentro de margen (o ya pasada su hora): se ficha con normalidad.
+    if (faltan <= MARGEN_ENTRADA_MIN) {
+        registrarFichaje('entrada');
+        return;
+    }
+
+    // Ha llegado antes de tiempo.
+    const desde = new Date(ahora.getTime() + (faltan - MARGEN_ENTRADA_MIN) * 60000);
+    const puedeDesde = `${String(desde.getHours()).padStart(2, '0')}:${String(desde.getMinutes()).padStart(2, '0')}`;
+
+    const autorizar = confirm(
+        `Todavía no empiezas, ${empleado}.\n\n` +
+        `Tu hora de entrada es ${horaPrevista} y aún faltan ${formatoEspera(faltan)}.\n` +
+        `Podrás fichar a partir de las ${puedeDesde}.\n\n` +
+        `Aceptar = un responsable autoriza que empieces antes\n` +
+        `Cancelar = esperar a tu hora`
+    );
+    if (!autorizar) return;
+
+    // Vía de excepción: solo con contraseña de responsable, y queda anotado.
+    const clave = prompt('Contraseña del responsable para autorizar la entrada anticipada:');
+    if (!clave) return;
+
+    if (!(await validarResponsable(clave))) {
+        mostrarMensaje('✗ Contraseña incorrecta: no se ha fichado', 'error');
+        return;
+    }
+
+    await registrarFichaje('entrada');
+
+    // Queda constancia en el libro de turno (y sale en el resumen del día).
+    try {
+        await fetch('/api/turno-notas', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                centro: centroActual,
+                tipo: 'nota',
+                autor: 'Sistema',
+                texto: `Entrada anticipada autorizada: ${empleado} ha fichado ${formatoEspera(faltan)} antes de su hora (${horaPrevista}).`,
+                device_id: localStorage.getItem('device_id') || '',
+            }),
+        });
+        cargarNotas();
+    } catch {}
+}
+
+/** Acepta la contraseña de gerencia o la del encargado. */
+async function validarResponsable(clave) {
+    try {
+        const rAdmin = await fetch('/api/auth', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ password: clave }),
+        });
+        if (rAdmin.ok) return true;
+    } catch {}
+
+    try {
+        const usuario = sessionStorage.getItem('encargadoNombre') || 'Albert';
+        const rEnc = await fetch('/api/auth-encargado', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ usuario, password: clave }),
+        });
+        if (rEnc.ok) return true;
+    } catch {}
+
+    return false;
 }
