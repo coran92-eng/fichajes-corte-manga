@@ -233,6 +233,9 @@ function configurarEventos() {
         window.location.href = 'login-encargado.html';
     });
     document.getElementById('btnEnviar').addEventListener('click', enviarHorario);
+    document.getElementById('btnResumenDia')?.addEventListener('click', () => {
+        window.location.href = 'resumen-dia.html';
+    });
 }
 
 async function onCentroChange(e) {

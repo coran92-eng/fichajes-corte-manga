@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#2563eb">
+    <title>Resumen del día</title>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <script>
+        const _adm = sessionStorage.getItem('adminToken') === 'auth-token-fichaje-admin';
+        const _enc = sessionStorage.getItem('encargadoToken') === 'auth-token-fichaje-encargado';
+        if (!_adm && !_enc) window.location.href = 'login.html';
+    </script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100dvh; padding: 20px;
+        }
+        .container {
+            background: white; border-radius: 12px; box-shadow: 0 20px 60px rgba(0,0,0,.3);
+            padding: 24px; max-width: 900px; margin: 0 auto;
+        }
+        .header { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; margin-bottom: 16px; }
+        .header h1 { color: #1f2937; font-size: 22px; }
+        button { font-family: inherit; font-weight: 600; cursor: pointer; border: none; }
+        .btn { padding: 10px 15px; border-radius: 8px; font-size: 13px; display: inline-flex; align-items: center; gap: 6px; }
+        .btn-gris { background: #6b7280; color: white; }
+        .filtros { background: #f9fafb; padding: 14px; border-radius: 8px; display: flex; gap: 14px; align-items: flex-end; flex-wrap: wrap; margin-bottom: 18px; }
+        .campo { display: flex; flex-direction: column; gap: 4px; }
+        .campo label { font-size: 12px; font-weight: 700; color: #6b7280; }
+        .campo select, .campo input {
+            padding: 8px 10px; border: 2px solid #e5e7eb; border-radius: 6px;
+            font-size: 14px; font-family: inherit; background: white; color: #1f2937;
+        }
+
+        .tarjetas { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-bottom: 20px; }
+        .tarjeta { background: #f3f4f6; border-radius: 10px; padding: 14px; text-align: center; }
+        .tarjeta-valor { font-size: 26px; font-weight: 800; color: #2563eb; }
+        .tarjeta-valor.bien { color: #059669; }
+        .tarjeta-valor.mal { color: #b91c1c; }
+        .tarjeta-label { font-size: 12px; color: #6b7280; margin-top: 2px; }
+
+        .seccion { margin-bottom: 22px; }
+        .seccion h2 {
+            font-size: 14px; text-transform: uppercase; letter-spacing: .4px;
+            color: #6b7280; margin-bottom: 8px; font-weight: 800;
+        }
+        .fila {
+            display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap;
+            padding: 9px 12px; border: 1px solid #e5e7eb; border-radius: 8px; margin-bottom: 6px;
+            font-size: 14px; color: #1f2937;
+        }
+        .fila.bien { background: #f0fdf4; border-color: #bbf7d0; }
+        .fila.mal { background: #fef2f2; border-color: #fecaca; }
+        .fila.avisa { background: #fffbeb; border-color: #fde68a; }
+        .fila small { color: #6b7280; font-size: 12px; }
+        .fila .marca { margin-left: auto; font-size: 12px; font-weight: 700; }
+        .badge { padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 700; }
+        .b-bloq { background: #fee2e2; color: #b91c1c; }
+        .b-tarde { background: #fef3c7; color: #92400e; }
+        .vacio { color: #9ca3af; font-size: 13px; padding: 6px 2px; }
+        .cargando { text-align: center; padding: 40px; color: #9ca3af; }
+
+        @media (prefers-color-scheme: dark) {
+            body { background: #111827; }
+            .container { background: #1f2937; color: #e5e7eb; }
+            .header h1 { color: #e5e7eb; }
+            .filtros { background: #374151; }
+            .campo label { color: #9ca3af; }
+            .campo select, .campo input { background: #4b5563; color: #e5e7eb; border-color: #6b7280; }
+            .tarjeta { background: #374151; }
+            .fila { border-color: #374151; color: #e5e7eb; }
+            .fila.bien { background: #022c22; border-color: #064e3b; }
+            .fila.mal { background: #2d1515; border-color: #7f1d1d; }
+            .fila.avisa { background: #271a05; border-color: #78350f; }
+        }
+    </style>
+</head>
+<body>
+<div class="container">
+    <div class="header">
+        <h1><i data-lucide="sunrise" style="width:22px;height:22px;vertical-align:middle;margin-right:6px"></i> Resumen del día</h1>
+        <button class="btn btn-gris" id="btnVolver">
+            <i data-lucide="arrow-left" style="width:14px;height:14px"></i> Volver
+        </button>
+    </div>
+
+    <div class="filtros">
+        <div class="campo">
+            <label for="selCentro">Centro</label>
+            <select id="selCentro"><option value="">-- Selecciona --</option></select>
+        </div>
+        <div class="campo">
+            <label for="inpFecha">Jornada</label>
+            <input type="date" id="inpFecha">
+        </div>
+    </div>
+
+    <div id="contenido"><div class="vacio">Elige un centro para ver el resumen.</div></div>
+</div>
+
+<script>
+(function () {
+    const $ = id => document.getElementById(id);
+    const esAdmin = sessionStorage.getItem('adminToken') === 'auth-token-fichaje-admin';
+    let centro = '';
+
+    const esc = s => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    const hhmm = ts => ts ? new Date(Number(ts)).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' }) : '—';
+
+    $('btnVolver').addEventListener('click', () => {
+        window.location.href = esAdmin ? 'admin.html' : 'horario-encargado.html';
+    });
+
+    async function cargarCentros() {
+        try {
+            const cfg = await (await fetch('/config.json')).json();
+            const sel = $('selCentro');
+            (cfg.centros || []).forEach(c => {
+                const o = document.createElement('option');
+                o.value = c; o.textContent = c; sel.appendChild(o);
+            });
+            // Si solo hay uno, lo elegimos directamente
+            if ((cfg.centros || []).length === 1) {
+                sel.value = cfg.centros[0];
+                centro = cfg.centros[0];
+                cargar();
+            }
+        } catch {}
+    }
+
+    async function cargar() {
+        if (!centro) return;
+        const cont = $('contenido');
+        cont.innerHTML = '<div class="cargando">Cargando resumen...</div>';
+
+        const fecha = $('inpFecha').value;
+        const qs = (base) => base + (fecha ? `&fecha_operativa=${fecha}` : '');
+
+        let tareas = null, notas = null, fichajes = [];
+        try {
+            const [rt, rn] = await Promise.all([
+                fetch(qs(`/api/tareas?centro=${encodeURIComponent(centro)}`), { cache: 'no-store' }),
+                fetch(qs(`/api/turno-notas?centro=${encodeURIComponent(centro)}`), { cache: 'no-store' }),
+            ]);
+            tareas = rt.ok ? await rt.json() : null;
+            notas = rn.ok ? await rn.json() : null;
+        } catch {}
+
+        if (!tareas) { cont.innerHTML = '<div class="vacio">No se pudo cargar el resumen.</div>'; return; }
+        $('inpFecha').value = tareas.fecha_operativa;
+
+        // Quién trabajó esa jornada (07:00 → 07:00)
+        try {
+            const [y, m, d] = tareas.fecha_operativa.split('-').map(Number);
+            const desde = new Date(y, m - 1, d, 7, 0, 0).getTime();
+            const hasta = desde + 24 * 3600 * 1000;
+            const rf = await fetch(
+                `/api/fichajes?centro=${encodeURIComponent(centro)}&desde=${desde}&hasta=${hasta}`,
+                { cache: 'no-store' });
+            if (rf.ok) fichajes = await rf.json();
+        } catch {}
+
+        pintar(tareas, notas, fichajes);
+    }
+
+    function pintar(tareas, notas, fichajes) {
+        const r = tareas.resumen || { total: 0, completadas: 0, bloqueantes_pendientes: 0 };
+        const lista = tareas.tareas || [];
+        const pct = r.total ? Math.round((r.completadas / r.total) * 100) : 0;
+
+        const sinHacer = lista.filter(t => t.estado === 'PENDIENTE' || t.estado === 'VENCIDA');
+        const fueraPlazo = lista.filter(t => Number(t.fuera_de_plazo) === 1);
+        const noAplica = lista.filter(t => t.estado === 'NO_APLICA');
+        const banderas = lista.filter(t => Number(t.flag_rafaga) === 1 || Number(t.sincronizada_offline) === 1);
+        const incidenciasAbiertas = (notas?.incidencias || []).filter(i => i.estado !== 'resuelta');
+        const avisos = notas?.notas || [];
+
+        // Personas de la jornada
+        const porEmpleado = {};
+        (fichajes || []).forEach(f => { (porEmpleado[f.empleado] = porEmpleado[f.empleado] || []).push(f); });
+        const personas = Object.entries(porEmpleado).map(([nombre, regs]) => {
+            regs.sort((a, b) => Number(a.timestamp) - Number(b.timestamp));
+            const entrada = regs.find(x => x.tipo === 'entrada');
+            let salida = null;
+            for (const x of regs) if (x.tipo === 'salida') salida = x;
+            return { nombre, entrada: entrada?.hora, salida: salida?.hora, cerrado: !!salida };
+        }).sort((a, b) => a.nombre.localeCompare(b.nombre));
+
+        const tarjeta = (valor, label, clase = '') =>
+            `<div class="tarjeta"><div class="tarjeta-valor ${clase}">${valor}</div><div class="tarjeta-label">${label}</div></div>`;
+
+        let html = `<div class="tarjetas">
+            ${tarjeta(`${pct}%`, 'Tareas cumplidas', pct >= 90 ? 'bien' : pct < 60 ? 'mal' : '')}
+            ${tarjeta(sinHacer.length, 'Sin hacer', sinHacer.length ? 'mal' : 'bien')}
+            ${tarjeta(r.bloqueantes_pendientes, 'Imprescindibles sin cerrar', r.bloqueantes_pendientes ? 'mal' : 'bien')}
+            ${tarjeta(incidenciasAbiertas.length, 'Incidencias abiertas', incidenciasAbiertas.length ? 'mal' : 'bien')}
+            ${tarjeta(personas.length, 'Personas en el turno')}
+        </div>`;
+
+        // Lo que requiere tu atención primero
+        html += `<div class="seccion"><h2>Pendiente de cerrar</h2>`;
+        html += sinHacer.length ? sinHacer.map(t => `
+            <div class="fila ${t.criticidad === 'BLOQUEANTE' ? 'mal' : 'avisa'}">
+                <strong>${esc(t.nombre)}</strong>
+                ${t.criticidad === 'BLOQUEANTE' ? '<span class="badge b-bloq">imprescindible</span>' : ''}
+                <small>${esc(t.rol_responsable)} · ${hhmm(t.ventana_inicio_ts)}–${hhmm(t.ventana_fin_ts)}</small>
+                <span class="marca">${t.estado === 'VENCIDA' ? 'vencida' : 'pendiente'}</span>
+            </div>`).join('')
+            : '<div class="vacio">Todo cerrado. 👌</div>';
+        html += `</div>`;
+
+        html += `<div class="seccion"><h2>Incidencias abiertas</h2>`;
+        html += incidenciasAbiertas.length ? incidenciasAbiertas.map(i => `
+            <div class="fila ${i.prioridad === 'alta' ? 'mal' : 'avisa'}">
+                <strong>${esc(i.texto)}</strong>
+                <small>${esc(i.autor || 'sin nombre')} · ${new Date(Number(i.creado_en)).toLocaleDateString('es-ES')}</small>
+                <span class="marca">${i.estado === 'en_curso' ? 'en curso' : 'abierta'}</span>
+            </div>`).join('')
+            : '<div class="vacio">Ninguna.</div>';
+        html += `</div>`;
+
+        html += `<div class="seccion"><h2>Avisos del turno</h2>`;
+        html += avisos.length ? avisos.map(n => `
+            <div class="fila">
+                <span>${esc(n.texto)}</span>
+                <small>${esc(n.autor || 'sin nombre')} · ${hhmm(n.creado_en)}</small>
+                ${(n.vistos || []).length ? `<span class="marca" style="color:#059669">visto por ${n.vistos.map(esc).join(', ')}</span>`
+                                          : '<span class="marca" style="color:#b45309">sin leer</span>'}
+            </div>`).join('')
+            : '<div class="vacio">Sin avisos.</div>';
+        html += `</div>`;
+
+        html += `<div class="seccion"><h2>Quién trabajó</h2>`;
+        html += personas.length ? personas.map(p => `
+            <div class="fila ${p.cerrado ? '' : 'avisa'}">
+                <strong>${esc(p.nombre)}</strong>
+                <small>entrada ${p.entrada ? p.entrada.slice(0, 5) : '—'} · salida ${p.salida ? p.salida.slice(0, 5) : '—'}</small>
+                ${p.cerrado ? '' : '<span class="marca" style="color:#b45309">sin fichar salida</span>'}
+            </div>`).join('')
+            : '<div class="vacio">Nadie fichó esta jornada.</div>';
+        html += `</div>`;
+
+        if (fueraPlazo.length || noAplica.length || banderas.length) {
+            html += `<div class="seccion"><h2>Para revisar</h2>`;
+            html += fueraPlazo.map(t => `
+                <div class="fila avisa"><strong>${esc(t.nombre)}</strong>
+                    <span class="badge b-tarde">fuera de su franja</span>
+                    <small>${esc(t.completada_por || '')} · ${hhmm(t.completada_ts_servidor)}</small></div>`).join('');
+            html += noAplica.map(t => `
+                <div class="fila"><strong>${esc(t.nombre)}</strong>
+                    <small>marcada "no aplica": ${esc(t.motivo_no_aplica)}</small></div>`).join('');
+            html += banderas.map(t => `
+                <div class="fila avisa"><strong>${esc(t.nombre)}</strong>
+                    <small>${Number(t.flag_rafaga) === 1 ? 'marcada en ráfaga' : ''} ${Number(t.sincronizada_offline) === 1 ? 'sincronizada sin conexión' : ''}</small></div>`).join('');
+            html += `</div>`;
+        }
+
+        $('contenido').innerHTML = html;
+    }
+
+    $('selCentro').addEventListener('change', e => { centro = e.target.value; cargar(); });
+    $('inpFecha').addEventListener('change', cargar);
+
+    document.addEventListener('DOMContentLoaded', async () => {
+        await cargarCentros();
+        if (typeof lucide !== 'undefined') lucide.createIcons();
+    });
+})();
+</script>
+</body>
+</html>

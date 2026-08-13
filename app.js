@@ -48,7 +48,7 @@ function inicializar() {
     configurarBotones();
 
     actualizarEstadoBotones(null);
-    if (centroActual) iniciarPanelTurno();
+    if (centroActual) { iniciarPanelTurno(); configurarNotas(); }
 }
 
 async function cargarEmpleados() {
@@ -1138,4 +1138,236 @@ async function guardarTarea(id) {
         errorEnFila(id, 'Error de conexión al guardar la tarea');
         if (btn) { btn.disabled = false; btn.textContent = 'Guardar'; }
     }
+}
+
+// ── Libro de turno e incidencias ──────────────────────────────
+// Lo que el turno saliente deja dicho al entrante, y las averías del local.
+let notasRefreshInterval = null;
+let notaTipoActual = 'nota';
+let notaFotoB64 = null;
+
+async function cargarNotas() {
+    const panel = document.getElementById('notasPanel');
+    const lista = document.getElementById('notasLista');
+    const countEl = document.getElementById('notasCount');
+    if (!panel || !lista || !centroActual) return;
+
+    let datos = null;
+    try {
+        const ctrl = new AbortController();
+        const to = setTimeout(() => ctrl.abort(), 8000);
+        const res = await fetch(`/api/turno-notas?centro=${encodeURIComponent(centroActual)}`,
+            { signal: ctrl.signal, cache: 'no-store' });
+        clearTimeout(to);
+        if (!res.ok) throw new Error();
+        datos = await res.json();
+    } catch {
+        panel.style.display = 'none';
+        return;
+    }
+
+    panel.style.display = 'block';
+
+    // Rellenar el desplegable de autor con la gente del centro
+    const selAutor = document.getElementById('notaAutor');
+    if (selAutor && selAutor.options.length <= 1 && listaEmpleados.length) {
+        selAutor.innerHTML = '<option value="">¿Quién avisa?</option>' +
+            listaEmpleados.map(n => `<option value="${escTarea(n)}">${escTarea(n)}</option>`).join('');
+    }
+
+    const incidencias = datos.incidencias || [];
+    const notas = datos.notas || [];
+    const abiertas = incidencias.filter(i => i.estado !== 'resuelta').length;
+    countEl.textContent = abiertas
+        ? `${abiertas} incidencia${abiertas !== 1 ? 's' : ''} abierta${abiertas !== 1 ? 's' : ''}`
+        : (notas.length ? `${notas.length} aviso${notas.length !== 1 ? 's' : ''}` : 'Sin avisos');
+
+    if (!incidencias.length && !notas.length) {
+        lista.innerHTML = '<div class="notas-vacio">No hay avisos. Deja uno si hay algo que el siguiente turno deba saber.</div>';
+        return;
+    }
+
+    lista.innerHTML =
+        incidencias.map(itemIncidencia).join('') +
+        notas.map(itemNota).join('');
+
+    lista.querySelectorAll('[data-visto]').forEach(b =>
+        b.addEventListener('click', () => marcarVisto(Number(b.dataset.visto))));
+    lista.querySelectorAll('[data-incestado]').forEach(b =>
+        b.addEventListener('click', () => cambiarEstadoIncidencia(Number(b.dataset.incestado), b.dataset.estado)));
+}
+
+function fechaCorta(ts) {
+    const d = new Date(Number(ts));
+    return d.toLocaleDateString('es-ES', { day: '2-digit', month: 'short' }).replace('.', '')
+        + ' ' + d.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
+}
+
+function itemIncidencia(i) {
+    const resuelta = i.estado === 'resuelta';
+    const cls = `nota-item inc${i.prioridad === 'alta' ? ' alta' : ''}${resuelta ? ' resuelta' : ''}`;
+    const etiqueta = resuelta ? '✓ Resuelta' : i.estado === 'en_curso' ? '⏳ En curso' : '⚠ Abierta';
+    const foto = Number(i.tiene_foto) === 1
+        ? ` · <a href="/api/turno-notas?foto=${i.id}" target="_blank" rel="noopener">ver foto</a>` : '';
+
+    let acciones = '';
+    if (!resuelta) {
+        acciones = `
+            ${i.estado === 'abierta' ? `<button type="button" class="nota-btn-mini" data-incestado="${i.id}" data-estado="en_curso">En curso</button>` : ''}
+            <button type="button" class="nota-btn-mini" data-incestado="${i.id}" data-estado="resuelta">Resuelta</button>`;
+    }
+
+    return `<div class="${cls}">
+        <div class="nota-texto">${escTarea(i.texto)}</div>
+        <div class="nota-meta">
+            <strong>${etiqueta}</strong>
+            <span>${escTarea(i.autor || 'Sin nombre')} · ${fechaCorta(i.creado_en)}${foto}</span>
+            ${resuelta && i.resuelto_por ? `<span>Resuelta por ${escTarea(i.resuelto_por)}</span>` : ''}
+            ${acciones}
+        </div>
+    </div>`;
+}
+
+function itemNota(n) {
+    const foto = Number(n.tiene_foto) === 1
+        ? ` · <a href="/api/turno-notas?foto=${n.id}" target="_blank" rel="noopener">ver foto</a>` : '';
+    const vistos = (n.vistos || []).length
+        ? `<span class="nota-vistos">Visto por ${n.vistos.map(escTarea).join(', ')}</span>`
+        : `<button type="button" class="nota-btn-mini" data-visto="${n.id}">Marcar como leído</button>`;
+
+    return `<div class="nota-item">
+        <div class="nota-texto">${escTarea(n.texto)}</div>
+        <div class="nota-meta">
+            <span>${escTarea(n.autor || 'Sin nombre')} · ${fechaCorta(n.creado_en)}${foto}</span>
+            ${vistos}
+        </div>
+    </div>`;
+}
+
+function abrirFormNota(tipo) {
+    notaTipoActual = tipo;
+    const form = document.getElementById('notaForm');
+    const prio = document.getElementById('notaPrioridad');
+    const txt = document.getElementById('notaTexto');
+    if (!form) return;
+
+    form.classList.add('abierto');
+    if (prio) prio.style.display = tipo === 'incidencia' ? 'block' : 'none';
+    if (txt) {
+        txt.placeholder = tipo === 'incidencia'
+            ? 'Qué ha pasado: la nevera no enfría, se ha roto una silla...'
+            : 'Qué tiene que saber el siguiente turno...';
+        txt.focus();
+    }
+    // Si hay alguien seleccionado arriba, lo damos por autor
+    const empleado = document.getElementById('empleado')?.value;
+    const selAutor = document.getElementById('notaAutor');
+    if (empleado && selAutor) selAutor.value = empleado;
+}
+
+async function enviarNota() {
+    const txt = document.getElementById('notaTexto');
+    const autor = document.getElementById('notaAutor')?.value || '';
+    const prioridad = document.getElementById('notaPrioridad')?.value || 'normal';
+    const btn = document.getElementById('btnEnviarNota');
+    const texto = (txt?.value || '').trim();
+
+    if (!texto) { mostrarMensaje('Escribe el aviso', 'error'); return; }
+    if (!autor) { mostrarMensaje('Indica quién avisa', 'error'); return; }
+
+    if (btn) { btn.disabled = true; btn.textContent = '...'; }
+    try {
+        const res = await fetch('/api/turno-notas', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                centro: centroActual, tipo: notaTipoActual, texto, autor, prioridad,
+                foto_b64: notaFotoB64 || undefined,
+                device_id: localStorage.getItem('device_id') || '',
+            }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) { mostrarMensaje(data.error || 'No se pudo publicar', 'error'); return; }
+
+        txt.value = '';
+        notaFotoB64 = null;
+        const lbl = document.getElementById('notaFotoLbl');
+        if (lbl) { lbl.classList.remove('lista'); lbl.childNodes[0].nodeValue = '📷'; }
+        document.getElementById('notaForm')?.classList.remove('abierto');
+        mostrarMensaje(notaTipoActual === 'incidencia' ? '✓ Incidencia registrada' : '✓ Aviso publicado', 'success');
+        cargarNotas();
+    } catch {
+        mostrarMensaje('Error de conexión', 'error');
+    } finally {
+        if (btn) { btn.disabled = false; btn.textContent = 'Publicar'; }
+    }
+}
+
+async function marcarVisto(id) {
+    const empleado = document.getElementById('empleado')?.value
+        || document.getElementById('notaAutor')?.value || '';
+    if (!empleado) { mostrarMensaje('Selecciona antes tu nombre', 'error'); return; }
+    try {
+        await fetch('/api/turno-notas', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id, accion: 'visto', empleado }),
+        });
+        cargarNotas();
+    } catch { mostrarMensaje('No se pudo marcar como leído', 'error'); }
+}
+
+async function cambiarEstadoIncidencia(id, estado) {
+    const empleado = document.getElementById('empleado')?.value || '';
+    let resolucion = '';
+    if (estado === 'resuelta') {
+        resolucion = prompt('¿Cómo se ha resuelto? (opcional)') || '';
+    }
+    try {
+        const res = await fetch('/api/turno-notas', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                id, estado, empleado, resolucion,
+                centro: centroActual, device_id: localStorage.getItem('device_id') || '',
+            }),
+        });
+        if (!res.ok) { mostrarMensaje('No se pudo actualizar', 'error'); return; }
+        mostrarMensaje(estado === 'resuelta' ? '✓ Incidencia resuelta' : '✓ Marcada en curso', 'success');
+        cargarNotas();
+    } catch { mostrarMensaje('Error de conexión', 'error'); }
+}
+
+function configurarNotas() {
+    document.getElementById('btnNuevaNota')?.addEventListener('click', () => abrirFormNota('nota'));
+    document.getElementById('btnNuevaIncidencia')?.addEventListener('click', () => abrirFormNota('incidencia'));
+    document.getElementById('btnEnviarNota')?.addEventListener('click', enviarNota);
+    document.getElementById('notaFoto')?.addEventListener('change', ev => {
+        const file = ev.target.files && ev.target.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = () => {
+            const img = new Image();
+            img.onload = () => {
+                const MAX = 1024;
+                let { width: w, height: h } = img;
+                if (w > MAX || h > MAX) {
+                    const f = Math.min(MAX / w, MAX / h);
+                    w = Math.round(w * f); h = Math.round(h * f);
+                }
+                const c = document.createElement('canvas');
+                c.width = w; c.height = h;
+                c.getContext('2d').drawImage(img, 0, 0, w, h);
+                notaFotoB64 = c.toDataURL('image/jpeg', 0.6);
+                const lbl = document.getElementById('notaFotoLbl');
+                if (lbl) { lbl.classList.add('lista'); lbl.childNodes[0].nodeValue = '✓ '; }
+            };
+            img.src = reader.result;
+        };
+        reader.readAsDataURL(file);
+    });
+
+    cargarNotas();
+    if (notasRefreshInterval) clearInterval(notasRefreshInterval);
+    notasRefreshInterval = setInterval(cargarNotas, 2 * 60 * 1000);
 }
