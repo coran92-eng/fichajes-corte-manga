@@ -25,6 +25,12 @@ export default async function handler(req, res) {
       await db.execute("ALTER TABLE fichajes ADD COLUMN corregido INTEGER NOT NULL DEFAULT 0");
     } catch {}
 
+    // Hora de inicio de turno que declara el empleado al fichar la entrada.
+    // Permite comparar después lo declarado con lo realmente fichado.
+    try {
+      await db.execute("ALTER TABLE fichajes ADD COLUMN hora_prevista TEXT NOT NULL DEFAULT ''");
+    } catch {}
+
     if (req.method === "GET") {
       const { empleado, limit, centro, desde, hasta } = req.query;
 
@@ -61,15 +67,15 @@ export default async function handler(req, res) {
       return res.status(200).json(result.rows);
     } 
     else if (req.method === "POST") {
-      const { empleado, tipo, fecha, hora, timestamp, centro = '' } = req.body;
+      const { empleado, tipo, fecha, hora, timestamp, centro = '', hora_prevista = '' } = req.body;
 
       if (!empleado || !tipo || !fecha || !hora || !timestamp) {
         return res.status(400).json({ error: "Faltan campos requeridos" });
       }
 
       const result = await db.execute({
-        sql: "INSERT INTO fichajes (empleado, tipo, fecha, hora, timestamp, centro) VALUES (?, ?, ?, ?, ?, ?)",
-        args: [empleado, tipo, fecha, hora, timestamp, centro],
+        sql: "INSERT INTO fichajes (empleado, tipo, fecha, hora, timestamp, centro, hora_prevista) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        args: [empleado, tipo, fecha, hora, timestamp, centro, hora_prevista],
       });
 
       return res.status(201).json({ success: true, id: result.lastInsertRowid.toString() });
