@@ -177,6 +177,7 @@
         const noAplica = lista.filter(t => t.estado === 'NO_APLICA');
         const banderas = lista.filter(t => Number(t.flag_rafaga) === 1 || Number(t.sincronizada_offline) === 1);
         const incidenciasAbiertas = (notas?.incidencias || []).filter(i => i.estado !== 'resuelta');
+        const faltasPendientes = (notas?.faltas || []).filter(f => f.estado !== 'resuelta');
         const avisos = notas?.notas || [];
 
         // Personas de la jornada
@@ -197,7 +198,8 @@
             ${tarjeta(`${pct}%`, 'Tareas cumplidas', pct >= 90 ? 'bien' : pct < 60 ? 'mal' : '')}
             ${tarjeta(sinHacer.length, 'Sin hacer', sinHacer.length ? 'mal' : 'bien')}
             ${tarjeta(r.bloqueantes_pendientes, 'Imprescindibles sin cerrar', r.bloqueantes_pendientes ? 'mal' : 'bien')}
-            ${tarjeta(incidenciasAbiertas.length, 'Incidencias abiertas', incidenciasAbiertas.length ? 'mal' : 'bien')}
+            ${tarjeta(incidenciasAbiertas.length, 'Roto sin arreglar', incidenciasAbiertas.length ? 'mal' : 'bien')}
+            ${tarjeta(faltasPendientes.length, 'Productos por pedir', faltasPendientes.length ? 'mal' : 'bien')}
             ${tarjeta(personas.length, 'Personas en el turno')}
         </div>`;
 
@@ -213,17 +215,28 @@
             : '<div class="vacio">Todo cerrado. 👌</div>';
         html += `</div>`;
 
-        html += `<div class="seccion"><h2>Incidencias abiertas</h2>`;
+        // Lista de la compra: es lo que se lee para hacer el pedido.
+        html += `<div class="seccion"><h2>Para pedir</h2>`;
+        html += faltasPendientes.length ? faltasPendientes.map(f => `
+            <div class="fila avisa">
+                <strong>${esc(f.texto)}</strong>
+                <small>lo apuntó ${esc(f.autor || 'sin nombre')} · ${new Date(Number(f.creado_en)).toLocaleDateString('es-ES')}</small>
+                <span class="marca">${f.estado === 'en_curso' ? 'ya pedido' : 'falta'}</span>
+            </div>`).join('')
+            : '<div class="vacio">No falta nada apuntado.</div>';
+        html += `</div>`;
+
+        html += `<div class="seccion"><h2>Roto o averiado</h2>`;
         html += incidenciasAbiertas.length ? incidenciasAbiertas.map(i => `
             <div class="fila ${i.prioridad === 'alta' ? 'mal' : 'avisa'}">
                 <strong>${esc(i.texto)}</strong>
                 <small>${esc(i.autor || 'sin nombre')} · ${new Date(Number(i.creado_en)).toLocaleDateString('es-ES')}</small>
-                <span class="marca">${i.estado === 'en_curso' ? 'en curso' : 'abierta'}</span>
+                <span class="marca">${i.estado === 'en_curso' ? 'en curso' : 'sin arreglar'}</span>
             </div>`).join('')
-            : '<div class="vacio">Ninguna.</div>';
+            : '<div class="vacio">Nada roto.</div>';
         html += `</div>`;
 
-        html += `<div class="seccion"><h2>Avisos del turno</h2>`;
+        html += `<div class="seccion"><h2>Para el siguiente turno</h2>`;
         html += avisos.length ? avisos.map(n => `
             <div class="fila">
                 <span>${esc(n.texto)}</span>
