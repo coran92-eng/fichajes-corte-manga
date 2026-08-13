@@ -28,12 +28,19 @@ export default async function handler(req, res) {
       await db.execute("ALTER TABLE empleados ADD COLUMN pin_hash TEXT NOT NULL DEFAULT ''");
     } catch {}
 
+    // Horario habitual (JSON por día de la semana, 1=lunes ... 7=domingo).
+    // Se configura una vez y sirve de referencia cuando no hay horario semanal
+    // validado, para no depender de que alguien lo suba cada semana.
+    try {
+      await db.execute("ALTER TABLE empleados ADD COLUMN horario_habitual TEXT NOT NULL DEFAULT ''");
+    } catch {}
+
     if (req.method === "GET") {
       res.setHeader('Cache-Control', 'no-store');
       const { centro } = req.query;
       let result;
       // Nunca se devuelve el hash del PIN: solo si lo tiene puesto o no.
-      const COLS = "nombre, centro, rol, CASE WHEN COALESCE(pin_hash,'') = '' THEN 0 ELSE 1 END AS tiene_pin";
+      const COLS = "nombre, centro, rol, horario_habitual, CASE WHEN COALESCE(pin_hash,'') = '' THEN 0 ELSE 1 END AS tiene_pin";
 
       if (centro) {
         // Empleados del centro + los que no tengan centro asignado.
@@ -64,6 +71,7 @@ export default async function handler(req, res) {
         nombre: r.nombre,
         centro: r.centro,
         rol: r.rol || '',
+        horario_habitual: r.horario_habitual || '',
         tiene_pin: Number(r.tiene_pin) === 1,
       })));
     }
@@ -79,7 +87,7 @@ export default async function handler(req, res) {
       return res.status(201).json({ success: true });
     }
     else if (req.method === "PUT") {
-      const { nombre, centro, rol, pin } = req.body;
+      const { nombre, centro, rol, pin, horario_habitual } = req.body;
       if (!nombre || !nombre.trim()) {
         return res.status(400).json({ error: "Nombre requerido" });
       }
@@ -106,8 +114,18 @@ export default async function handler(req, res) {
         }
       }
 
+      if (typeof horario_habitual === 'string') {
+        // Se guarda tal cual, pero comprobando que es JSON válido.
+        if (horario_habitual !== '') {
+          try { JSON.parse(horario_habitual); }
+          catch { return res.status(422).json({ error: "Horario habitual no válido" }); }
+        }
+        sets.push("horario_habitual = ?");
+        args.push(horario_habitual);
+      }
+
       if (sets.length === 0) {
-        return res.status(400).json({ error: "Nada que actualizar (indica centro, rol o pin)" });
+        return res.status(400).json({ error: "Nada que actualizar (indica centro, rol, pin u horario)" });
       }
       args.push(nombre.trim());
       await db.execute({

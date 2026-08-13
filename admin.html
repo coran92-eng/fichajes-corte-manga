@@ -635,6 +635,42 @@
             font-family: inherit;
             font-weight: 600;
         }
+        /* Modal de horario habitual */
+        #modalHabitual { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.55); z-index: 60; align-items: center; justify-content: center; padding: 20px; }
+        #modalHabitual.visible { display: flex; }
+        .hab-card { background: white; border-radius: 12px; padding: 22px; width: 100%; max-width: 400px; max-height: 90vh; overflow-y: auto; }
+        .hab-card h3 { font-size: 18px; color: #1f2937; margin-bottom: 4px; }
+        .hab-card p { font-size: 13px; color: #6b7280; margin-bottom: 14px; }
+        .hab-fila { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+        .hab-fila span { width: 90px; font-size: 14px; font-weight: 600; color: #374151; }
+        .hab-fila input[type="time"] {
+            flex: 1; padding: 8px 10px; border: 2px solid #e5e7eb; border-radius: 7px;
+            font-size: 15px; font-family: 'Courier New', monospace; background: white; color: #1f2937;
+        }
+        .hab-fila button {
+            padding: 6px 10px; font-size: 12px; border-radius: 6px; border: 1px solid #d1d5db;
+            background: #f9fafb; color: #6b7280; cursor: pointer; font-weight: 600;
+        }
+        .hab-acciones { display: flex; gap: 8px; margin-top: 16px; }
+        .hab-acciones button { flex: 1; padding: 11px; border-radius: 8px; font-size: 14px; }
+        .hab-guardar { background: #10b981; color: white; border: none; }
+        .hab-cerrar { background: #f3f4f6; color: #374151; border: none; }
+        @media (prefers-color-scheme: dark) {
+            .hab-card { background: #1f2937; }
+            .hab-card h3 { color: #e5e7eb; }
+            .hab-fila span { color: #d1d5db; }
+            .hab-fila input[type="time"], .hab-fila button { background: #374151; color: #e5e7eb; border-color: #4b5563; }
+            .hab-cerrar { background: #374151; color: #e5e7eb; }
+            .empleado-tag .btn-hab { background: #374151; color: #e5e7eb; border-color: #4b5563; }
+            .empleado-tag .btn-hab.puesto { background: #1e3a8a; color: #dbeafe; border-color: #2563eb; }
+        }
+
+        .empleado-tag .btn-hab {
+            font-size: 11px; padding: 2px 8px; border: 1px solid #d1d5db;
+            border-radius: 6px; background: #f9fafb; color: #374151;
+            cursor: pointer; font-family: inherit; font-weight: 600;
+        }
+        .empleado-tag .btn-hab.puesto { border-color: #93c5fd; color: #1e40af; background: #eff6ff; }
         .empleado-tag .btn-pin.sin-pin { border-color: #fca5a5; color: #b91c1c; background: #fef2f2; }
         .empleado-tag .btn-pin.con-pin { border-color: #6ee7b7; color: #065f46; background: #ecfdf5; }
         @media (prefers-color-scheme: dark) {
@@ -1109,5 +1145,18 @@
     })();
     </script>
     <script type="module" src="admin.js"></script>
+
+    <!-- Horario habitual de un empleado -->
+    <div id="modalHabitual" role="dialog" aria-modal="true">
+        <div class="hab-card">
+            <h3 id="habTitulo">Horario habitual</h3>
+            <p>Su hora de entrada normal cada día. Se usa cuando no hay horario semanal validado, para saber si alguien ficha antes de tiempo. Deja en blanco los días que libra.</p>
+            <div id="habDias"></div>
+            <div class="hab-acciones">
+                <button type="button" class="hab-cerrar" id="btnHabCerrar">Cancelar</button>
+                <button type="button" class="hab-guardar" id="btnHabGuardar">Guardar</button>
+            </div>
+        </div>
+    </div>
 </body>
 </html>

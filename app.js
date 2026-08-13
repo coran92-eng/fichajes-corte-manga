@@ -76,8 +76,9 @@ async function cargarEmpleados() {
 
     listaEmpleados = empleados.map(e => e.nombre);
     cont.innerHTML = '';
-    empleados.forEach(({ nombre, rol }) => {
+    empleados.forEach(({ nombre, rol, horario_habitual }) => {
         rolPorEmpleado[nombre] = (rol || '').toLowerCase();
+        habitualPorEmpleado[nombre] = horario_habitual || '';
         const btn = document.createElement('button');
         btn.type = 'button';
         btn.className = 'btn-emp';
@@ -1381,6 +1382,18 @@ function configurarNotas() {
 // registrado (un fichaje que no refleja el trabajo real no vale de nada).
 const MARGEN_ENTRADA_MIN = 5;
 const horaPrevistaManual = {};   // empleado → "HH:MM" declarada a mano
+const habitualPorEmpleado = {};  // empleado → JSON {1..7: "HH:MM"} de su ficha
+
+/** Hora de entrada habitual del empleado para el día de hoy, si la tiene. */
+function horaHabitualDeHoy(empleado) {
+    const bruto = habitualPorEmpleado[empleado];
+    if (!bruto) return null;
+    let horario;
+    try { horario = JSON.parse(bruto); } catch { return null; }
+    const dow = new Date().getDay();          // 0=domingo
+    const clave = dow === 0 ? 7 : dow;        // 1=lunes ... 7=domingo
+    return horario[clave] || horario[String(clave)] || null;
+}
 
 function minutosDeHHMM(hhmm) {
     const m = /^(\d{1,2}):(\d{2})/.exec(String(hhmm || '').trim());
@@ -1406,8 +1419,13 @@ async function confirmarEntrada() {
         return;
     }
 
-    // 1) Su hora de entrada: la del horario validado si existe; si no, se le pregunta.
-    let horaPrevista = horarioHoy?.hora_entrada || horaPrevistaManual[empleado] || null;
+    // 1) Su hora de entrada, por este orden: horario semanal validado → horario
+    //    habitual de su ficha → preguntárselo. Así el control funciona aunque no
+    //    se haya subido el horario de la semana.
+    let horaPrevista = horarioHoy?.hora_entrada
+        || horaHabitualDeHoy(empleado)
+        || horaPrevistaManual[empleado]
+        || null;
     if (!horaPrevista) {
         const respuesta = prompt(`${empleado}, ¿a qué hora entras hoy? (por ejemplo 10:00)`);
         if (respuesta === null) return;             // ha cancelado: no se ficha
