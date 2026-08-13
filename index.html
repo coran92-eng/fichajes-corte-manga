@@ -545,6 +545,52 @@
             .tarea-bloque { color: #94a3b8; }
         }
 
+        /* Diálogo de hora de entrada */
+        .ent-modal {
+            display: none; position: fixed; inset: 0; background: rgba(0,0,0,.6);
+            align-items: center; justify-content: center; padding: 20px; z-index: 70;
+        }
+        .ent-modal.visible { display: flex; }
+        .ent-card {
+            background: white; border-radius: 14px; padding: 24px;
+            width: 100%; max-width: 380px; text-align: center;
+        }
+        .ent-card h2 { font-size: 19px; color: #1f2937; margin-bottom: 6px; }
+        .ent-card p { font-size: 14px; color: #6b7280; margin-bottom: 16px; line-height: 1.45; }
+        .ent-hora {
+            width: 100%; padding: 14px; font-size: 30px; text-align: center;
+            border: 2px solid #e5e7eb; border-radius: 10px; margin-bottom: 16px;
+            font-family: 'Courier New', monospace; font-weight: 700;
+            background: white; color: #1f2937;
+        }
+        .ent-acciones { display: flex; gap: 8px; }
+        .ent-acciones button {
+            flex: 1; padding: 13px; border-radius: 9px; font-size: 15px;
+            font-weight: 700; border: none; cursor: pointer; text-transform: none; letter-spacing: 0;
+        }
+        .ent-ok { background: #10b981; color: white; }
+        .ent-cancelar { background: #f3f4f6; color: #374151; }
+        .ent-aviso {
+            background: #fef3c7; border-radius: 10px; padding: 16px;
+            margin-bottom: 16px; text-align: left;
+        }
+        .ent-aviso .ent-falta { font-size: 17px; font-weight: 800; color: #92400e; margin-bottom: 6px; }
+        .ent-aviso .ent-desde { font-size: 14px; color: #92400e; }
+        .ent-aviso .ent-nota { font-size: 13px; color: #b45309; margin-top: 8px; font-weight: 600; }
+        .ent-autorizar {
+            background: none; border: none; color: #6b7280; font-size: 12px;
+            text-decoration: underline; cursor: pointer; margin-top: 12px; font-weight: 600;
+        }
+        @media (prefers-color-scheme: dark) {
+            .ent-card { background: #1f2937; }
+            .ent-card h2 { color: #e5e7eb; }
+            .ent-hora { background: #374151; color: #e5e7eb; border-color: #4b5563; }
+            .ent-cancelar { background: #374151; color: #e5e7eb; }
+            .ent-aviso { background: #271a05; }
+            .ent-aviso .ent-falta, .ent-aviso .ent-desde { color: #fcd34d; }
+            .ent-aviso .ent-nota { color: #fbbf24; }
+        }
+
         /* Libro de turno e incidencias */
         #notasPanel { background: #fffbeb; border-color: #fde68a; }
         #notasPanel .turno-title { color: #92400e; }
@@ -994,6 +1040,35 @@
 
         <div class="last-action" id="lastAction">
             Aquí aparecerá tu último registro
+        </div>
+    </div>
+
+    <!-- ¿A qué hora empieza tu turno? -->
+    <div class="ent-modal" id="entModal" role="dialog" aria-modal="true">
+        <div class="ent-card">
+            <!-- Paso 1: preguntar -->
+            <div id="entPaso1">
+                <h2>¿A qué hora empieza tu turno?</h2>
+                <p>Indica la hora a la que entras hoy.</p>
+                <input type="time" step="300" class="ent-hora" id="entHora">
+                <div class="ent-acciones">
+                    <button type="button" class="ent-cancelar" id="entCancelar">Cancelar</button>
+                    <button type="button" class="ent-ok" id="entContinuar">Continuar</button>
+                </div>
+            </div>
+            <!-- Paso 2: aún no le toca -->
+            <div id="entPaso2" style="display:none">
+                <h2>Todavía no empieza tu jornada</h2>
+                <div class="ent-aviso">
+                    <div class="ent-falta" id="entFalta"></div>
+                    <div class="ent-desde" id="entDesde"></div>
+                    <div class="ent-nota">Hasta entonces no debes trabajar ni fichar.</div>
+                </div>
+                <div class="ent-acciones">
+                    <button type="button" class="ent-ok" id="entEntendido">Entendido</button>
+                </div>
+                <button type="button" class="ent-autorizar" id="entAutorizar">Un responsable autoriza que empiece antes</button>
+            </div>
         </div>
     </div>
 

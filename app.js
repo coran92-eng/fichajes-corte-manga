@@ -189,7 +189,7 @@ function configurarBotones() {
     }
 }
 
-async function registrarFichaje(tipo) {
+async function registrarFichaje(tipo, horaPrevista = '') {
     const empleado = document.getElementById('empleado').value;
     const btnElements = document.querySelectorAll('button');
 
@@ -209,7 +209,8 @@ async function registrarFichaje(tipo) {
             fecha: `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`,
             hora: now.toTimeString().split(' ')[0],
             timestamp: now.getTime(),
-            centro: centroActual || ''
+            centro: centroActual || '',
+            hora_prevista: horaPrevista || ''
         };
 
         const response = await fetch('/api/fichajes', {
@@ -231,15 +232,16 @@ async function registrarFichaje(tipo) {
         };
         mostrarMensaje(mensajes[tipo], 'success');
 
-        if (tipo === 'entrada' && horarioHoy) {
+        const refEntrada = horarioHoy?.hora_entrada || horaPrevista;
+        if (tipo === 'entrada' && refEntrada) {
             const toMin = t => { const [h, m] = t.split(':').map(Number); return h * 60 + m; };
             const ahoraMin = now.getHours() * 60 + now.getMinutes();
-            const prevMin = toMin(horarioHoy.hora_entrada);
+            const prevMin = toMin(refEntrada);
             const diff = ahoraMin - prevMin;
             if (diff > 5) {
-                setTimeout(() => mostrarMensaje(`⚠ ${diff} min tarde (horario: ${horarioHoy.hora_entrada})`, 'error'), 3100);
+                setTimeout(() => mostrarMensaje(`⚠ ${diff} min tarde (entrada: ${refEntrada})`, 'error'), 3100);
             } else if (diff >= -60) {
-                setTimeout(() => mostrarMensaje(`✓ A tiempo (horario: ${horarioHoy.hora_entrada})`, 'success'), 3100);
+                setTimeout(() => mostrarMensaje(`✓ A tiempo (entrada: ${refEntrada})`, 'success'), 3100);
             }
         }
 
@@ -1376,15 +1378,14 @@ function configurarNotas() {
 }
 
 // ── Control de entradas anticipadas ───────────────────────────
-// Hay quien llega 10-15 min antes y empieza por su cuenta. La entrada se
-// bloquea hasta su hora, con un margen pequeño, pero SIEMPRE queda la vía de
-// autorizarla: si de verdad se empieza antes, ese tiempo debe quedar
-// registrado (un fichaje que no refleja el trabajo real no vale de nada).
+// Al fichar entrada se le pregunta SIEMPRE a qué hora empieza su turno: los
+// horarios varían de un día a otro, así que preguntarlo es más fiable que
+// depender de un cuadrante subido. Si aún no le toca, no se ficha, y se le
+// dice cuánto falta. La hora declarada se guarda con el fichaje.
 const MARGEN_ENTRADA_MIN = 5;
-const horaPrevistaManual = {};   // empleado → "HH:MM" declarada a mano
 const habitualPorEmpleado = {};  // empleado → JSON {1..7: "HH:MM"} de su ficha
 
-/** Hora de entrada habitual del empleado para el día de hoy, si la tiene. */
+/** Hora de entrada habitual del empleado para hoy (solo para proponerla). */
 function horaHabitualDeHoy(empleado) {
     const bruto = habitualPorEmpleado[empleado];
     if (!bruto) return null;
@@ -1412,6 +1413,55 @@ function formatoEspera(min) {
     return `${min} min`;
 }
 
+function cerrarEntModal() {
+    document.getElementById('entModal')?.classList.remove('visible');
+    document.getElementById('entPaso1').style.display = 'block';
+    document.getElementById('entPaso2').style.display = 'none';
+}
+
+/** Abre el diálogo y devuelve la hora declarada, o null si cancela. */
+function preguntarHoraEntrada(empleado) {
+    return new Promise(resolve => {
+        const modal = document.getElementById('entModal');
+        const input = document.getElementById('entHora');
+        if (!modal || !input) { resolve(null); return; }
+
+        // Se propone la hora que ya conocemos (horario de la semana o el
+        // habitual), pero siempre se puede cambiar: manda lo que él diga.
+        const sugerida = horarioHoy?.hora_entrada || horaHabitualDeHoy(empleado) || '';
+        input.value = sugerida ? sugerida.slice(0, 5) : '';
+
+        document.getElementById('entPaso1').style.display = 'block';
+        document.getElementById('entPaso2').style.display = 'none';
+        modal.classList.add('visible');
+        setTimeout(() => input.focus(), 50);
+
+        const limpiar = () => {
+            btnOk.removeEventListener('click', onOk);
+            btnCancel.removeEventListener('click', onCancel);
+        };
+        const btnOk = document.getElementById('entContinuar');
+        const btnCancel = document.getElementById('entCancelar');
+
+        function onOk() {
+            const valor = input.value;
+            if (minutosDeHHMM(valor) === null) {
+                mostrarMensaje('Indica tu hora de entrada', 'error');
+                return;
+            }
+            limpiar();
+            resolve(valor);
+        }
+        function onCancel() {
+            limpiar();
+            cerrarEntModal();
+            resolve(null);
+        }
+        btnOk.addEventListener('click', onOk);
+        btnCancel.addEventListener('click', onCancel);
+    });
+}
+
 async function confirmarEntrada() {
     const empleado = document.getElementById('empleado')?.value || '';
     if (!empleado) {
@@ -1419,81 +1469,66 @@ async function confirmarEntrada() {
         return;
     }
 
-    // 1) Su hora de entrada, por este orden: horario semanal validado → horario
-    //    habitual de su ficha → preguntárselo. Así el control funciona aunque no
-    //    se haya subido el horario de la semana.
-    let horaPrevista = horarioHoy?.hora_entrada
-        || horaHabitualDeHoy(empleado)
-        || horaPrevistaManual[empleado]
-        || null;
-    if (!horaPrevista) {
-        const respuesta = prompt(`${empleado}, ¿a qué hora entras hoy? (por ejemplo 10:00)`);
-        if (respuesta === null) return;             // ha cancelado: no se ficha
-        if (minutosDeHHMM(respuesta) === null) {
-            mostrarMensaje('Escribe la hora como HH:MM (por ejemplo 10:00)', 'error');
-            return;
-        }
-        horaPrevista = respuesta.trim();
-        horaPrevistaManual[empleado] = horaPrevista;
-    }
+    const horaPrevista = await preguntarHoraEntrada(empleado);
+    if (!horaPrevista) return;
 
     const prevMin = minutosDeHHMM(horaPrevista);
-    if (prevMin === null) { registrarFichaje('entrada'); return; }
-
     const ahora = new Date();
     const ahoraMin = ahora.getHours() * 60 + ahora.getMinutes();
-    // Diferencia hasta su hora, resuelta al lado más cercano del reloj para que
-    // los turnos que cruzan medianoche no se interpreten como medio día de
-    // adelanto (23:00 fichando a las 00:30 son 90 min tarde, no 13 h antes).
+
+    // Diferencia resuelta al lado más cercano del reloj, para que los turnos
+    // que cruzan medianoche no parezcan medio día de adelanto.
     let faltan = prevMin - ahoraMin;
     if (faltan > 12 * 60) faltan -= 24 * 60;
     if (faltan < -12 * 60) faltan += 24 * 60;
 
-    // Dentro de margen (o ya pasada su hora): se ficha con normalidad.
+    // Le toca ya (o va tarde): se ficha con normalidad.
     if (faltan <= MARGEN_ENTRADA_MIN) {
-        registrarFichaje('entrada');
+        cerrarEntModal();
+        registrarFichaje('entrada', horaPrevista);
         return;
     }
 
-    // Ha llegado antes de tiempo.
+    // Aún no empieza: se le explica cuánto falta y desde cuándo puede fichar.
     const desde = new Date(ahora.getTime() + (faltan - MARGEN_ENTRADA_MIN) * 60000);
     const puedeDesde = `${String(desde.getHours()).padStart(2, '0')}:${String(desde.getMinutes()).padStart(2, '0')}`;
 
-    const autorizar = confirm(
-        `Todavía no empiezas, ${empleado}.\n\n` +
-        `Tu hora de entrada es ${horaPrevista} y aún faltan ${formatoEspera(faltan)}.\n` +
-        `Podrás fichar a partir de las ${puedeDesde}.\n\n` +
-        `Aceptar = un responsable autoriza que empieces antes\n` +
-        `Cancelar = esperar a tu hora`
-    );
-    if (!autorizar) return;
+    document.getElementById('entFalta').textContent =
+        `Tu jornada no empieza hasta dentro de ${formatoEspera(faltan)}.`;
+    document.getElementById('entDesde').textContent =
+        `Podrás fichar a partir de las ${puedeDesde}.`;
+    document.getElementById('entPaso1').style.display = 'none';
+    document.getElementById('entPaso2').style.display = 'block';
 
-    // Vía de excepción: solo con contraseña de responsable, y queda anotado.
-    const clave = prompt('Contraseña del responsable para autorizar la entrada anticipada:');
-    if (!clave) return;
+    document.getElementById('entEntendido').onclick = () => cerrarEntModal();
 
-    if (!(await validarResponsable(clave))) {
-        mostrarMensaje('✗ Contraseña incorrecta: no se ha fichado', 'error');
-        return;
-    }
-
-    await registrarFichaje('entrada');
-
-    // Queda constancia en el libro de turno (y sale en el resumen del día).
-    try {
-        await fetch('/api/turno-notas', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                centro: centroActual,
-                tipo: 'nota',
-                autor: 'Sistema',
-                texto: `Entrada anticipada autorizada: ${empleado} ha fichado ${formatoEspera(faltan)} antes de su hora (${horaPrevista}).`,
-                device_id: localStorage.getItem('device_id') || '',
-            }),
-        });
-        cargarNotas();
-    } catch {}
+    // Vía de excepción: si de verdad tiene que empezar antes, un responsable lo
+    // autoriza y ese tiempo queda registrado. Un fichaje que no refleja el
+    // trabajo real no protege a nadie.
+    document.getElementById('entAutorizar').onclick = async () => {
+        const clave = prompt('Contraseña del responsable para autorizar la entrada anticipada:');
+        if (!clave) return;
+        if (!(await validarResponsable(clave))) {
+            mostrarMensaje('✗ Contraseña incorrecta: no se ha fichado', 'error');
+            return;
+        }
+        cerrarEntModal();
+        await registrarFichaje('entrada', horaPrevista);
+        try {
+            await fetch('/api/turno-notas', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    centro: centroActual,
+                    tipo: 'nota',
+                    autor: 'Sistema',
+                    texto: `Entrada anticipada autorizada: ${empleado} ha fichado ${formatoEspera(faltan)} antes de su hora (${horaPrevista}).`,
+                    device_id: localStorage.getItem('device_id') || '',
+                }),
+            });
+            cargarNotas();
+        } catch {}
+    };
 }
 
 /** Acepta la contraseña de gerencia o la del encargado. */
