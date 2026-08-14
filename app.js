@@ -189,7 +189,7 @@ function configurarBotones() {
     }
 }
 
-async function registrarFichaje(tipo, horaPrevista = '') {
+async function registrarFichaje(tipo, horaPrevista = '', passwordResponsable = '') {
     const empleado = document.getElementById('empleado').value;
     const btnElements = document.querySelectorAll('button');
 
@@ -210,7 +210,8 @@ async function registrarFichaje(tipo, horaPrevista = '') {
             hora: now.toTimeString().split(' ')[0],
             timestamp: now.getTime(),
             centro: centroActual || '',
-            hora_prevista: horaPrevista || ''
+            hora_prevista: horaPrevista || '',
+            password_responsable: passwordResponsable || ''
         };
 
         const response = await fetch('/api/fichajes', {
@@ -219,7 +220,29 @@ async function registrarFichaje(tipo, horaPrevista = '') {
             body: JSON.stringify(fichaje)
         });
 
+        // Fichaje fuera de la red del local (§7): se ofrece la excepción con
+        // contraseña de responsable, para que un trabajo real nunca se quede
+        // sin registrar por un problema de conexión.
+        if (response.status === 403) {
+            const data = await response.json().catch(() => ({}));
+            if (data.motivo === 'red') {
+                btnElements.forEach(btn => btn.disabled = false);
+                const seguir = confirm(
+                    'Solo se puede fichar desde el local.\n\n' +
+                    'Si tienes que fichar desde fuera, un responsable puede autorizarlo.\n\n' +
+                    'Aceptar = pedir autorización\nCancelar = volver'
+                );
+                if (!seguir) return;
+                const clave = prompt('Contraseña del responsable:');
+                if (!clave) return;
+                return registrarFichaje(tipo, horaPrevista, clave);
+            }
+            mostrarMensaje(data.error || 'No se ha podido fichar', 'error');
+            return;
+        }
         if (!response.ok) throw new Error('Error en la respuesta del servidor');
+
+        const respuesta = await response.json().catch(() => ({}));
 
         reproducirSonidoConfirmacion();
         if (navigator.vibrate) navigator.vibrate([100, 50, 100]);
@@ -243,6 +266,21 @@ async function registrarFichaje(tipo, horaPrevista = '') {
             } else if (diff >= -60) {
                 setTimeout(() => mostrarMensaje(`✓ A tiempo (entrada: ${refEntrada})`, 'success'), 3100);
             }
+        }
+
+        if (respuesta.fuera_de_red) {
+            const etiquetas = { entrada: 'entrada', salida: 'salida', inicio_descanso: 'inicio de descanso', fin_descanso: 'fin de descanso' };
+            fetch('/api/turno-notas', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    centro: centroActual,
+                    tipo: 'nota',
+                    autor: 'Sistema',
+                    texto: `Fichaje autorizado fuera del local: ${empleado} ha registrado su ${etiquetas[tipo] || tipo} a las ${fichaje.hora.slice(0, 5)} desde otra red.`,
+                    device_id: localStorage.getItem('device_id') || '',
+                }),
+            }).then(() => cargarNotas()).catch(() => {});
         }
 
         actualizarEstadoBotones(tipo);
