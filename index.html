@@ -591,6 +591,31 @@
             .ent-aviso .ent-nota { color: #fbbf24; }
         }
 
+        /* Panel plegable */
+        .panel-toggle {
+            width: 100%;
+            background: none;
+            border: none;
+            padding: 0;
+            margin: 0;
+            cursor: pointer;
+            font-family: inherit;
+            text-transform: none;
+            letter-spacing: 0;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 8px;
+        }
+        .panel-toggle:hover .turno-title { text-decoration: underline; }
+        .panel-flecha {
+            font-size: 13px;
+            color: #6b7280;
+            transition: transform .2s;
+        }
+        .panel-toggle[aria-expanded="true"] .panel-flecha { transform: rotate(180deg); }
+        .panel-cuerpo[hidden] { display: none; }
+
         /* Libro de turno e incidencias */
         #notasPanel { background: #fffbeb; border-color: #fde68a; }
         #notasPanel .turno-title { color: #92400e; }
@@ -1007,13 +1032,18 @@
 
         <!-- Resumen: hoy ya se fueron + turno anterior (07:00→07:00) -->
         <div class="turno-panel" id="ayerPanel" style="display:none">
-            <div class="turno-header">
+            <button type="button" class="turno-header panel-toggle" id="ayerToggle"
+                    aria-expanded="false" aria-controls="ayerCuerpo">
                 <span class="turno-title">Antes que tú</span>
+                <span class="turno-count" id="ayerResumen"></span>
+                <span class="panel-flecha" aria-hidden="true">▾</span>
+            </button>
+            <div id="ayerCuerpo" class="panel-cuerpo" hidden>
+                <div class="resumen-sub">Hoy · ya se fueron</div>
+                <div class="turno-lista" id="hoyLista"></div>
+                <div class="resumen-sub">Ayer</div>
+                <div class="turno-lista" id="ayerLista"></div>
             </div>
-            <div class="resumen-sub">Hoy · ya se fueron</div>
-            <div class="turno-lista" id="hoyLista"></div>
-            <div class="resumen-sub">Ayer</div>
-            <div class="turno-lista" id="ayerLista"></div>
         </div>
 
         <div class="button-group-descanso">
