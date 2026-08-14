@@ -156,6 +156,16 @@ function configurarBotones() {
     });
 
     document.getElementById('btnVerTareas')?.addEventListener('click', () => irATareas());
+
+    // "Antes que tú" arranca plegado y se despliega al tocarlo.
+    document.getElementById('ayerToggle')?.addEventListener('click', () => {
+        const boton = document.getElementById('ayerToggle');
+        const cuerpo = document.getElementById('ayerCuerpo');
+        if (!boton || !cuerpo) return;
+        const abierto = boton.getAttribute('aria-expanded') === 'true';
+        boton.setAttribute('aria-expanded', abierto ? 'false' : 'true');
+        cuerpo.hidden = abierto;
+    });
     document.getElementById('btnSolCancelar')?.addEventListener('click', cerrarModalSolicitud);
     document.getElementById('btnSolEnviar')?.addEventListener('click', enviarSolicitud);
     document.getElementById('solCaso')?.addEventListener('change', actualizarVisibilidadHora);
@@ -741,8 +751,19 @@ async function cargarResumenPrevios() {
     // Hoy: solo quien ya se fue (último movimiento = salida). Los que
     // siguen activos ya aparecen en el panel verde "En local ahora".
     const hoy = construirResumen(fHoy).filter(p => p.ultimoTipo === 'salida');
+    const ayer = construirResumen(fAyer);
     renderizarResumen(document.getElementById('hoyLista'), hoy, 'Nadie se ha ido aún hoy');
-    renderizarResumen(document.getElementById('ayerLista'), construirResumen(fAyer), 'Sin registros del día anterior');
+    renderizarResumen(document.getElementById('ayerLista'), ayer, 'Sin registros del día anterior');
+
+    // El panel va plegado: el resumen de la cabecera es lo único que se ve
+    // hasta que alguien lo despliega, para no alargar la pantalla.
+    const resumenEl = document.getElementById('ayerResumen');
+    if (resumenEl) {
+        const partes = [];
+        if (hoy.length) partes.push(`${hoy.length} hoy`);
+        if (ayer.length) partes.push(`${ayer.length} ayer`);
+        resumenEl.textContent = partes.length ? partes.join(' · ') : 'sin registros';
+    }
 }
 
 function renderizarResumen(lista, items, vacioMsg) {
