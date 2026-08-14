@@ -1,4 +1,15 @@
 import { getDbClient } from "./db.js";
+import {
+  initSchema, getCentroCfg, esRedAutorizada, ipDeReq, huellaRed, auditar,
+} from "./_tareas-lib.js";
+
+/** Contraseña de gerencia o de encargado, para autorizar excepciones. */
+function claveResponsableValida(clave) {
+  if (!clave) return false;
+  const admin = process.env.ADMIN_PASSWORD || "123456";
+  const encargado = process.env.ENCARGADO_PASSWORD || "123456";
+  return clave === admin || clave === encargado;
+}
 
 export default async function handler(req, res) {
   try {
@@ -67,10 +78,36 @@ export default async function handler(req, res) {
       return res.status(200).json(result.rows);
     } 
     else if (req.method === "POST") {
-      const { empleado, tipo, fecha, hora, timestamp, centro = '', hora_prevista = '' } = req.body;
+      const {
+        empleado, tipo, fecha, hora, timestamp, centro = '', hora_prevista = '',
+        password_responsable = '',
+      } = req.body;
 
       if (!empleado || !tipo || !fecha || !hora || !timestamp) {
         return res.status(400).json({ error: "Faltan campos requeridos" });
+      }
+
+      // Solo se ficha desde la red del local (§7). Si el centro no tiene
+      // ninguna red autorizada todavía, no se restringe nada: así configurarlo
+      // es una decisión, no un requisito para que la app funcione.
+      let fueraDeRed = false;
+      if (centro) {
+        await initSchema(db);
+        const cfg = await getCentroCfg(db, centro);
+        const red = esRedAutorizada(req, cfg);
+
+        if (!red.permitido) {
+          // Excepción con contraseña de responsable: si alguien tiene que
+          // fichar desde fuera por un motivo real, ese tiempo debe quedar
+          // registrado igualmente.
+          if (!claveResponsableValida(password_responsable)) {
+            return res.status(403).json({
+              error: "Solo puedes fichar desde el local",
+              motivo: "red",
+            });
+          }
+          fueraDeRed = true;
+        }
       }
 
       const result = await db.execute({
@@ -78,7 +115,20 @@ export default async function handler(req, res) {
         args: [empleado, tipo, fecha, hora, timestamp, centro, hora_prevista],
       });
 
-      return res.status(201).json({ success: true, id: result.lastInsertRowid.toString() });
+      if (fueraDeRed) {
+        await auditar(db, req, {
+          tipo_evento: 'FICHAJE_FUERA_DE_RED', entidad: 'fichajes',
+          entidad_id: result.lastInsertRowid?.toString(),
+          empleado, centro,
+          payload: { tipo, hora, red: huellaRed(ipDeReq(req)) },
+        });
+      }
+
+      return res.status(201).json({
+        success: true,
+        id: result.lastInsertRowid.toString(),
+        fuera_de_red: fueraDeRed,
+      });
     } 
     else if (req.method === "DELETE") {
       const { id, empleado } = req.query;

@@ -943,6 +943,9 @@
                 <button class="btn-export" id="btnHorasMes" style="background:#0891b2" aria-label="Ver horas del mes: previsto vs real">
                     <i data-lucide="calendar-range" aria-hidden="true" style="width:15px;height:15px"></i> Horas Mes
                 </button>
+                <button class="btn-export" id="btnRedLocal" style="background:#0f766e" aria-label="Configurar la red del local">
+                    <i data-lucide="wifi" aria-hidden="true" style="width:15px;height:15px"></i> Red del local
+                </button>
                 <button class="btn-export" id="btnResumenDia" style="background:#f59e0b" aria-label="Ver el resumen del día">
                     <i data-lucide="sunrise" aria-hidden="true" style="width:15px;height:15px"></i> Resumen del día
                 </button>                <button class="btn-export" id="btnTareasAdmin" style="background:#7c3aed" aria-label="Gestionar tareas operativas">
@@ -1145,6 +1148,27 @@
     })();
     </script>
     <script type="module" src="admin.js"></script>
+
+    <!-- Red del local: desde dónde se puede fichar -->
+    <div id="modalHabitual2" style="display:none"></div>
+    <div id="modalRed" role="dialog" aria-modal="true"
+         style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:60;align-items:center;justify-content:center;padding:20px">
+        <div class="hab-card">
+            <h3>Red del local</h3>
+            <p>Los empleados solo pueden fichar desde la conexión del local.
+               Pulsa el botón <strong>estando dentro del bar</strong> para autorizar esta red.</p>
+            <div class="campo" style="margin-bottom:12px">
+                <label for="redCentro" style="font-size:12px;font-weight:700;color:#6b7280">Centro</label>
+                <select id="redCentro" style="width:100%;padding:9px;border:2px solid #e5e7eb;border-radius:7px;font-family:inherit;font-size:14px"></select>
+            </div>
+            <div id="redEstado" style="font-size:13px;margin-bottom:12px"></div>
+            <div id="redLista" style="margin-bottom:12px"></div>
+            <div class="hab-acciones">
+                <button type="button" class="hab-cerrar" id="btnRedCerrar">Cerrar</button>
+                <button type="button" class="hab-guardar" id="btnRedAutorizar">Autorizar esta red</button>
+            </div>
+        </div>
+    </div>
 
     <!-- Horario habitual de un empleado -->
     <div id="modalHabitual" role="dialog" aria-modal="true">

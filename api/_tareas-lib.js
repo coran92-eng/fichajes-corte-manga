@@ -33,6 +33,10 @@ export async function initSchema(db) {
     )
   `);
 
+  // Redes desde las que se permite fichar (separadas por comas). Vacío = sin
+  // restricción, para que un centro recién creado no deje a nadie fuera.
+  try { await db.execute("ALTER TABLE centros_cfg ADD COLUMN ips_autorizadas TEXT NOT NULL DEFAULT ''"); } catch {}
+
   // Catálogo. Editar crea una versión nueva: nunca se modifica en caliente (§4.2).
   await db.execute(`
     CREATE TABLE IF NOT EXISTS tarea_plantillas (
@@ -253,7 +257,7 @@ export function resolverVentana(fechaOperativa, horaInicio, horaFin, cfg) {
 /** Configuración del centro (crea la fila por defecto la primera vez). */
 export async function getCentroCfg(db, centro) {
   const r = await db.execute({
-    sql: "SELECT centro, inicio_jornada, zona_horaria FROM centros_cfg WHERE LOWER(TRIM(centro)) = LOWER(TRIM(?))",
+    sql: "SELECT centro, inicio_jornada, zona_horaria, ips_autorizadas FROM centros_cfg WHERE LOWER(TRIM(centro)) = LOWER(TRIM(?))",
     args: [centro || ''],
   });
   if (r.rows.length) {
@@ -262,6 +266,7 @@ export async function getCentroCfg(db, centro) {
       centro: row.centro,
       inicio_jornada: row.inicio_jornada || INICIO_JORNADA_DEFAULT,
       zona_horaria: row.zona_horaria || TZ_DEFAULT,
+      ips_autorizadas: row.ips_autorizadas || '',
     };
   }
   try {
@@ -270,7 +275,7 @@ export async function getCentroCfg(db, centro) {
       args: [centro || '', INICIO_JORNADA_DEFAULT, TZ_DEFAULT],
     });
   } catch {}
-  return { centro: centro || '', inicio_jornada: INICIO_JORNADA_DEFAULT, zona_horaria: TZ_DEFAULT };
+  return { centro: centro || '', inicio_jornada: INICIO_JORNADA_DEFAULT, zona_horaria: TZ_DEFAULT, ips_autorizadas: '' };
 }
 
 // ── Recurrencia ───────────────────────────────────────────────
@@ -290,6 +295,42 @@ export function tocaEnFecha(recurrencia, fechaOperativa) {
   if (r.tipo === 'semanal') return Array.isArray(r.dias) && r.dias.map(Number).includes(dow);
   if (r.tipo === 'mensual') return Number(r.dia || 1) === D;
   return true; // diaria
+}
+
+// ── Red del local (§7: presencia sin geolocalización) ─────────
+
+/** IP pública desde la que llega la petición. */
+export function ipDeReq(req) {
+  const xff = (req.headers['x-forwarded-for'] || '').toString();
+  return (xff.split(',')[0] || '').trim() || (req.socket?.remoteAddress || '');
+}
+
+/**
+ * Huella de la red a la que pertenece una IP.
+ *
+ * En IPv4 todos los dispositivos del local salen con la misma IP pública, así
+ * que vale la IP entera. En IPv6 cada dispositivo tiene su propia dirección
+ * pero comparten el prefijo /64 de la línea, así que se compara ese prefijo:
+ * de lo contrario, autorizar "la red" solo autorizaría un móvil concreto.
+ */
+export function huellaRed(ip) {
+  const limpia = String(ip || '').trim().toLowerCase().replace(/^::ffff:/, '');
+  if (!limpia) return '';
+  if (limpia.includes(':')) {
+    const grupos = limpia.split(':');
+    return grupos.slice(0, 4).join(':') + '::/64';
+  }
+  return limpia;
+}
+
+/** ¿La petición llega desde alguna de las redes autorizadas del centro? */
+export function esRedAutorizada(req, cfg) {
+  const lista = String(cfg?.ips_autorizadas || '')
+    .split(',').map(x => x.trim()).filter(Boolean);
+  if (!lista.length) return { permitido: true, sinConfigurar: true };
+
+  const actual = huellaRed(ipDeReq(req));
+  return { permitido: lista.includes(actual), sinConfigurar: false, red: actual };
 }
 
 // ── Identidad y turno ─────────────────────────────────────────

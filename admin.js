@@ -179,6 +179,86 @@ async function renderEmpleados(intento = 0) {
 }
 window.renderEmpleados = renderEmpleados;
 
+// ── Red del local ─────────────────────────────────────────────
+// Se autoriza pulsando el botón DESDE DENTRO del bar: así no hay que saber
+// ninguna dirección técnica, y el día que el operador la cambie se repite.
+window.abrirRedLocal = function() {
+    const sel = document.getElementById('redCentro');
+    sel.innerHTML = centrosDisponibles.map(c => `<option value="${c}">${c}</option>`).join('');
+    document.getElementById('modalRed').style.display = 'flex';
+    window.cargarEstadoRed();
+};
+
+window.cargarEstadoRed = async function() {
+    const centro = document.getElementById('redCentro').value;
+    const estado = document.getElementById('redEstado');
+    const lista = document.getElementById('redLista');
+    estado.textContent = 'Comprobando...';
+    lista.innerHTML = '';
+
+    try {
+        const res = await fetch(`/api/red-local?centro=${encodeURIComponent(centro)}`, { cache: 'no-store' });
+        const d = await res.json();
+
+        if (d.sin_configurar) {
+            estado.innerHTML = `<span style="color:#b45309">⚠ Sin configurar: ahora mismo se puede fichar desde cualquier sitio.</span>`;
+        } else if (d.estas_dentro) {
+            estado.innerHTML = `<span style="color:#059669">✓ Estás en una red autorizada.</span>`;
+        } else {
+            estado.innerHTML = `<span style="color:#b91c1c">✗ Esta red NO está autorizada: desde aquí no se puede fichar.</span>`;
+        }
+        estado.innerHTML += `<div style="color:#6b7280;font-size:12px;margin-top:4px">Tu conexión ahora: <code>${d.red_actual || '—'}</code></div>`;
+
+        lista.innerHTML = d.autorizadas.length
+            ? '<div style="font-size:12px;font-weight:700;color:#6b7280;margin-bottom:5px">REDES AUTORIZADAS</div>' +
+              d.autorizadas.map(r => `
+                <div style="display:flex;align-items:center;gap:8px;font-size:13px;padding:6px 0;border-bottom:1px solid #e5e7eb">
+                    <code style="flex:1">${r}</code>
+                    <button type="button" onclick="window.quitarRed('${r}')"
+                            style="border:1px solid #fca5a5;background:none;color:#b91c1c;border-radius:6px;padding:3px 8px;font-size:11px;cursor:pointer;font-weight:600">Quitar</button>
+                </div>`).join('')
+            : '<div style="font-size:13px;color:#9ca3af">Ninguna red autorizada todavía.</div>';
+    } catch {
+        estado.textContent = 'No se pudo comprobar la red';
+    }
+};
+
+window.autorizarRed = async function() {
+    const centro = document.getElementById('redCentro').value;
+    if (!confirm(`¿Autorizar la red desde la que estás ahora para fichar en "${centro}"?\n\nHazlo solo si estás dentro del local.`)) return;
+    try {
+        const res = await fetch('/api/red-local', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-Auth-Token': sessionStorage.getItem('adminToken') || '',
+            },
+            body: JSON.stringify({ centro }),
+        });
+        const d = await res.json();
+        if (!res.ok) throw new Error(d.error || '');
+        mostrarMensaje(d.ya_estaba ? 'Esta red ya estaba autorizada' : '✓ Red autorizada', 'success');
+        window.cargarEstadoRed();
+    } catch (e) {
+        mostrarMensaje(`✗ ${e.message || 'Error al autorizar la red'}`, 'error');
+    }
+};
+
+window.quitarRed = async function(red) {
+    const centro = document.getElementById('redCentro').value;
+    if (!confirm(`¿Quitar la red ${red}? Desde ella ya no se podrá fichar.`)) return;
+    try {
+        await fetch(`/api/red-local?centro=${encodeURIComponent(centro)}&red=${encodeURIComponent(red)}`, {
+            method: 'DELETE',
+            headers: { 'X-Auth-Token': sessionStorage.getItem('adminToken') || '' },
+        });
+        mostrarMensaje('Red retirada', 'success');
+        window.cargarEstadoRed();
+    } catch {
+        mostrarMensaje('✗ Error al quitar la red', 'error');
+    }
+};
+
 // ── Horario habitual por empleado ─────────────────────────────
 // Se configura una vez y evita depender de que se suba el horario semanal.
 const DIAS_SEMANA = [
@@ -618,6 +698,13 @@ function configurarBotones() {
     document.getElementById('btnResumenDia')?.addEventListener('click', () => {
         window.location.href = 'resumen-dia.html';
     });
+
+    document.getElementById('btnRedLocal')?.addEventListener('click', window.abrirRedLocal);
+    document.getElementById('btnRedCerrar')?.addEventListener('click', () => {
+        document.getElementById('modalRed').style.display = 'none';
+    });
+    document.getElementById('btnRedAutorizar')?.addEventListener('click', window.autorizarRed);
+    document.getElementById('redCentro')?.addEventListener('change', window.cargarEstadoRed);
 
     document.getElementById('btnHabCerrar')?.addEventListener('click', window.cerrarHorarioHabitual);
     document.getElementById('btnHabGuardar')?.addEventListener('click', window.guardarHorarioHabitual);
