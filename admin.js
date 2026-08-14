@@ -129,6 +129,7 @@ async function renderEmpleados(intento = 0) {
             { value: 'barra',     label: 'Barra' },
             { value: 'limpieza',  label: 'Limpieza' },
             { value: 'encargado', label: 'Encargado' },
+            { value: 'extra',     label: 'Extra' },
             { value: 'mixto',     label: 'Mixto (sala+cocina)' },
         ];
         const opcionesRol = (sel) => ROLES.map(r =>

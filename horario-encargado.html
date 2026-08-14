@@ -328,6 +328,8 @@
         tr.rol-barra     .turno-bar-fill--1 { background: #a21caf; }
         tr.rol-limpieza  .turno-bar-fill--1 { background: #14b8a6; }
         tr.rol-encargado .turno-bar-fill--1 { background: #eab308; }
+        tr.rol-extra     .turno-bar-fill--1 { background: #ff42a1; }
+        tr.rol-extra     .td-empleado { border-left: 4px solid #ff42a1; }
         tr.rol-barra     .td-empleado { border-left: 4px solid #a21caf; }
         tr.rol-limpieza  .td-empleado { border-left: 4px solid #14b8a6; }
         tr.rol-encargado .td-empleado { border-left: 4px solid #eab308; }
@@ -433,6 +435,49 @@
             background: #111827;
             border-radius: 1px;
             outline: 1px solid rgba(255,255,255,0.6);
+        }
+
+        /* Importación del horario desde Excel */
+        .import-cab {
+            display: flex; justify-content: space-between; align-items: flex-start;
+            gap: 16px; flex-wrap: wrap; margin-bottom: 12px;
+        }
+        .import-titulo { font-size: 18px; color: #1f2937; }
+        .import-sub { font-size: 13px; color: #6b7280; margin-top: 3px; }
+        .import-acciones { display: flex; gap: 8px; }
+        .tabla-import-wrapper { overflow-x: auto; border: 1px solid #e5e7eb; border-radius: 8px; margin-bottom: 20px; }
+        table.tabla-import { width: 100%; border-collapse: collapse; font-size: 13px; }
+        table.tabla-import th {
+            background: #f3f4f6; padding: 9px 10px; text-align: left;
+            font-size: 12px; font-weight: 700; color: #374151; white-space: nowrap;
+        }
+        table.tabla-import td { padding: 8px 10px; border-top: 1px solid #e5e7eb; vertical-align: middle; }
+        table.tabla-import tr.dia-cab td {
+            background: #f9fafb; font-weight: 800; color: #1f2937; font-size: 13px;
+        }
+        table.tabla-import tr.desconocido td { background: #fef2f2; }
+        .pill-rol {
+            display: inline-block; padding: 2px 9px; border-radius: 10px;
+            font-size: 11px; font-weight: 700; color: white;
+        }
+        .pill-rol.sala { background: #3b82f6; } .pill-rol.cocina { background: #f97316; }
+        .pill-rol.extra { background: #ff42a1; } .pill-rol.barra { background: #a21caf; }
+        .pill-rol.limpieza { background: #14b8a6; } .pill-rol.encargado { background: #eab308; }
+        .import-ok { color: #059669; font-weight: 700; }
+        .import-mal { color: #b91c1c; font-weight: 700; }
+        .import-aviso {
+            padding: 11px 13px; border-radius: 8px; font-size: 13px; margin-bottom: 10px;
+            background: #fef3c7; color: #92400e;
+        }
+        .import-aviso.error { background: #fee2e2; color: #7f1d1d; }
+        .import-aviso.ok { background: #d1fae5; color: #065f46; }
+        @media (prefers-color-scheme: dark) {
+            .import-titulo { color: #e5e7eb; }
+            .tabla-import-wrapper { border-color: #374151; }
+            table.tabla-import th { background: #374151; color: #e5e7eb; }
+            table.tabla-import td { border-top-color: #374151; color: #d1d5db; }
+            table.tabla-import tr.dia-cab td { background: #111827; color: #e5e7eb; }
+            table.tabla-import tr.desconocido td { background: #2d1515; }
         }
 
         /* Panel de "descanso 20 min" */
@@ -558,6 +603,7 @@
         .leyenda-dot.barra     { background: #a21caf; }
         .leyenda-dot.limpieza  { background: #14b8a6; }
         .leyenda-dot.encargado { background: #eab308; }
+        .leyenda-dot.extra     { background: #ff42a1; }
         .leyenda-dot.sinrol    { background: #9ca3af; }
         .leyenda-info {
             margin-left: auto;
@@ -807,6 +853,10 @@
                 Horario de Turno
             </h1>
             <div class="header-buttons">
+                <button class="btn-enviar" id="btnSubirHorario" style="background:#059669" aria-label="Subir el horario desde Excel">
+                    <i data-lucide="upload" aria-hidden="true" style="width:15px;height:15px"></i> Subir horario (Excel)
+                    <input type="file" id="fileHorario" accept=".xlsx" style="display:none">
+                </button>
                 <button class="btn-enviar" id="btnResumenDia" style="background:#f59e0b" aria-label="Ver el resumen del día">
                     <i data-lucide="sunrise" aria-hidden="true" style="width:15px;height:15px"></i> Resumen del día
                 </button>
@@ -848,6 +898,22 @@
         <!-- Mensaje de estado -->
         <div id="message" class="message" role="alert" aria-live="polite" aria-atomic="true"></div>
 
+        <!-- Vista previa de la importación -->
+        <div id="importPanel" style="display:none">
+            <div class="import-cab">
+                <div>
+                    <h2 class="import-titulo">Esto es lo que he entendido de tu archivo</h2>
+                    <p class="import-sub" id="importResumen"></p>
+                </div>
+                <div class="import-acciones">
+                    <button type="button" class="btn-volver" id="btnImportCancelar">Cancelar</button>
+                    <button type="button" class="btn-enviar" id="btnImportConfirmar" style="background:#059669">Guardar horario</button>
+                </div>
+            </div>
+            <div id="importAvisos"></div>
+            <div class="tabla-import-wrapper"><div id="importTabla"></div></div>
+        </div>
+
         <!-- Leyenda de colores por rol -->
         <div class="leyenda" id="leyendaRoles" style="display:none">
             <span class="leyenda-chip"><span class="leyenda-dot sala"></span> Sala</span>
@@ -855,6 +921,7 @@
             <span class="leyenda-chip"><span class="leyenda-dot barra"></span> Barra</span>
             <span class="leyenda-chip"><span class="leyenda-dot limpieza"></span> Limpieza</span>
             <span class="leyenda-chip"><span class="leyenda-dot encargado"></span> Encargado</span>
+            <span class="leyenda-chip"><span class="leyenda-dot extra"></span> Extra</span>
             <span class="leyenda-chip"><span class="leyenda-dot mixto"></span> Mixto</span>
             <span class="leyenda-chip"><span class="leyenda-dot sinrol"></span> Sin rol</span>
             <span class="leyenda-info">Rango operativo 07:30 → 03:00 · pasos de 30 min</span>

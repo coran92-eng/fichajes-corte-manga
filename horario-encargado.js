@@ -1,6 +1,8 @@
 // Horario de Turno — Encargado
 // Gestión de horarios semanales por empleado y centro
 
+import { leeXlsx } from './horario-xlsx.js';
+
 let centroActual = '';
 let semanaActual = '';
 let empleadosList = []; // [{ nombre, rol }]
@@ -60,6 +62,7 @@ const ROL_COLOR = {
     barra:     '#a21caf',
     limpieza:  '#14b8a6',
     encargado: '#eab308',
+    extra:     '#ff42a1',
     '':        '#9ca3af',
 };
 function colorRol(rol) { return ROL_COLOR[rol || ''] || '#9ca3af'; }
@@ -70,6 +73,7 @@ const ROLES_CAMBIO = [
     { value: 'barra',     label: 'Barra' },
     { value: 'limpieza',  label: 'Limpieza' },
     { value: 'encargado', label: 'Encargado' },
+    { value: 'extra',     label: 'Extra' },
     { value: 'mixto',     label: 'Mixto' },
 ];
 
@@ -236,6 +240,18 @@ function configurarEventos() {
     document.getElementById('btnResumenDia')?.addEventListener('click', () => {
         window.location.href = 'resumen-dia.html';
     });
+
+    // Importación del cuadrante que hace Albert en su hoja
+    document.getElementById('btnSubirHorario')?.addEventListener('click', () => {
+        if (!centroActual) {
+            mostrarMensaje('Elige primero el centro al que corresponde el horario', 'error');
+            return;
+        }
+        document.getElementById('fileHorario').click();
+    });
+    document.getElementById('fileHorario')?.addEventListener('change', onArchivoHorario);
+    document.getElementById('btnImportCancelar')?.addEventListener('click', cerrarImportacion);
+    document.getElementById('btnImportConfirmar')?.addEventListener('click', confirmarImportacion);
 }
 
 async function onCentroChange(e) {
@@ -980,4 +996,183 @@ function escapeHtml(str) {
 
 function escapeAttr(str) {
     return String(str).replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+// ── Importar el horario desde el Excel de Albert ──────────────
+// Se lee en el navegador y NUNCA se guarda nada sin que él vea antes lo
+// interpretado: un fallo silencioso aquí le cambiaría la semana al equipo.
+let importado = null;
+
+const ROL_LABEL_IMP = {
+    sala: 'Sala', cocina: 'Cocina', extra: 'Extra',
+    barra: 'Barra', limpieza: 'Limpieza', encargado: 'Encargado',
+};
+
+function cerrarImportacion() {
+    importado = null;
+    document.getElementById('importPanel').style.display = 'none';
+    document.getElementById('fileHorario').value = '';
+}
+
+async function onArchivoHorario(ev) {
+    const file = ev.target.files && ev.target.files[0];
+    if (!file) return;
+
+    mostrarMensaje('Leyendo el archivo...', 'info');
+    try {
+        const dias = await leeXlsx(await file.arrayBuffer());
+        if (!dias.length) throw new Error('No he encontrado ningún día en el archivo');
+        importado = dias;
+        mostrarMensaje('', '');
+        renderImportacion(dias);
+    } catch (e) {
+        console.error(e);
+        mostrarMensaje(`No he podido leer el archivo: ${e.message}`, 'error');
+        cerrarImportacion();
+    }
+}
+
+function renderImportacion(dias) {
+    const panel = document.getElementById('importPanel');
+    const avisos = document.getElementById('importAvisos');
+    const cont = document.getElementById('importTabla');
+
+    const conocidos = new Set(empleadosList.map(e => e.nombre.trim().toUpperCase()));
+    const desconocidos = new Set();
+    let turnos = 0, descuadres = 0;
+
+    let html = '<table class="tabla-import"><thead><tr>' +
+        '<th>Empleado</th><th>Entrada</th><th>Salida</th><th>Puesto</th>' +
+        '<th>Descanso</th><th>Horas</th><th>Tu hoja</th></tr></thead><tbody>';
+
+    for (const dia of dias) {
+        const fechaTxt = dia.fecha
+            ? new Date(dia.fecha + 'T12:00:00').toLocaleDateString('es-ES',
+                { weekday: 'long', day: '2-digit', month: 'long' })
+            : `⚠ sin fecha (${dia.fecha_bruta ?? '—'})`;
+        html += `<tr class="dia-cab"><td colspan="7">${escapeHtml(fechaTxt)}</td></tr>`;
+
+        for (const p of dia.personas) {
+            const nuevo = !conocidos.has(p.nombre.trim().toUpperCase());
+            if (nuevo && p.estado === 'turno') desconocidos.add(p.nombre);
+
+            if (p.estado !== 'turno') {
+                html += `<tr${nuevo ? ' class="desconocido"' : ''}>
+                    <td>${escapeHtml(p.nombre)}</td>
+                    <td colspan="6" style="color:#9ca3af">${p.estado === 'vacaciones' ? 'Vacaciones' : 'Libra'}</td>
+                </tr>`;
+                continue;
+            }
+
+            turnos++;
+            const cuadra = p.total_hoja != null && Math.abs(p.total_hoja - p.horas) < 0.01;
+            if (!cuadra) descuadres++;
+
+            let puesto = `<span class="pill-rol ${p.rol}">${ROL_LABEL_IMP[p.rol] || p.rol}</span>`;
+            if (p.rol_segunda) {
+                puesto += ` <small>→ ${p.hora_cambio}</small> ` +
+                    `<span class="pill-rol ${p.rol_segunda}">${ROL_LABEL_IMP[p.rol_segunda] || p.rol_segunda}</span>`;
+            }
+
+            html += `<tr${nuevo ? ' class="desconocido"' : ''}>
+                <td><strong>${escapeHtml(p.nombre)}</strong>${nuevo ? ' <small style="color:#b91c1c">no está en la app</small>' : ''}</td>
+                <td>${p.entrada}</td>
+                <td>${p.salida}</td>
+                <td>${puesto}</td>
+                <td>${p.descanso || '—'}</td>
+                <td>${p.horas} h</td>
+                <td class="${cuadra ? 'import-ok' : 'import-mal'}">${p.total_hoja ?? '—'} ${cuadra ? '✓' : '✗'}</td>
+            </tr>`;
+        }
+    }
+    html += '</tbody></table>';
+    cont.innerHTML = html;
+
+    // Avisos: lo que Albert tiene que mirar antes de guardar
+    let av = '';
+    if (descuadres) {
+        av += `<div class="import-aviso error">${descuadres} turno(s) no cuadran con los totales de tu hoja. Revísalos antes de guardar.</div>`;
+    } else {
+        av += `<div class="import-aviso ok">Los ${turnos} turnos cuadran con los totales de tu hoja.</div>`;
+    }
+    if (desconocidos.size) {
+        av += `<div class="import-aviso">Estos nombres no están dados de alta en la app y se saltarán: ` +
+              `<strong>${[...desconocidos].map(escapeHtml).join(', ')}</strong>.</div>`;
+    }
+    avisos.innerHTML = av;
+
+    const fechas = dias.map(d => d.fecha).filter(Boolean).sort();
+    document.getElementById('importResumen').textContent =
+        `${dias.length} días (${fechas[0] || '?'} → ${fechas[fechas.length - 1] || '?'}) · ` +
+        `${turnos} turnos · centro: ${centroActual}`;
+
+    panel.style.display = 'block';
+    panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+async function confirmarImportacion() {
+    if (!importado) return;
+    const btn = document.getElementById('btnImportConfirmar');
+    const conocidos = new Set(empleadosList.map(e => e.nombre.trim().toUpperCase()));
+
+    // Solo se guardan los turnos de gente dada de alta y con fecha reconocida.
+    const aGuardar = [];
+    for (const dia of importado) {
+        if (!dia.fecha) continue;
+        const semana = getISOWeek(new Date(dia.fecha + 'T12:00:00'));
+        for (const p of dia.personas) {
+            if (p.estado !== 'turno') continue;
+            const emp = empleadosList.find(e => e.nombre.trim().toUpperCase() === p.nombre.trim().toUpperCase());
+            if (!emp) continue;
+            aGuardar.push({
+                empleado: emp.nombre,
+                centro: centroActual,
+                fecha: dia.fecha,
+                hora_entrada: p.entrada,
+                hora_salida: p.salida,
+                semana,
+                rol_primera: p.rol,
+                hora_cambio: p.hora_cambio || '',
+                rol_segunda: p.rol_segunda || '',
+                hora_descanso: p.descanso || '',
+                origen: 'importacion',
+            });
+        }
+    }
+
+    if (!aGuardar.length) {
+        mostrarMensaje('No hay ningún turno que guardar (revisa los nombres)', 'error');
+        return;
+    }
+
+    btn.disabled = true;
+    const errores = [];
+    let hechos = 0;
+
+    for (const turno of aGuardar) {
+        mostrarMensaje(`Guardando ${hechos + 1} de ${aGuardar.length}...`, 'info');
+        try {
+            const res = await fetch('/api/horarios', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(turno),
+            });
+            if (res.ok) hechos++;
+            else {
+                const d = await res.json().catch(() => ({}));
+                errores.push(`${turno.empleado} (${turno.fecha}): ${d.error || res.status}`);
+            }
+        } catch {
+            errores.push(`${turno.empleado} (${turno.fecha}): error de red`);
+        }
+    }
+
+    btn.disabled = false;
+    if (!errores.length) {
+        mostrarMensaje(`✓ Horario guardado: ${hechos} turnos`, 'success');
+        cerrarImportacion();
+        if (semanaActual) cargarHorarioExistente();
+    } else {
+        mostrarMensaje(`${hechos} guardados. Fallaron ${errores.length}: ${errores.slice(0, 3).join(' | ')}`, 'warning');
+    }
 }

@@ -284,3 +284,76 @@ export function leeLibro({ sheetXml, stylesXml, sharedXml }) {
   }
   return dias;
 }
+
+// ── Apertura del archivo .xlsx ────────────────────────────────
+// Un .xlsx es un zip con XML dentro. Se abre con DecompressionStream, que ya
+// viene en el navegador, para no depender de ninguna librería externa.
+
+function leeUint32(v, off) { return v.getUint32(off, true); }
+function leeUint16(v, off) { return v.getUint16(off, true); }
+
+async function inflar(buf, comprimido) {
+  if (!comprimido) return buf;
+  const ds = new DecompressionStream('deflate-raw');
+  const stream = new Blob([buf]).stream().pipeThrough(ds);
+  return new Uint8Array(await new Response(stream).arrayBuffer());
+}
+
+/** Extrae del zip solo los archivos que interesan. */
+export async function abreXlsx(arrayBuffer, queremos) {
+  const datos = new Uint8Array(arrayBuffer);
+  const vista = new DataView(arrayBuffer);
+
+  // Fin del directorio central: se busca desde el final.
+  let eocd = -1;
+  for (let i = datos.length - 22; i >= 0 && i > datos.length - 66000; i--) {
+    if (leeUint32(vista, i) === 0x06054b50) { eocd = i; break; }
+  }
+  if (eocd < 0) throw new Error('El archivo no parece un Excel válido');
+
+  const total = leeUint16(vista, eocd + 10);
+  let pos = leeUint32(vista, eocd + 16);
+  const salida = {};
+  const decodificador = new TextDecoder('utf-8');
+
+  for (let n = 0; n < total; n++) {
+    if (leeUint32(vista, pos) !== 0x02014b50) break;
+    const metodo = leeUint16(vista, pos + 10);
+    const tamComprimido = leeUint32(vista, pos + 20);
+    const largoNombre = leeUint16(vista, pos + 28);
+    const largoExtra = leeUint16(vista, pos + 30);
+    const largoComentario = leeUint16(vista, pos + 32);
+    const offsetLocal = leeUint32(vista, pos + 42);
+    const nombre = decodificador.decode(datos.subarray(pos + 46, pos + 46 + largoNombre));
+
+    if (queremos.some(q => nombre.endsWith(q))) {
+      // La cabecera local repite los tamaños de nombre y extra, y pueden
+      // diferir de los del directorio: hay que leerlos de ahí.
+      const nombreLocal = leeUint16(vista, offsetLocal + 26);
+      const extraLocal = leeUint16(vista, offsetLocal + 28);
+      const inicio = offsetLocal + 30 + nombreLocal + extraLocal;
+      const crudo = datos.subarray(inicio, inicio + tamComprimido);
+      salida[nombre] = decodificador.decode(await inflar(crudo, metodo === 8));
+    }
+
+    pos += 46 + largoNombre + largoExtra + largoComentario;
+  }
+  return salida;
+}
+
+/** Lee un .xlsx completo y devuelve los días con sus turnos. */
+export async function leeXlsx(arrayBuffer) {
+  const partes = await abreXlsx(arrayBuffer, [
+    'xl/styles.xml', 'xl/sharedStrings.xml', 'sheet1.xml',
+  ]);
+  const busca = sufijo => Object.entries(partes).find(([k]) => k.endsWith(sufijo))?.[1] || '';
+
+  const sheetXml = busca('sheet1.xml');
+  if (!sheetXml) throw new Error('No se ha encontrado la hoja de cálculo dentro del archivo');
+
+  return leeLibro({
+    sheetXml,
+    stylesXml: busca('styles.xml'),
+    sharedXml: busca('sharedStrings.xml'),
+  });
+}
