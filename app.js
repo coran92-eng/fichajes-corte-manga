@@ -199,7 +199,7 @@ function configurarBotones() {
     }
 }
 
-async function registrarFichaje(tipo, horaPrevista = '', passwordResponsable = '') {
+async function registrarFichaje(tipo, horaPrevista = '', passwordResponsable = '', motivo = '') {
     const empleado = document.getElementById('empleado').value;
     const btnElements = document.querySelectorAll('button');
 
@@ -221,7 +221,8 @@ async function registrarFichaje(tipo, horaPrevista = '', passwordResponsable = '
             timestamp: now.getTime(),
             centro: centroActual || '',
             hora_prevista: horaPrevista || '',
-            password_responsable: passwordResponsable || ''
+            password_responsable: passwordResponsable || '',
+            motivo: motivo || ''
         };
 
         const response = await fetch('/api/fichajes', {
@@ -245,7 +246,7 @@ async function registrarFichaje(tipo, horaPrevista = '', passwordResponsable = '
                 if (!seguir) return;
                 const clave = prompt('Contraseña del responsable:');
                 if (!clave) return;
-                return registrarFichaje(tipo, horaPrevista, clave);
+                return registrarFichaje(tipo, horaPrevista, clave, motivo);
             }
             mostrarMensaje(data.error || 'No se ha podido fichar', 'error');
             return;
@@ -267,14 +268,22 @@ async function registrarFichaje(tipo, horaPrevista = '', passwordResponsable = '
 
         const refEntrada = horarioHoy?.hora_entrada || horaPrevista;
         if (tipo === 'entrada' && refEntrada) {
-            const toMin = t => { const [h, m] = t.split(':').map(Number); return h * 60 + m; };
             const ahoraMin = now.getHours() * 60 + now.getMinutes();
-            const prevMin = toMin(refEntrada);
-            const diff = ahoraMin - prevMin;
-            if (diff > 5) {
-                setTimeout(() => mostrarMensaje(`⚠ ${diff} min tarde (entrada: ${refEntrada})`, 'error'), 3100);
-            } else if (diff >= -60) {
-                setTimeout(() => mostrarMensaje(`✓ A tiempo (entrada: ${refEntrada})`, 'success'), 3100);
+            const diff = diferenciaMinutos(ahoraMin, minutosDeHHMM(refEntrada));
+            if (diff !== null && diff > MARGEN_ENTRADA_MIN) {
+                setTimeout(() => mostrarMensaje(`⚠ ${diff} min tarde (entrada: ${String(refEntrada).slice(0, 5)})`, 'error'), 3100);
+            } else if (diff !== null && diff >= -60) {
+                setTimeout(() => mostrarMensaje(`✓ A tiempo (entrada: ${String(refEntrada).slice(0, 5)})`, 'success'), 3100);
+            }
+        }
+
+        if (tipo === 'salida' && horaPrevista) {
+            const ahoraMin = now.getHours() * 60 + now.getMinutes();
+            const diff = diferenciaMinutos(ahoraMin, minutosDeHHMM(horaPrevista));
+            if (diff !== null && diff > MARGEN_SALIDA_TARDE_MIN) {
+                setTimeout(() => mostrarMensaje(`⚠ ${formatoEspera(diff)} de más (salida: ${String(horaPrevista).slice(0, 5)})`, 'error'), 3100);
+            } else if (diff !== null) {
+                setTimeout(() => mostrarMensaje(`✓ A tu hora (salida: ${String(horaPrevista).slice(0, 5)})`, 'success'), 3100);
             }
         }
 
@@ -404,7 +413,8 @@ async function enviarSolicitud() {
 }
 
 let pollingInterval = null;
-let horarioHoy = null;
+let horarioHoy = null;       // turno del cuadrante que corresponde a este momento
+let horariosCerca = [];      // ayer / hoy / mañana, con inicio y fin absolutos
 
 function actualizarUltimaAccion() {
     const empleado = document.getElementById('empleado').value;
@@ -457,28 +467,87 @@ function actualizarUltimaAccion() {
     pollingInterval = setInterval(fetchUltimaAccion, 10000);
 }
 
-async function cargarHorarioHoy(empleado) {
+function fechaISO(d) {
+    const pad = n => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+/**
+ * Convierte una fila del cuadrante en un tramo con inicio y fin absolutos.
+ * Si la hora de salida no es posterior a la de entrada, el turno termina de
+ * madrugada: el fin cae en el día siguiente.
+ */
+function tramoDeHorario(fila) {
+    const ini = minutosDeHHMM(fila.hora_entrada);
+    const fin = minutosDeHHMM(fila.hora_salida);
+    if (ini === null || fin === null) return null;
+    const base = new Date(`${fila.fecha}T00:00:00`);
+    if (isNaN(base.getTime())) return null;
+    const inicioMs = base.getTime() + ini * 60000;
+    let finMs = base.getTime() + fin * 60000;
+    if (fin <= ini) finMs += 24 * 60 * 60 * 1000;
+    return { ...fila, inicioMs, finMs };
+}
+
+/** El turno más próximo a un instante dado; null si no hay ninguno razonable. */
+function turnoCercaDe(ms, maxHoras = 8) {
+    let mejor = null, mejorDist = Infinity;
+    for (const t of horariosCerca) {
+        const dist = ms < t.inicioMs ? t.inicioMs - ms
+            : ms > t.finMs ? ms - t.finMs : 0;
+        if (dist < mejorDist) { mejor = t; mejorDist = dist; }
+    }
+    if (!mejor || mejorDist > maxHoras * 3600000) return null;
+    return mejor;
+}
+
+/**
+ * Carga el cuadrante de ayer, hoy y mañana. Se cogen tres días porque un turno
+ * de noche sigue en marcha después de medianoche y su fila es la del día
+ * anterior. Se aceptan los horarios pendientes de validar: el cuadrante que
+ * sube el encargado es ya la referencia real del equipo.
+ */
+let horarioCargadoDe = '';   // empleado y momento del último cuadrante cargado
+let horarioCargadoEn = 0;
+
+async function cargarHorarioHoy(empleado, forzar = false) {
+    // El historial se refresca cada 10 s; el cuadrante no cambia tan deprisa.
+    if (!forzar && empleado && empleado === horarioCargadoDe
+        && Date.now() - horarioCargadoEn < 5 * 60 * 1000) return;
+
     horarioHoy = null;
+    horariosCerca = [];
     const badge = document.getElementById('horarioBadge');
     if (badge) badge.style.display = 'none';
+    horarioCargadoDe = empleado || '';
+    horarioCargadoEn = Date.now();
     if (!empleado) return;
 
-    const now = new Date();
-    const pad = n => String(n).padStart(2, '0');
-    const fecha = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+    const hoy = new Date();
+    const desde = fechaISO(new Date(hoy.getTime() - 24 * 3600000));
+    const hasta = fechaISO(new Date(hoy.getTime() + 24 * 3600000));
 
     try {
-        const res = await fetch(`/api/horarios?empleado=${encodeURIComponent(empleado)}&fecha=${fecha}&estado=validado`);
+        const res = await fetch(
+            `/api/horarios?empleado=${encodeURIComponent(empleado)}` +
+            `&fecha_desde=${desde}&fecha_hasta=${hasta}`
+        );
         if (!res.ok) return;
         const data = await res.json();
-        if (data.length === 0) return;
 
-        horarioHoy = data[0];
-        if (badge) {
-            badge.textContent = `Horario: ${horarioHoy.hora_entrada} – ${horarioHoy.hora_salida}`;
+        horariosCerca = data
+            .filter(h => (h.estado || '').toLowerCase() !== 'rechazado')
+            .map(tramoDeHorario)
+            .filter(Boolean);
+
+        horarioHoy = turnoCercaDe(Date.now());
+        if (horarioHoy && badge) {
+            badge.textContent = `Horario: ${String(horarioHoy.hora_entrada).slice(0, 5)} – ${String(horarioHoy.hora_salida).slice(0, 5)}`;
             badge.style.display = 'inline-block';
         }
-    } catch {}
+    } catch {
+        horarioCargadoEn = 0;   // si falló, que el siguiente intento lo reintente
+    }
 }
 
 function reproducirSonidoConfirmacion() {
@@ -542,92 +611,181 @@ function iniciarPanelTurno() {
     tareasRefreshInterval = setInterval(renderTareasPanel, 60000);
 }
 
-async function cargarTurnoActual() {
+/** Fecha de la jornada operativa en curso (corte a las 07:00). */
+function fechaOperativa() {
+    const now = new Date();
+    const d = new Date(now);
+    if (now.getHours() < 7) d.setDate(d.getDate() - 1);
+    return fechaISO(d);
+}
+
+/** El cuadrante del centro para la jornada de hoy. */
+async function fetchCuadranteDelDia() {
+    const ctrl = new AbortController();
+    const to = setTimeout(() => ctrl.abort(), 8000);
     try {
-        const desde = Date.now() - 36 * 60 * 60 * 1000;
-        const ctrl = new AbortController();
-        const to = setTimeout(() => ctrl.abort(), 8000);
         const res = await fetch(
-            `/api/fichajes?centro=${encodeURIComponent(centroActual)}&desde=${desde}`,
+            `/api/horarios?centro=${encodeURIComponent(centroActual)}&fecha=${fechaOperativa()}`,
             { signal: ctrl.signal, cache: 'no-store' }
         );
         clearTimeout(to);
-        if (!res.ok) { renderizarTurnoPanel([]); return; }
-        const fichajes = await res.json();
-
-        // Agrupar por empleado (API devuelve ORDER BY timestamp DESC)
-        const porEmpleado = {};
-        fichajes.forEach(f => {
-            if (!porEmpleado[f.empleado]) porEmpleado[f.empleado] = [];
-            porEmpleado[f.empleado].push(f);
-        });
-
-        const enTurno = [];
-
-        Object.entries(porEmpleado).forEach(([nombre, registros]) => {
-            // Si el último movimiento es salida, está fuera
-            if (registros[0].tipo === 'salida') return;
-
-            // Buscar la última entrada para delimitar el turno actual
-            const idxEntrada = registros.findIndex(f => f.tipo === 'entrada');
-            if (idxEntrada === -1) return;
-
-            // Eventos del turno actual en orden cronológico
-            const turno = registros.slice(0, idxEntrada + 1).reverse();
-
-            const entrada = turno[0];
-            const descansos = [];
-            let descansoActivo = null;
-
-            for (const r of turno) {
-                if (r.tipo === 'inicio_descanso') {
-                    descansoActivo = { hora: r.hora, timestamp: Number(r.timestamp) };
-                } else if (r.tipo === 'fin_descanso' && descansoActivo) {
-                    const durMin = Math.round((Number(r.timestamp) - descansoActivo.timestamp) / 60000);
-                    descansos.push({ inicio: descansoActivo.hora, fin: r.hora, durMin });
-                    descansoActivo = null;
-                }
-            }
-
-            const estado = registros[0].tipo === 'inicio_descanso' ? 'descanso' : 'activo';
-            enTurno.push({ nombre, estado, entradaHora: entrada.hora, descansos, descansoActivo });
-        });
-
-        enTurno.sort((a, b) => a.nombre.localeCompare(b.nombre));
-        renderizarTurnoPanel(enTurno);
+        if (!res.ok) return [];
+        const data = await res.json();
+        return Array.isArray(data)
+            ? data.filter(h => (h.estado || '').toLowerCase() !== 'rechazado')
+            : [];
     } catch {
-        renderizarTurnoPanel([]);
+        clearTimeout(to);
+        return [];
     }
 }
 
-function renderizarTurnoPanel(enTurno) {
+const claveNombre = n => String(n || '').trim().toUpperCase();
+
+/**
+ * Une el cuadrante del día con lo que se ha fichado de verdad: quién viene hoy,
+ * a qué hora le toca entrar y salir, y a qué hora lo ha hecho.
+ */
+function construirEquipoDelDia(fichajes, cuadrante, inicioJornada) {
+    const gente = new Map();
+
+    // 1) Quién viene hoy según el cuadrante, con sus horas teóricas.
+    cuadrante.forEach(h => {
+        gente.set(claveNombre(h.empleado), {
+            nombre: h.empleado,
+            prevEntrada: String(h.hora_entrada || '').slice(0, 5),
+            prevSalida: String(h.hora_salida || '').slice(0, 5),
+            estado: 'pendiente',
+            entradaHora: null, salidaHora: null,
+            descansos: [], descansoActivo: null,
+        });
+    });
+
+    // 2) Lo que ha fichado cada uno (la API devuelve el más reciente primero).
+    const porEmpleado = {};
+    fichajes.forEach(f => {
+        if (!porEmpleado[f.empleado]) porEmpleado[f.empleado] = [];
+        porEmpleado[f.empleado].push(f);
+    });
+
+    Object.entries(porEmpleado).forEach(([nombre, registros]) => {
+        const idxEntrada = registros.findIndex(f => f.tipo === 'entrada');
+        if (idxEntrada === -1) return;
+
+        const entrada = registros[idxEntrada];
+        const cerrado = registros[0].tipo === 'salida';
+        // Un turno ya cerrado solo cuenta si empezó dentro de esta jornada; si
+        // sigue abierto se muestra aunque venga de la noche anterior.
+        if (cerrado && Number(entrada.timestamp) < inicioJornada) return;
+
+        const turno = registros.slice(0, idxEntrada + 1).reverse();
+        const descansos = [];
+        let descansoActivo = null;
+        let salidaHora = null;
+
+        for (const r of turno) {
+            if (r.tipo === 'inicio_descanso') {
+                descansoActivo = { hora: r.hora, timestamp: Number(r.timestamp) };
+            } else if (r.tipo === 'fin_descanso' && descansoActivo) {
+                const durMin = Math.round((Number(r.timestamp) - descansoActivo.timestamp) / 60000);
+                descansos.push({ inicio: descansoActivo.hora, fin: r.hora, durMin });
+                descansoActivo = null;
+            } else if (r.tipo === 'salida') {
+                salidaHora = r.hora;
+            }
+        }
+
+        const estado = cerrado ? 'terminado'
+            : registros[0].tipo === 'inicio_descanso' ? 'descanso' : 'activo';
+
+        const clave = claveNombre(nombre);
+        const previo = gente.get(clave);
+        gente.set(clave, {
+            nombre: previo?.nombre || nombre,
+            prevEntrada: previo?.prevEntrada || '',
+            prevSalida: previo?.prevSalida || '',
+            estado,
+            entradaHora: entrada.hora,
+            salidaHora,
+            descansos,
+            descansoActivo,
+        });
+    });
+
+    // Orden de la jornada: por la hora a la que le toca entrar (o a la que
+    // entró), para que se lea como el guion del día.
+    const orden = p => minutosDeHHMM(p.prevEntrada) ?? minutosDeHHMM(p.entradaHora) ?? 9999;
+    return [...gente.values()].sort((a, b) => orden(a) - orden(b) || a.nombre.localeCompare(b.nombre));
+}
+
+async function cargarTurnoActual() {
+    const inicioJornada = ventanaDiaAnterior().hasta;
+    const [fichajes, cuadrante] = await Promise.all([
+        fetchFichajes(Date.now() - 36 * 60 * 60 * 1000, Date.now() + 60000),
+        fetchCuadranteDelDia(),
+    ]);
+    renderizarTurnoPanel(construirEquipoDelDia(fichajes, cuadrante, inicioJornada));
+}
+
+/**
+ * Una línea "Entrada / Salida" con la hora prevista y la real.
+ * El desfase se marca en rojo solo cuando pasa de la tolerancia.
+ */
+function lineaFichaje(label, prev, real, tolerancia) {
+    if (!prev && !real) return '';
+
+    const diff = diferenciaMinutos(minutosDeHHMM(real), minutosDeHHMM(prev));
+    const fuera = diff !== null && Math.abs(diff) > tolerancia;
+
+    const valor = prev && real ? `${prev} <span class="turno-flecha">→</span> ${real.slice(0, 5)}`
+        : real ? real.slice(0, 5)
+            : `${prev} <span class="turno-pendiente-val">→ —</span>`;
+
+    const desfase = diff === null ? ''
+        : diff === 0 ? 'en punto'
+            : `${diff > 0 ? '+' : '−'}${Math.abs(diff)} min`;
+
+    return `
+        <div class="turno-linea">
+            <span class="turno-linea-label">${label}</span>
+            <span class="turno-linea-val">${valor}</span>
+            <span class="turno-linea-dur${fuera ? ' turno-linea-dur--warning' : ''}">${desfase}</span>
+        </div>`;
+}
+
+function renderizarTurnoPanel(equipo) {
     const panel = document.getElementById('turnoPanel');
     const lista = document.getElementById('turnoLista');
     const countEl = document.getElementById('turnoCount');
     if (!panel || !lista) return;
 
-    if (enTurno.length === 0) {
-        panel.style.display = 'block';
-        countEl.textContent = 'Nadie ahora';
-        lista.innerHTML = '<div class="turno-vacio">Nadie en el local en este momento</div>';
+    panel.style.display = 'block';
+
+    if (equipo.length === 0) {
+        countEl.textContent = 'Sin datos';
+        lista.innerHTML = '<div class="turno-vacio">Nadie en el local y ningún horario cargado para hoy</div>';
         return;
     }
 
-    panel.style.display = 'block';
-    countEl.textContent = `${enTurno.length} persona${enTurno.length !== 1 ? 's' : ''}`;
+    const dentro = equipo.filter(p => p.estado === 'activo' || p.estado === 'descanso').length;
+    countEl.textContent = dentro
+        ? `${dentro} en el local · ${equipo.length} hoy`
+        : `${equipo.length} hoy`;
 
-    lista.innerHTML = enTurno.map(({ nombre, estado, entradaHora, descansos, descansoActivo }) => {
+    lista.innerHTML = equipo.map(p => {
+        const { nombre, estado, prevEntrada, prevSalida, entradaHora, salidaHora, descansos, descansoActivo } = p;
+
         const minDescanso = descansoActivo
             ? Math.round((Date.now() - descansoActivo.timestamp) / 60000)
             : 0;
         const warning = minDescanso > 20;
         const variant = warning ? 'warning' : estado;
 
-        const badgeText = estado === 'activo'
-            ? 'Activo'
-            : warning
-                ? `⚠ Descanso ${minDescanso} min`
-                : `Descanso ${minDescanso} min`;
+        const badgeText = {
+            activo: 'En el local',
+            terminado: 'Ha terminado',
+            pendiente: prevEntrada ? `Entra ${prevEntrada}` : 'Prevista',
+        }[estado] || (warning ? `⚠ Descanso ${minDescanso} min` : `Descanso ${minDescanso} min`);
 
         const descansosHtml = descansos.map(d => `
             <div class="turno-linea">
@@ -643,6 +801,17 @@ function renderizarTurnoPanel(enTurno) {
                 <span class="turno-linea-dur${warning ? ' turno-linea-dur--warning' : ''}">${minDescanso} min${warning ? ' ⚠' : ''}</span>
             </div>` : '';
 
+        // Quien todavía no ha llegado enseña su tramo de un vistazo; en cuanto
+        // ficha, cada hora se pone al lado de la que marcaba el cuadrante.
+        const detalle = estado === 'pendiente' && prevEntrada && prevSalida
+            ? `<div class="turno-linea">
+                   <span class="turno-linea-label">Horario</span>
+                   <span class="turno-linea-val">${prevEntrada} – ${prevSalida}</span>
+               </div>`
+            : lineaFichaje('Entrada', prevEntrada, entradaHora, MARGEN_ENTRADA_MIN)
+              + descansosHtml + descansoActivoHtml
+              + lineaFichaje('Salida', prevSalida, salidaHora, MARGEN_SALIDA_TARDE_MIN);
+
         return `
             <div class="turno-card turno-card--${variant}">
                 <div class="turno-card-header">
@@ -650,13 +819,7 @@ function renderizarTurnoPanel(enTurno) {
                     <span class="turno-nombre">${nombre}</span>
                     <span class="turno-badge turno-badge--${variant}">${badgeText}</span>
                 </div>
-                <div class="turno-detalle">
-                    <div class="turno-linea">
-                        <span class="turno-linea-label">Entrada</span>
-                        <span class="turno-linea-val">${entradaHora.slice(0,5)}</span>
-                    </div>
-                    ${descansosHtml}${descansoActivoHtml}
-                </div>
+                <div class="turno-detalle">${detalle}</div>
             </div>`;
     }).join('');
 }
@@ -950,13 +1113,18 @@ async function avisarTareasTrasEntrada(empleado) {
     }, 3200);
 }
 
-// §6.3 — aviso antes de la salida. La salida se registra SIEMPRE.
+// §6.3 — control de salida contra el cuadrante + aviso de tareas pendientes.
 async function confirmarSalida() {
     const empleado = document.getElementById('empleado')?.value || '';
     if (!empleado) {
         mostrarMensaje('Por favor selecciona tu nombre', 'error');
         return;
     }
+
+    // El cuadrante manda: si aún no ha terminado su turno no se ficha, y si se
+    // queda más allá de su hora tiene que explicar por qué.
+    const control = await controlarSalidaConHorario(empleado);
+    if (!control) return;   // salida anticipada sin autorizar, o cancelada
 
     // Tope corto: si las tareas tardan, se ficha la salida igualmente. El
     // registro de jornada no puede depender de este aviso.
@@ -989,7 +1157,24 @@ async function confirmarSalida() {
         } catch {}
     }
 
-    registrarFichaje('salida');
+    await registrarFichaje('salida', control.horaPrevista, '', control.motivo);
+
+    if (control.nota) {
+        try {
+            await fetch('/api/turno-notas', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    centro: centroActual,
+                    tipo: 'nota',
+                    autor: 'Sistema',
+                    texto: control.nota,
+                    device_id: localStorage.getItem('device_id') || '',
+                }),
+            });
+            cargarNotas();
+        } catch {}
+    }
 }
 
 // ── Panel de tareas en la pantalla de fichaje ─────────────────
@@ -1519,6 +1704,18 @@ function minutosDeHHMM(hhmm) {
     return h * 60 + min;
 }
 
+/**
+ * Minutos de diferencia entre dos horas del reloj, resueltos por el lado más
+ * cercano: así un turno que cruza medianoche no parece medio día de desfase.
+ */
+function diferenciaMinutos(minA, minB) {
+    if (minA === null || minB === null) return null;
+    let d = minA - minB;
+    if (d > 12 * 60) d -= 24 * 60;
+    if (d < -12 * 60) d += 24 * 60;
+    return d;
+}
+
 function formatoEspera(min) {
     if (min >= 60) {
         const h = Math.floor(min / 60);
@@ -1644,6 +1841,169 @@ async function confirmarEntrada() {
             cargarNotas();
         } catch {}
     };
+}
+
+// ── Control de salidas contra el cuadrante ────────────────────
+// Ahora que el horario está cargado, la hora de salida también tiene
+// referencia: salir antes no se permite (se le recuerda su hora), y salir más
+// tarde obliga a explicar el motivo, que queda con el fichaje y en el parte.
+const MARGEN_SALIDA_PRONTO_MIN = 5;   // tolerancia para fichar justo antes
+const MARGEN_SALIDA_TARDE_MIN = 15;   // a partir de aquí hay que explicarlo
+
+function cerrarSalModal() {
+    document.getElementById('salModal')?.classList.remove('visible');
+    const p1 = document.getElementById('salPaso1');
+    const p2 = document.getElementById('salPaso2');
+    if (p1) p1.style.display = 'none';
+    if (p2) p2.style.display = 'none';
+}
+
+/** El turno del cuadrante al que corresponde esta salida, o null. */
+async function turnoDeLaSalida(empleado) {
+    if (!horariosCerca.length) await cargarHorarioHoy(empleado, true);
+    if (!horariosCerca.length) return null;
+
+    // Si sabemos a qué hora entró, el turno es el que empezaba cerca de esa
+    // hora: es más fiable que mirar solo el reloj de ahora.
+    let referencia = Date.now();
+    try {
+        const ctrl = new AbortController();
+        const t = setTimeout(() => ctrl.abort(), 2500);
+        const res = await fetch(
+            `/api/fichajes?empleado=${encodeURIComponent(empleado)}&limit=6`,
+            { signal: ctrl.signal }
+        );
+        clearTimeout(t);
+        if (res.ok) {
+            const data = await res.json();
+            const entrada = data.find(f => f.tipo === 'entrada');
+            if (entrada?.timestamp) referencia = Number(entrada.timestamp);
+        }
+    } catch {}
+
+    return turnoCercaDe(referencia);
+}
+
+/** Paso «todavía no terminas»: no se ficha salvo que lo autorice un responsable. */
+function avisarSalidaAnticipada(horaSalida, faltan) {
+    return new Promise(resolve => {
+        const modal = document.getElementById('salModal');
+        // Respaldo si la pantalla viene de una versión antigua en caché: el
+        // control se mantiene, solo cambia el aspecto del aviso.
+        if (!modal) {
+            const pedir = confirm(
+                `Tu turno termina a las ${horaSalida}. Todavía te quedan ${formatoEspera(faltan)}.\n\n` +
+                `Aceptar = pedir que un responsable lo autorice\nCancelar = volver`
+            );
+            if (!pedir) { resolve('cancelar'); return; }
+            const clave = prompt('Contraseña del responsable:');
+            if (!clave) { resolve('cancelar'); return; }
+            validarResponsable(clave)
+                .then(ok => resolve(ok ? 'autorizado' : 'cancelar'))
+                .catch(() => resolve('cancelar'));
+            return;
+        }
+
+        document.getElementById('salFin').textContent =
+            `Tu turno termina a las ${horaSalida}.`;
+        document.getElementById('salFalta').textContent =
+            `Todavía te quedan ${formatoEspera(faltan)}.`;
+        document.getElementById('salPaso1').style.display = 'block';
+        document.getElementById('salPaso2').style.display = 'none';
+        modal.classList.add('visible');
+
+        document.getElementById('salEntendido').onclick = () => {
+            cerrarSalModal();
+            resolve('cancelar');
+        };
+
+        // Vía de excepción: si de verdad tiene que irse antes (se encuentra mal,
+        // le mandan a casa), un responsable lo autoriza y queda registrado. Un
+        // fichaje que no refleja la jornada real no protege a nadie.
+        document.getElementById('salAutorizar').onclick = async () => {
+            const clave = prompt('Contraseña del responsable para autorizar la salida anticipada:');
+            if (!clave) return;
+            if (!(await validarResponsable(clave))) {
+                mostrarMensaje('✗ Contraseña incorrecta: no se ha fichado', 'error');
+                return;
+            }
+            cerrarSalModal();
+            resolve('autorizado');
+        };
+    });
+}
+
+/** Paso «sales más tarde»: motivo obligatorio. Devuelve el texto o null. */
+function pedirMotivoSalida(horaSalida, deMas) {
+    return new Promise(resolve => {
+        const modal = document.getElementById('salModal');
+        const input = document.getElementById('salMotivo');
+        if (!modal || !input) {
+            const texto = prompt(
+                `Tu turno terminaba a las ${horaSalida} y llevas ${formatoEspera(deMas)} de más.\n¿Por qué sales más tarde?`
+            );
+            resolve(texto === null ? null : texto.trim());
+            return;
+        }
+
+        document.getElementById('salTardeTxt').textContent =
+            `Tu turno terminaba a las ${horaSalida} y llevas ${formatoEspera(deMas)} de más. Cuéntanos por qué.`;
+        input.value = '';
+        document.getElementById('salPaso1').style.display = 'none';
+        document.getElementById('salPaso2').style.display = 'block';
+        modal.classList.add('visible');
+        setTimeout(() => input.focus(), 50);
+
+        document.getElementById('salConfirmar').onclick = () => {
+            const texto = input.value.trim();
+            if (texto.length < 5) {
+                mostrarMensaje('Explica brevemente por qué sales más tarde', 'error');
+                return;
+            }
+            cerrarSalModal();
+            resolve(texto);
+        };
+        document.getElementById('salCancelar').onclick = () => {
+            cerrarSalModal();
+            resolve(null);
+        };
+    });
+}
+
+/**
+ * Compara la hora actual con la de salida del cuadrante.
+ * Devuelve null si la salida no debe registrarse, o {horaPrevista, motivo, nota}.
+ * Sin cuadrante para ese turno, la salida sigue su curso normal.
+ */
+async function controlarSalidaConHorario(empleado) {
+    const turno = await turnoDeLaSalida(empleado);
+    if (!turno) return { horaPrevista: '', motivo: '', nota: '' };
+
+    const horaSalida = String(turno.hora_salida).slice(0, 5);
+    const diff = Math.round((Date.now() - turno.finMs) / 60000);
+
+    if (diff < -MARGEN_SALIDA_PRONTO_MIN) {
+        const faltan = -diff;
+        const r = await avisarSalidaAnticipada(horaSalida, faltan);
+        if (r !== 'autorizado') return null;
+        return {
+            horaPrevista: horaSalida,
+            motivo: `Salida anticipada autorizada por un responsable (${formatoEspera(faltan)} antes de las ${horaSalida}).`,
+            nota: `Salida anticipada autorizada: ${empleado} ha fichado la salida ${formatoEspera(faltan)} antes de su hora (${horaSalida}).`,
+        };
+    }
+
+    if (diff > MARGEN_SALIDA_TARDE_MIN) {
+        const motivo = await pedirMotivoSalida(horaSalida, diff);
+        if (motivo === null) return null;
+        return {
+            horaPrevista: horaSalida,
+            motivo,
+            nota: `Salida más tarde de la hora: ${empleado} ha salido ${formatoEspera(diff)} después de las ${horaSalida}. Motivo: ${motivo}`,
+        };
+    }
+
+    return { horaPrevista: horaSalida, motivo: '', nota: '' };
 }
 
 /** Acepta la contraseña de gerencia o la del encargado. */

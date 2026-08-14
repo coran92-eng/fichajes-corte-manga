@@ -36,10 +36,16 @@ export default async function handler(req, res) {
       await db.execute("ALTER TABLE fichajes ADD COLUMN corregido INTEGER NOT NULL DEFAULT 0");
     } catch {}
 
-    // Hora de inicio de turno que declara el empleado al fichar la entrada.
-    // Permite comparar después lo declarado con lo realmente fichado.
+    // Hora prevista del fichaje: la que declara el empleado al entrar y la que
+    // marca el horario al salir. Permite comparar lo previsto con lo fichado.
     try {
       await db.execute("ALTER TABLE fichajes ADD COLUMN hora_prevista TEXT NOT NULL DEFAULT ''");
+    } catch {}
+
+    // Explicación cuando el fichaje no cuadra con el horario: salida más tarde
+    // de la hora (la escribe el empleado) o salida anticipada autorizada.
+    try {
+      await db.execute("ALTER TABLE fichajes ADD COLUMN motivo TEXT NOT NULL DEFAULT ''");
     } catch {}
 
     if (req.method === "GET") {
@@ -80,7 +86,7 @@ export default async function handler(req, res) {
     else if (req.method === "POST") {
       const {
         empleado, tipo, fecha, hora, timestamp, centro = '', hora_prevista = '',
-        password_responsable = '',
+        password_responsable = '', motivo = '',
       } = req.body;
 
       if (!empleado || !tipo || !fecha || !hora || !timestamp) {
@@ -111,8 +117,8 @@ export default async function handler(req, res) {
       }
 
       const result = await db.execute({
-        sql: "INSERT INTO fichajes (empleado, tipo, fecha, hora, timestamp, centro, hora_prevista) VALUES (?, ?, ?, ?, ?, ?, ?)",
-        args: [empleado, tipo, fecha, hora, timestamp, centro, hora_prevista],
+        sql: "INSERT INTO fichajes (empleado, tipo, fecha, hora, timestamp, centro, hora_prevista, motivo) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        args: [empleado, tipo, fecha, hora, timestamp, centro, hora_prevista, String(motivo || '').slice(0, 500)],
       });
 
       if (fueraDeRed) {
