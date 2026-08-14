@@ -118,6 +118,7 @@
         .leyenda-dot.barra     { background: #a21caf; }
         .leyenda-dot.limpieza  { background: #14b8a6; }
         .leyenda-dot.encargado { background: #eab308; }
+        .leyenda-dot.extra     { background: #ff42a1; }
         .leyenda-dot.sinrol    { background: #9ca3af; }
 
         /* Gantt (mismo look que la vista del encargado) */
@@ -223,6 +224,7 @@
         .rol-pill.barra     { background: #a21caf; }
         .rol-pill.limpieza  { background: #14b8a6; }
         .rol-pill.encargado { background: #eab308; }
+        .rol-pill.extra     { background: #ff42a1; }
         .rol-pill.sinrol    { background: #9ca3af; }
         .cambio-text { font-size: 12px; color: #6b7280; margin-top: 2px; }
 
@@ -360,12 +362,13 @@
         }
         const ROL_COLOR = {
             cocina: '#f97316', sala: '#3b82f6', mixto: '#a855f7',
-            barra: '#a21caf', limpieza: '#14b8a6', encargado: '#eab308', '': '#9ca3af',
+            barra: '#a21caf', limpieza: '#14b8a6', encargado: '#eab308',
+            extra: '#ff42a1', '': '#9ca3af',
         };
         const colorRol = r => ROL_COLOR[r || ''] || '#9ca3af';
         const ROL_LABEL = {
             cocina: 'Cocina', sala: 'Sala', mixto: 'Mixto',
-            barra: 'Barra', limpieza: 'Limpieza', encargado: 'Encargado',
+            barra: 'Barra', limpieza: 'Limpieza', encargado: 'Encargado', extra: 'Extra',
         };
 
         function pad2(n) { return String(n).padStart(2, '0'); }

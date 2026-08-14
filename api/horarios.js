@@ -64,23 +64,28 @@ export default async function handler(req, res) {
         empleado, centro = '', fecha,
         hora_entrada, hora_salida, semana, notas = '',
         rol_primera = '', hora_cambio = '', rol_segunda = '',
-        hora_descanso = ''
+        hora_descanso = '', origen = ''
       } = req.body;
 
       if (!empleado || !fecha || !hora_entrada || !hora_salida || !semana) {
         return res.status(400).json({ error: "Faltan campos requeridos" });
       }
 
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      const minDate = new Date(today);
-      minDate.setDate(minDate.getDate() + 14);
+      // Al teclear el horario a mano se exige avisar con dos semanas. Cuando se
+      // importa el cuadrante ya hecho, esa regla no aplica: el horario ya está
+      // decidido y lo que toca es reflejarlo, aunque sea el de la semana que viene.
+      if (origen !== 'importacion') {
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        const minDate = new Date(today);
+        minDate.setDate(minDate.getDate() + 14);
 
-      const scheduleDate = new Date(fecha);
-      scheduleDate.setHours(0, 0, 0, 0);
+        const scheduleDate = new Date(fecha);
+        scheduleDate.setHours(0, 0, 0, 0);
 
-      if (scheduleDate < minDate) {
-        return res.status(400).json({ error: "Los horarios deben enviarse con al menos 2 semanas de antelación" });
+        if (scheduleDate < minDate) {
+          return res.status(400).json({ error: "Los horarios deben enviarse con al menos 2 semanas de antelación" });
+        }
       }
 
       await db.execute({
