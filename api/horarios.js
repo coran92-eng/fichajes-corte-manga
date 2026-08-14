@@ -26,7 +26,7 @@ export default async function handler(req, res) {
     try { await db.execute("ALTER TABLE horarios ADD COLUMN hora_descanso TEXT NOT NULL DEFAULT ''"); } catch {}
 
     if (req.method === "GET") {
-      const { empleado, centro, semana, estado, fecha } = req.query;
+      const { empleado, centro, semana, estado, fecha, fecha_desde, fecha_hasta } = req.query;
 
       let conditions = [];
       let args = [];
@@ -50,6 +50,16 @@ export default async function handler(req, res) {
       if (fecha) {
         conditions.push("fecha = ?");
         args.push(fecha);
+      }
+      // Rango de fechas: la pantalla de fichaje pide ayer/hoy/mañana de una vez
+      // para localizar el turno en curso aunque cruce la medianoche.
+      if (fecha_desde) {
+        conditions.push("fecha >= ?");
+        args.push(fecha_desde);
+      }
+      if (fecha_hasta) {
+        conditions.push("fecha <= ?");
+        args.push(fecha_hasta);
       }
 
       let query = "SELECT * FROM horarios";

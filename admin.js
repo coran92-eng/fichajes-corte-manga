@@ -437,6 +437,13 @@ function configurarFormEmpleados() {
     });
 }
 
+/** Texto plano dentro del HTML: los motivos los escribe el equipo. */
+function escHtml(s) {
+    return String(s ?? '').replace(/[&<>"']/g, c => (
+        { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
+    ));
+}
+
 function crearContenidoCronologico(fichajes) {
     const filas = fichajes
         .map(f => `
@@ -448,6 +455,8 @@ function crearContenidoCronologico(fichajes) {
                     <span class="tipo ${f.tipo}">
                         ${getTipoLabel(f.tipo)}
                     </span>
+                    ${f.hora_prevista ? `<div style="font-size:11px;color:#9ca3af;margin-top:3px">previsto ${escHtml(String(f.hora_prevista).slice(0, 5))}</div>` : ''}
+                    ${f.motivo ? `<div style="font-size:12px;color:#b45309;margin-top:3px">${escHtml(f.motivo)}</div>` : ''}
                 </td>
                 ${f.centro ? `<td style="font-size:12px;color:#6b7280">${f.centro}</td>` : '<td></td>'}
             </tr>

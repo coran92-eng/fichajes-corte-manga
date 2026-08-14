@@ -590,6 +590,11 @@
             background: none; border: none; color: #6b7280; font-size: 12px;
             text-decoration: underline; cursor: pointer; margin-top: 12px; font-weight: 600;
         }
+        .ent-texto {
+            width: 100%; padding: 12px; font-size: 15px; border: 2px solid #e5e7eb;
+            border-radius: 10px; margin-bottom: 16px; font-family: inherit;
+            background: white; color: #1f2937; resize: vertical;
+        }
         @media (prefers-color-scheme: dark) {
             .ent-card { background: #1f2937; }
             .ent-card h2 { color: #e5e7eb; }
@@ -598,6 +603,7 @@
             .ent-aviso { background: #271a05; }
             .ent-aviso .ent-falta, .ent-aviso .ent-desde { color: #fcd34d; }
             .ent-aviso .ent-nota { color: #fbbf24; }
+            .ent-texto { background: #374151; color: #e5e7eb; border-color: #4b5563; }
         }
 
         /* Panel plegable */
@@ -1122,6 +1128,36 @@
         </div>
     </div>
 
+    <!-- Salida contrastada con el cuadrante -->
+    <div class="ent-modal" id="salModal" role="dialog" aria-modal="true">
+        <div class="ent-card">
+            <!-- Paso 1: su turno aún no ha terminado -->
+            <div id="salPaso1" style="display:none">
+                <h2>Tu turno todavía no ha terminado</h2>
+                <div class="ent-aviso">
+                    <div class="ent-falta" id="salFin"></div>
+                    <div class="ent-desde" id="salFalta"></div>
+                    <div class="ent-nota">Ficha la salida cuando termine tu horario.</div>
+                </div>
+                <div class="ent-acciones">
+                    <button type="button" class="ent-ok" id="salEntendido">Entendido</button>
+                </div>
+                <button type="button" class="ent-autorizar" id="salAutorizar">Un responsable autoriza que salga antes</button>
+            </div>
+            <!-- Paso 2: sale más tarde de su hora -->
+            <div id="salPaso2" style="display:none">
+                <h2>Sales más tarde de tu hora</h2>
+                <p id="salTardeTxt"></p>
+                <textarea class="ent-texto" id="salMotivo" rows="3"
+                    placeholder="¿Por qué sales más tarde? Ej.: quedaba gente en sala"></textarea>
+                <div class="ent-acciones">
+                    <button type="button" class="ent-cancelar" id="salCancelar">Cancelar</button>
+                    <button type="button" class="ent-ok" id="salConfirmar">Fichar salida</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <div class="sol-modal" id="solModal" role="dialog" aria-modal="true" aria-labelledby="solTitulo">
         <div class="sol-modal-card">
             <h2 id="solTitulo">Solicitar corrección</h2>
@@ -1173,7 +1209,7 @@
         <button id="btnUndo" class="undo-btn" type="button">Deshacer</button>
     </div>
 
-    <script type="module" src="app.js?v=11"></script>
+    <script type="module" src="app.js?v=12"></script>
     <script>
         document.addEventListener('DOMContentLoaded', () => {
             if (typeof lucide !== 'undefined') lucide.createIcons();
