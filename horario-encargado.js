@@ -133,20 +133,24 @@ function nextMonday(date) {
 }
 
 /**
- * Returns an array of 8 week objects starting from today + 14 days
- * (rounded up to the next Monday).
- * Each object: { value, label, startDate, days }
+ * Semanas que se pueden elegir: desde la semana pasada en adelante.
+ *
+ * Antes empezaban dos semanas más tarde, cuando se exigía planificar con esa
+ * antelación. Esa regla ya no aplica, y con ella puesta no se podía ni ver ni
+ * subir el horario de la semana en curso.
  */
 function getWeeksFromToday() {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    const hoy = new Date();
+    hoy.setHours(0, 0, 0, 0);
 
-    const minDate = new Date(today);
-    minDate.setDate(today.getDate() + 14);
+    // Lunes de la semana pasada como punto de partida.
+    const lunesEstaSemana = new Date(hoy);
+    const dow = (hoy.getDay() + 6) % 7;          // 0 = lunes
+    lunesEstaSemana.setDate(hoy.getDate() - dow);
+    const firstMonday = new Date(lunesEstaSemana);
+    firstMonday.setDate(lunesEstaSemana.getDate() - 7);
 
-    const firstMonday = nextMonday(minDate);
-
-    return Array.from({ length: 8 }, (_, i) => {
+    return Array.from({ length: 12 }, (_, i) => {
         const monday = new Date(firstMonday);
         monday.setDate(firstMonday.getDate() + i * 7);
 
@@ -158,7 +162,9 @@ function getWeeksFromToday() {
 
         const startStr = formatDayMonth(monday);
         const endStr = formatDayMonth(sunday);
-        const label = `Semana ${weekNum} • ${startStr} – ${endStr}`;
+        const hoyISO = getISOWeek(new Date());
+        const marca = isoWeek === hoyISO ? ' (esta semana)' : '';
+        const label = `Semana ${weekNum} • ${startStr} – ${endStr}${marca}`;
 
         return { value: isoWeek, label, startDate: monday, days };
     });
@@ -1086,6 +1092,39 @@ function renderImportacion(dias) {
         }
     }
     html += '</tbody></table>';
+
+    // Resumen de la semana por persona: el vistazo rápido para comprobar que
+    // todo ha subido bien, comparando con los totales de la propia hoja.
+    const porPersona = new Map();
+    for (const dia of dias) {
+        for (const p of dia.personas) {
+            if (p.estado !== 'turno') continue;
+            const acc = porPersona.get(p.nombre) || { dias: 0, horas: 0, hoja: 0, dudas: 0 };
+            acc.dias += 1;
+            acc.horas += p.horas;
+            if (p.total_hoja != null) acc.hoja += p.total_hoja; else acc.dudas += 1;
+            porPersona.set(p.nombre, acc);
+        }
+    }
+
+    const filas = [...porPersona.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+    const totalSemana = filas.reduce((t, [, v]) => t + v.horas, 0);
+
+    html += `<h3 class="import-titulo" style="font-size:16px;margin:22px 0 8px">Horas de la semana por persona</h3>`;
+    html += '<table class="tabla-import"><thead><tr>' +
+        '<th>Empleado</th><th>Días</th><th>Horas de la semana</th><th>Suma de tu hoja</th></tr></thead><tbody>';
+    for (const [nombre, v] of filas) {
+        const cuadra = v.dudas === 0 && Math.abs(v.hoja - v.horas) < 0.01;
+        html += `<tr>
+            <td><strong>${escapeHtml(nombre)}</strong></td>
+            <td>${v.dias}</td>
+            <td><strong>${v.horas} h</strong></td>
+            <td class="${cuadra ? 'import-ok' : 'import-mal'}">${v.hoja} h ${cuadra ? '✓' : '✗'}</td>
+        </tr>`;
+    }
+    html += `<tr class="dia-cab"><td>Total del centro</td><td>—</td><td>${totalSemana} h</td><td>—</td></tr>`;
+    html += '</tbody></table>';
+
     cont.innerHTML = html;
 
     // Avisos: lo que Albert tiene que mirar antes de guardar

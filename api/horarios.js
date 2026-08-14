@@ -71,22 +71,10 @@ export default async function handler(req, res) {
         return res.status(400).json({ error: "Faltan campos requeridos" });
       }
 
-      // Al teclear el horario a mano se exige avisar con dos semanas. Cuando se
-      // importa el cuadrante ya hecho, esa regla no aplica: el horario ya está
-      // decidido y lo que toca es reflejarlo, aunque sea el de la semana que viene.
-      if (origen !== 'importacion') {
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
-        const minDate = new Date(today);
-        minDate.setDate(minDate.getDate() + 14);
-
-        const scheduleDate = new Date(fecha);
-        scheduleDate.setHours(0, 0, 0, 0);
-
-        if (scheduleDate < minDate) {
-          return res.status(400).json({ error: "Los horarios deben enviarse con al menos 2 semanas de antelación" });
-        }
-      }
+      // Se aceptan horarios de cualquier fecha. Antes se exigía enviarlos con
+      // dos semanas de antelación, pero en la práctica el cuadrante se cierra
+      // sobre la marcha y esa regla solo impedía registrar lo que ya estaba
+      // decidido.
 
       await db.execute({
         sql: "DELETE FROM horarios WHERE empleado = ? AND fecha = ? AND centro = ?",
