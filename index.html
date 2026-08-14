@@ -399,6 +399,8 @@
 
         .turno-card--descanso { border-left-color: #f59e0b; }
         .turno-card--warning  { border-left-color: #ef4444; background: #fff7f7; }
+        .turno-card--pendiente { border-left-color: #cbd5e1; }
+        .turno-card--terminado { border-left-color: #9ca3af; }
 
         .turno-card-header {
             display: flex;
@@ -417,6 +419,8 @@
         .turno-dot--activo  { background: #10b981; }
         .turno-dot--descanso { background: #f59e0b; }
         .turno-dot--warning  { background: #ef4444; }
+        .turno-dot--pendiente { background: #cbd5e1; }
+        .turno-dot--terminado { background: #9ca3af; }
 
         .turno-nombre {
             font-size: 14px;
@@ -436,6 +440,8 @@
         .turno-badge--activo  { background: #d1fae5; color: #065f46; }
         .turno-badge--descanso { background: #fef3c7; color: #92400e; }
         .turno-badge--warning  { background: #fee2e2; color: #b91c1c; }
+        .turno-badge--pendiente { background: #f1f5f9; color: #475569; }
+        .turno-badge--terminado { background: #f3f4f6; color: #4b5563; }
 
         .turno-detalle {
             display: flex;
@@ -468,6 +474,11 @@
         .turno-linea-dur { color: #9ca3af; font-size: 11px; }
         .turno-linea-dur--warning { color: #ef4444; font-weight: 700; }
 
+        /* Hora prevista → hora real: la flecha y el pendiente van apagados
+           para que la vista salte a la hora que de verdad se ha fichado. */
+        .turno-flecha { color: #cbd5e1; font-weight: 400; }
+        .turno-pendiente-val { color: #cbd5e1; }
+
         @media (prefers-color-scheme: dark) {
             .turno-panel { background: #022c22; border-color: #064e3b; }
             .turno-title { color: #6ee7b7; }
@@ -478,9 +489,12 @@
             .turno-badge--activo  { background: #064e3b; color: #6ee7b7; }
             .turno-badge--descanso { background: #451a03; color: #fcd34d; }
             .turno-badge--warning  { background: #450a0a; color: #f87171; }
+            .turno-badge--pendiente { background: #334155; color: #cbd5e1; }
+            .turno-badge--terminado { background: #374151; color: #d1d5db; }
             .turno-linea-label { color: #6b7280; }
             .turno-linea-val { color: #d1d5db; }
             .turno-linea--warning .turno-linea-val { color: #f87171; }
+            .turno-flecha, .turno-pendiente-val { color: #4b5563; }
         }
 
         /* Panel de tareas del día: marcar en la propia pantalla de fichaje */
@@ -1001,7 +1015,7 @@
         <!-- Panel turno activo (solo visible si hay centro seleccionado) -->
         <div class="turno-panel" id="turnoPanel" style="display:none">
             <div class="turno-header">
-                <span class="turno-title">En local ahora</span>
+                <span class="turno-title">El equipo de hoy</span>
                 <span class="turno-count" id="turnoCount"></span>
             </div>
             <div class="turno-lista" id="turnoLista"></div>
@@ -1209,7 +1223,7 @@
         <button id="btnUndo" class="undo-btn" type="button">Deshacer</button>
     </div>
 
-    <script type="module" src="app.js?v=12"></script>
+    <script type="module" src="app.js?v=13"></script>
     <script>
         document.addEventListener('DOMContentLoaded', () => {
             if (typeof lucide !== 'undefined') lucide.createIcons();
