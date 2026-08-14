@@ -996,6 +996,7 @@ async function confirmarSalida() {
 // El equipo marca la tarea aquí mismo: nombre + quién la ha hecho + Guardar.
 let listaEmpleados = [];
 let tareasRefreshInterval = null;
+let tareasHechasAbierto = false;   // se recuerda entre refrescos
 const fotosTarea = {};   // instancia_id → { b64, origen }
 
 const BLOQUE_TXT = {
@@ -1031,14 +1032,50 @@ async function renderTareasPanel(forzar = false) {
     countEl.textContent = `${r.completadas}/${r.total} hechas`;
 
     const ahora = Date.now();
+
+    // Lo que interesa ver es lo que falta: las cerradas se agrupan plegadas al
+    // final para que la lista no crezca según avanza el día.
+    const cerrada = t => ['COMPLETADA', 'COMPLETADA_TARDIA', 'NO_APLICA'].includes(t.estado);
+    const pendientes = datos.tareas.filter(t => !cerrada(t));
+    const hechas = datos.tareas.filter(cerrada);
+
     let html = '';
     for (const bloque of ORDEN_BLOQUES) {
-        const delBloque = datos.tareas.filter(t => t.bloque === bloque);
+        const delBloque = pendientes.filter(t => t.bloque === bloque);
         if (!delBloque.length) continue;
         html += `<div class="tarea-bloque">${BLOQUE_TXT[bloque] || bloque}</div>`;
         html += delBloque.map(t => filaTarea(t, ahora)).join('');
     }
+
+    if (!pendientes.length) {
+        html += `<div class="tareas-todo-hecho">✓ Todas las tareas de hoy están hechas</div>`;
+    }
+
+    if (hechas.length) {
+        html += `
+            <button type="button" class="panel-toggle tareas-hechas-toggle" id="tareasHechasToggle"
+                    aria-expanded="${tareasHechasAbierto ? 'true' : 'false'}" aria-controls="tareasHechasCuerpo">
+                <span class="tarea-bloque" style="margin:0">Ya hechas · ${hechas.length}</span>
+                <span class="panel-flecha" aria-hidden="true">▾</span>
+            </button>
+            <div id="tareasHechasCuerpo" class="panel-cuerpo"${tareasHechasAbierto ? '' : ' hidden'}>
+                ${hechas.map(t => filaTarea(t, ahora)).join('')}
+            </div>`;
+    }
+
     lista.innerHTML = html;
+
+    // El grupo se refresca cada minuto: hay que recordar si estaba abierto,
+    // o se cerraría solo mientras alguien lo está mirando.
+    const toggle = document.getElementById('tareasHechasToggle');
+    if (toggle) {
+        toggle.addEventListener('click', () => {
+            const cuerpo = document.getElementById('tareasHechasCuerpo');
+            tareasHechasAbierto = !tareasHechasAbierto;
+            toggle.setAttribute('aria-expanded', tareasHechasAbierto ? 'true' : 'false');
+            if (cuerpo) cuerpo.hidden = !tareasHechasAbierto;
+        });
+    }
 
     lista.querySelectorAll('[data-guardar]').forEach(b =>
         b.addEventListener('click', () => guardarTarea(Number(b.dataset.guardar))));

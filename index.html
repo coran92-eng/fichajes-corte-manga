@@ -528,6 +528,15 @@
         .tarea-guardar:hover { background: #1d4ed8; }
         .tarea-guardar:disabled { background: #cbd5e1; cursor: not-allowed; }
         .tarea-hecha-info { font-size: 12px; color: #059669; font-weight: 700; white-space: nowrap; }
+        .tareas-hechas-toggle { margin-top: 10px; }
+        .tareas-todo-hecho {
+            background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px;
+            padding: 12px; text-align: center; font-size: 14px;
+            font-weight: 700; color: #065f46;
+        }
+        @media (prefers-color-scheme: dark) {
+            .tareas-todo-hecho { background: #022c22; border-color: #064e3b; color: #6ee7b7; }
+        }
         .tarea-hecha-info.tarde { color: #b45309; }
         .tarea-error { flex-basis: 100%; font-size: 12px; color: #b91c1c; font-weight: 600; }
         .tarea-error:empty { display: none; }
