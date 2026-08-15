@@ -7,19 +7,10 @@
     <title>Horas del Mes · Previsto vs Real</title>
     <script src="https://unpkg.com/lucide@latest"></script>
     <script>
-        function verificarSesion() {
-            const token = sessionStorage.getItem('admin_session');
-            const loginTime = sessionStorage.getItem('login_time');
-            if (!token || !loginTime) return false;
-            const ochoHoras = 8 * 60 * 60 * 1000;
-            if (Date.now() - parseInt(loginTime) > ochoHoras) {
-                sessionStorage.removeItem('admin_session');
-                sessionStorage.removeItem('login_time');
-                return false;
-            }
-            return true;
+        // La sesión de gerencia se guarda como 'adminToken' (ver login.js).
+        if (sessionStorage.getItem('adminToken') !== 'auth-token-fichaje-admin') {
+            window.location.href = 'login.html';
         }
-        if (!verificarSesion()) window.location.href = 'login.html';
     </script>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }

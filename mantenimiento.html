@@ -7,18 +7,9 @@
     <title>Arreglar fichajes</title>
     <script src="https://unpkg.com/lucide@latest"></script>
     <script>
-        function verificarSesion() {
-            const token = sessionStorage.getItem('admin_session');
-            const loginTime = sessionStorage.getItem('login_time');
-            if (!token || !loginTime) return false;
-            if (Date.now() - parseInt(loginTime) > 8 * 60 * 60 * 1000) {
-                sessionStorage.removeItem('admin_session');
-                sessionStorage.removeItem('login_time');
-                return false;
-            }
-            return true;
-        }
-        if (!verificarSesion()) window.location.href = 'login.html';
+        // La sesión de gerencia se guarda como 'adminToken' (ver login.js).
+        const TOKEN_ADMIN = sessionStorage.getItem('adminToken') || '';
+        if (TOKEN_ADMIN !== 'auth-token-fichaje-admin') window.location.href = 'login.html';
     </script>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -159,7 +150,10 @@
             cont.innerHTML = '<div class="vacio">Cargando…</div>';
             let datos = [];
             try {
-                const r = await fetch(`/api/mantenimiento?accion=turnos-abiertos&centro=${encodeURIComponent(centro)}`);
+                const r = await fetch(
+                    `/api/mantenimiento?accion=turnos-abiertos&centro=${encodeURIComponent(centro)}`,
+                    { headers: { 'X-Auth-Token': TOKEN_ADMIN } }
+                );
                 if (!r.ok) throw new Error();
                 datos = await r.json();
             } catch {
@@ -215,7 +209,7 @@
             try {
                 const r = await fetch('/api/mantenimiento', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: { 'Content-Type': 'application/json', 'X-Auth-Token': TOKEN_ADMIN },
                     body: JSON.stringify({
                         accion: 'cerrar-turno',
                         empleado: turno.empleado,
@@ -251,7 +245,7 @@
             try {
                 const r = await fetch('/api/mantenimiento', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: { 'Content-Type': 'application/json', 'X-Auth-Token': TOKEN_ADMIN },
                     body: JSON.stringify({ accion: 'renombrar', origen, destino, centro }),
                 });
                 const d = await r.json().catch(() => ({}));

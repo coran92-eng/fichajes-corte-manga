@@ -1,5 +1,7 @@
 import { getDbClient } from "./_db.js";
-import { initSchema, getCentroCfg, epochDesdeLocal, auditar } from "./_tareas-lib.js";
+import {
+  initSchema, getCentroCfg, epochDesdeLocal, auditar, nivelDesdeReq,
+} from "./_tareas-lib.js";
 
 /** La traza no debe tumbar un arreglo que ya se ha aplicado. */
 async function auditarSuave(db, req, datos) {
@@ -76,6 +78,13 @@ export default async function handler(req, res) {
     // La columna la crea normalmente /api/fichajes; aquí se asegura por si
     // este endpoint es el primero en tocar la base tras un despliegue.
     try { await db.execute("ALTER TABLE fichajes ADD COLUMN motivo TEXT NOT NULL DEFAULT ''"); } catch {}
+
+    // Estas acciones insertan fichajes y reescriben nombres en todo el
+    // histórico. Aunque el resto de la API todavía está abierta, esto no puede
+    // quedar al alcance de cualquiera que sepa la ruta.
+    if (nivelDesdeReq(req) !== 'ADMIN') {
+      return res.status(403).json({ error: "Solo gerencia puede usar esta pantalla" });
+    }
 
     const accion = req.query?.accion || req.body?.accion || '';
 
