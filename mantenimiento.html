@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#2563eb">
+    <title>Arreglar fichajes</title>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <script>
+        function verificarSesion() {
+            const token = sessionStorage.getItem('admin_session');
+            const loginTime = sessionStorage.getItem('login_time');
+            if (!token || !loginTime) return false;
+            if (Date.now() - parseInt(loginTime) > 8 * 60 * 60 * 1000) {
+                sessionStorage.removeItem('admin_session');
+                sessionStorage.removeItem('login_time');
+                return false;
+            }
+            return true;
+        }
+        if (!verificarSesion()) window.location.href = 'login.html';
+    </script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100dvh; padding: 20px;
+        }
+        .container {
+            background: white; border-radius: 12px; padding: 30px;
+            box-shadow: 0 20px 60px rgba(0,0,0,.3);
+            max-width: 860px; margin: 0 auto;
+        }
+        .header {
+            display: flex; justify-content: space-between; align-items: center;
+            margin-bottom: 8px; flex-wrap: wrap; gap: 15px;
+        }
+        .header h1 { color: #1f2937; font-size: 24px; }
+        .sub { color: #6b7280; font-size: 14px; margin-bottom: 26px; line-height: 1.5; }
+        button {
+            padding: 10px 18px; border: none; border-radius: 8px;
+            font-size: 14px; font-weight: 600; cursor: pointer;
+        }
+        button:disabled { opacity: .5; cursor: not-allowed; }
+        .btn-volver { background: #6b7280; color: white; display: inline-flex; align-items: center; gap: 6px; }
+        .btn-ok { background: #10b981; color: white; }
+        .btn-fusion { background: #7c3aed; color: white; }
+
+        .bloque {
+            border: 1px solid #e5e7eb; border-radius: 10px;
+            padding: 20px; margin-bottom: 22px;
+        }
+        .bloque h2 {
+            font-size: 16px; color: #1f2937; margin-bottom: 4px;
+            display: flex; align-items: center; gap: 8px;
+        }
+        .bloque p.ayuda { font-size: 13px; color: #6b7280; margin-bottom: 16px; line-height: 1.5; }
+
+        .turno {
+            display: flex; align-items: flex-end; gap: 12px; flex-wrap: wrap;
+            background: #fffbeb; border: 1px solid #fde68a; border-radius: 8px;
+            padding: 14px; margin-bottom: 10px;
+        }
+        .turno-info { flex: 1; min-width: 220px; }
+        .turno-nombre { font-weight: 700; color: #1f2937; font-size: 15px; }
+        .turno-desde { font-size: 13px; color: #92400e; margin-top: 3px; }
+        .campo { display: flex; flex-direction: column; gap: 4px; }
+        .campo label { font-size: 11px; color: #6b7280; font-weight: 600; text-transform: uppercase; }
+        .campo input, .campo select {
+            padding: 8px 10px; border: 1px solid #d1d5db; border-radius: 6px;
+            font-size: 14px; font-family: inherit;
+        }
+        .vacio { color: #6b7280; font-size: 14px; padding: 10px 0; }
+        .fila-fusion { display: flex; align-items: flex-end; gap: 12px; flex-wrap: wrap; }
+        .msg { padding: 12px 14px; border-radius: 8px; margin-bottom: 18px; font-weight: 600; font-size: 14px; display: none; }
+        .msg.ok { background: #d1fae5; color: #065f46; display: block; }
+        .msg.error { background: #fee2e2; color: #7f1d1d; display: block; }
+        .msg.info { background: #dbeafe; color: #0c2d6b; display: block; }
+        .nota-final { font-size: 12px; color: #9ca3af; line-height: 1.5; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1><i data-lucide="wrench" style="width:22px;height:22px;vertical-align:middle;margin-right:6px"></i>Arreglar fichajes</h1>
+            <button class="btn-volver" id="btnVolver"><i data-lucide="arrow-left" style="width:15px;height:15px"></i> Volver</button>
+        </div>
+        <p class="sub">
+            Para los dos líos de siempre: alguien que se fue sin fichar la salida y se queda
+            marcado como trabajando, y una persona dada de alta dos veces con el nombre
+            escrito de otra forma. Las dos cosas se arreglan sin perder las horas.
+        </p>
+
+        <div class="msg" id="msg"></div>
+
+        <div class="bloque">
+            <h2><i data-lucide="log-out" style="width:17px;height:17px"></i>Turnos sin cerrar</h2>
+            <p class="ayuda">
+                Quien aparece aquí sigue contando como presente en el local. Pon la hora
+                real a la que se fue y se cierra el turno con esas horas.
+                Queda marcado como corregido por gerencia.
+            </p>
+            <div id="listaAbiertos"><div class="vacio">Cargando…</div></div>
+        </div>
+
+        <div class="bloque">
+            <h2><i data-lucide="users" style="width:17px;height:17px"></i>Unir dos nombres de la misma persona</h2>
+            <p class="ayuda">
+                Mueve todo el historial del nombre viejo al bueno: fichajes, horarios,
+                solicitudes, notas del turno y tareas. El nombre viejo desaparece de la lista
+                de empleados. El nuevo tiene que estar ya dado de alta.
+            </p>
+            <div class="fila-fusion">
+                <div class="campo" style="flex:1;min-width:180px">
+                    <label for="fusionOrigen">Nombre viejo (el que sobra)</label>
+                    <input type="text" id="fusionOrigen" placeholder="Nico">
+                </div>
+                <div class="campo" style="flex:1;min-width:180px">
+                    <label for="fusionDestino">Nombre bueno (dado de alta)</label>
+                    <select id="fusionDestino"></select>
+                </div>
+                <button class="btn-fusion" id="btnFusionar">Unir historial</button>
+            </div>
+        </div>
+
+        <p class="nota-final">
+            Todo lo que se hace aquí queda registrado en la auditoría con la fecha y el detalle.
+        </p>
+    </div>
+
+    <script>
+        const params = new URLSearchParams(location.search);
+        const centro = params.get('centro') || '';
+        let empleados = [];
+
+        function mostrar(texto, tipo) {
+            const el = document.getElementById('msg');
+            el.textContent = texto;
+            el.className = `msg ${tipo}`;
+            if (tipo === 'ok') setTimeout(() => { el.className = 'msg'; }, 6000);
+        }
+
+        const esc = s => String(s ?? '').replace(/[&<>"']/g, c =>
+            ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+        async function cargarEmpleados() {
+            try {
+                const r = await fetch('/api/empleados' + (centro ? `?centro=${encodeURIComponent(centro)}` : ''));
+                empleados = r.ok ? await r.json() : [];
+            } catch { empleados = []; }
+            document.getElementById('fusionDestino').innerHTML =
+                '<option value="">Elige…</option>' +
+                empleados.map(e => `<option value="${esc(e.nombre)}">${esc(e.nombre)}</option>`).join('');
+        }
+
+        async function cargarAbiertos() {
+            const cont = document.getElementById('listaAbiertos');
+            cont.innerHTML = '<div class="vacio">Cargando…</div>';
+            let datos = [];
+            try {
+                const r = await fetch(`/api/mantenimiento?accion=turnos-abiertos&centro=${encodeURIComponent(centro)}`);
+                if (!r.ok) throw new Error();
+                datos = await r.json();
+            } catch {
+                cont.innerHTML = '<div class="vacio">No se ha podido consultar. Recarga la página.</div>';
+                return;
+            }
+
+            if (!datos.length) {
+                cont.innerHTML = '<div class="vacio">Ningún turno sin cerrar. Todo en orden.</div>';
+                return;
+            }
+
+            const hoy = new Date();
+            const pad = n => String(n).padStart(2, '0');
+            const hoyISO = `${hoy.getFullYear()}-${pad(hoy.getMonth() + 1)}-${pad(hoy.getDate())}`;
+
+            cont.innerHTML = datos.map((t, i) => `
+                <div class="turno">
+                    <div class="turno-info">
+                        <div class="turno-nombre">${esc(t.empleado)}</div>
+                        <div class="turno-desde">
+                            Entró el ${esc(t.fecha)} a las ${esc(String(t.hora).slice(0, 5))}
+                            · lleva ${t.horas_abierto} h marcado como presente
+                        </div>
+                    </div>
+                    <div class="campo">
+                        <label for="f${i}">Salió el día</label>
+                        <input type="date" id="f${i}" value="${esc(t.fecha)}" max="${hoyISO}">
+                    </div>
+                    <div class="campo">
+                        <label for="h${i}">A las</label>
+                        <input type="time" id="h${i}" step="300">
+                    </div>
+                    <button class="btn-ok" data-cerrar="${i}">Cerrar turno</button>
+                </div>
+            `).join('');
+
+            cont.querySelectorAll('[data-cerrar]').forEach(btn => {
+                btn.addEventListener('click', () => cerrarTurno(datos[+btn.dataset.cerrar], +btn.dataset.cerrar, btn));
+            });
+        }
+
+        async function cerrarTurno(turno, i, btn) {
+            const fecha = document.getElementById(`f${i}`).value;
+            const hora = document.getElementById(`h${i}`).value;
+            if (!fecha || !hora) {
+                mostrar('Indica el día y la hora a la que se fue', 'error');
+                return;
+            }
+            if (!confirm(`Se registrará la salida de ${turno.empleado} el ${fecha} a las ${hora}.\n\n¿Es correcto?`)) return;
+
+            btn.disabled = true;
+            try {
+                const r = await fetch('/api/mantenimiento', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        accion: 'cerrar-turno',
+                        empleado: turno.empleado,
+                        centro: turno.centro || centro,
+                        fecha, hora,
+                    }),
+                });
+                const d = await r.json().catch(() => ({}));
+                if (!r.ok) { mostrar(d.error || 'No se ha podido cerrar', 'error'); return; }
+                mostrar(`✓ Turno de ${turno.empleado} cerrado a las ${hora}`, 'ok');
+                cargarAbiertos();
+            } catch {
+                mostrar('Error de conexión', 'error');
+            } finally {
+                btn.disabled = false;
+            }
+        }
+
+        async function fusionar() {
+            const origen = document.getElementById('fusionOrigen').value.trim();
+            const destino = document.getElementById('fusionDestino').value;
+            if (!origen || !destino) {
+                mostrar('Indica el nombre viejo y elige el bueno', 'error');
+                return;
+            }
+            if (!confirm(
+                `Todo el historial de "${origen}" pasará a "${destino}", y "${origen}" ` +
+                `dejará de existir como empleado.\n\nEsto no se puede deshacer. ¿Seguimos?`
+            )) return;
+
+            const btn = document.getElementById('btnFusionar');
+            btn.disabled = true;
+            try {
+                const r = await fetch('/api/mantenimiento', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ accion: 'renombrar', origen, destino, centro }),
+                });
+                const d = await r.json().catch(() => ({}));
+                if (!r.ok) { mostrar(d.error || 'No se ha podido unir', 'error'); return; }
+                mostrar(`✓ ${d.total} registros movidos de "${origen}" a "${d.destino}"`, 'ok');
+                document.getElementById('fusionOrigen').value = '';
+                cargarEmpleados();
+                cargarAbiertos();
+            } catch {
+                mostrar('Error de conexión', 'error');
+            } finally {
+                btn.disabled = false;
+            }
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            if (typeof lucide !== 'undefined') lucide.createIcons();
+            document.getElementById('btnVolver').addEventListener('click', () => {
+                window.location.href = 'admin.html';
+            });
+            document.getElementById('btnFusionar').addEventListener('click', fusionar);
+            cargarEmpleados();
+            cargarAbiertos();
+        });
+    </script>
+</body>
+</html>
