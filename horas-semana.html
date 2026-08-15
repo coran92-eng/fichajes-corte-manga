@@ -10,19 +10,8 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
     <script>
-        function verificarSesion() {
-            const token = sessionStorage.getItem('admin_session');
-            const loginTime = sessionStorage.getItem('login_time');
-            if (!token || !loginTime) return false;
-            const ochoHoras = 8 * 60 * 60 * 1000;
-            if (Date.now() - parseInt(loginTime) > ochoHoras) {
-                sessionStorage.removeItem('admin_session');
-                sessionStorage.removeItem('login_time');
-                return false;
-            }
-            return true;
-        }
-        if (!verificarSesion()) {
+        // La sesión de gerencia se guarda como 'adminToken' (ver login.js).
+        if (sessionStorage.getItem('adminToken') !== 'auth-token-fichaje-admin') {
             window.location.href = 'login.html';
         }
     </script>
