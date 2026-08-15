@@ -1,4 +1,4 @@
-import { getDbClient } from "./db.js";
+import { getDbClient } from "./_db.js";
 
 const TIPOS_SOLICITUD = ['modificar', 'crear', 'eliminar'];
 const TIPOS_FICHAJE = ['entrada', 'salida', 'inicio_descanso', 'fin_descanso'];

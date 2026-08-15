@@ -1,4 +1,4 @@
-import { getDbClient } from "./db.js";
+import { getDbClient } from "./_db.js";
 import {
   initSchema, getCentroCfg, ipDeReq, huellaRed, esRedAutorizada,
   auditar, esEncargadoOSuperior,

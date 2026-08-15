@@ -1,4 +1,4 @@
-import { getDbClient } from "./db.js";
+import { getDbClient } from "./_db.js";
 import {
   initSchema, getCentroCfg, esRedAutorizada, ipDeReq, huellaRed, auditar,
 } from "./_tareas-lib.js";
