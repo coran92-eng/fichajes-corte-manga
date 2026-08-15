@@ -16,10 +16,13 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 async function inicializarAdmin() {
-    await cargarCentros();
+    // Los botones se enganchan antes de tocar la red: si una llamada tarda o
+    // falla, la cabecera tiene que seguir respondiendo igualmente.
     configurarBotones();
     configurarFiltros();
     configurarModal();
+
+    await cargarCentros();
     inicializarEmpleados();
     cargarDatosEnTiempoReal();
 
