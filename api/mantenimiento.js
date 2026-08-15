@@ -1,4 +1,4 @@
-import { getDbClient } from "./db.js";
+import { getDbClient } from "./_db.js";
 import { initSchema, getCentroCfg, epochDesdeLocal, auditar } from "./_tareas-lib.js";
 
 /** La traza no debe tumbar un arreglo que ya se ha aplicado. */

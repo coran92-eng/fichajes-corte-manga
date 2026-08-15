@@ -1,4 +1,4 @@
-import { getDbClient } from "./db.js";
+import { getDbClient } from "./_db.js";
 import { hashPin, esEncargadoOSuperior } from "./_tareas-lib.js";
 
 const DEFAULTS = ['Albert','Maikel','Carlos','Jecko','Pol','Sonia','Nacho','Claudia'];

@@ -483,7 +483,7 @@
         if (!destino) return;
         if (destino.dataset.cargada) { destino.innerHTML = ''; delete destino.dataset.cargada; return; }
         try {
-            const r = await fetch(`/api/tareas-evidencia?id=${id}`, { headers: { 'X-Auth-Token': token } });
+            const r = await fetch(`/api/tareas?recurso=evidencia&id=${id}`, { headers: { 'X-Auth-Token': token } });
             if (!r.ok) { const d = await r.json().catch(() => ({})); msg(d.error || 'No se pudo abrir la evidencia', 'error'); return; }
             const blob = await r.blob();
             destino.innerHTML = `<img class="foto-mini" src="${URL.createObjectURL(blob)}" alt="Evidencia">`;
