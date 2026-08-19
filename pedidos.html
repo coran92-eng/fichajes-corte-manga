@@ -1,0 +1,453 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#25d366">
+    <title>Pedidos a proveedores</title>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <script>
+        const TOKEN = sessionStorage.getItem('adminToken')
+                   || sessionStorage.getItem('encargadoToken') || '';
+        const ES_ADMIN = sessionStorage.getItem('adminToken') === 'auth-token-fichaje-admin';
+        if (!TOKEN) window.location.href = 'login-encargado.html';
+    </script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #f3f4f6; min-height: 100dvh; padding: 12px;
+            color: #1f2937;
+        }
+        .container { max-width: 640px; margin: 0 auto; padding-bottom: 90px; }
+
+        .header {
+            display: flex; align-items: center; gap: 10px;
+            margin-bottom: 4px;
+        }
+        .header h1 { font-size: 20px; flex: 1; }
+        .btn-volver {
+            background: none; border: none; color: #6b7280; cursor: pointer;
+            padding: 6px; display: flex; align-items: center;
+        }
+        .centro { font-size: 13px; color: #6b7280; margin-bottom: 16px; }
+
+        button { font-family: inherit; font-weight: 600; cursor: pointer; border: none; }
+
+        .paso { display: none; }
+        .paso.activo { display: block; }
+
+        /* ── Proveedores ── */
+        .prov {
+            background: white; border-radius: 10px; margin-bottom: 10px;
+            overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,.07);
+        }
+        .prov-cab {
+            display: flex; align-items: center; gap: 10px; width: 100%;
+            padding: 14px; background: none; text-align: left; font-size: 15px;
+        }
+        .prov-nombre { flex: 1; font-weight: 700; }
+        .prov-chip {
+            background: #dcfce7; color: #15803d; font-size: 12px;
+            padding: 2px 9px; border-radius: 20px; font-weight: 700;
+        }
+        .prov-flecha { color: #9ca3af; transition: transform .2s; }
+        .prov.abierto .prov-flecha { transform: rotate(180deg); }
+        .prov-cuerpo { display: none; padding: 0 14px 12px; }
+        .prov.abierto .prov-cuerpo { display: block; }
+
+        .linea {
+            display: flex; align-items: center; gap: 8px;
+            padding: 9px 0; border-top: 1px solid #f3f4f6;
+        }
+        .linea-nombre { flex: 1; font-size: 14px; }
+        .linea input[type=number] {
+            width: 72px; padding: 8px; border: 1px solid #d1d5db;
+            border-radius: 7px; font-size: 16px; text-align: center;
+            font-family: inherit;
+        }
+        .linea select {
+            padding: 8px 6px; border: 1px solid #d1d5db; border-radius: 7px;
+            font-size: 14px; background: white; font-family: inherit;
+        }
+        .linea.marcada { background: #f0fdf4; margin: 0 -8px; padding-left: 8px; padding-right: 8px; }
+
+        /* ── Revisión ── */
+        .rev-prov {
+            background: white; border-radius: 10px; padding: 14px;
+            margin-bottom: 10px; box-shadow: 0 1px 3px rgba(0,0,0,.07);
+        }
+        .rev-prov h3 { font-size: 15px; margin-bottom: 8px; }
+        .rev-linea {
+            display: flex; align-items: center; gap: 8px;
+            padding: 7px 0; border-top: 1px solid #f3f4f6; font-size: 14px;
+        }
+        .rev-linea span:first-child { flex: 1; }
+        .rev-cant { font-weight: 700; font-family: ui-monospace, monospace; }
+        .btn-quitar {
+            background: none; color: #ef4444; font-size: 18px;
+            padding: 0 6px; line-height: 1;
+        }
+
+        /* ── Envío ── */
+        .env {
+            background: white; border-radius: 10px; padding: 14px;
+            margin-bottom: 10px; box-shadow: 0 1px 3px rgba(0,0,0,.07);
+        }
+        .env h3 { font-size: 15px; margin-bottom: 8px; }
+        .env pre {
+            background: #f9fafb; border-radius: 8px; padding: 10px;
+            font-size: 13px; white-space: pre-wrap; word-break: break-word;
+            font-family: inherit; color: #374151; margin-bottom: 10px;
+        }
+        .btn-wa {
+            background: #25d366; color: white; width: 100%; padding: 14px;
+            border-radius: 9px; font-size: 15px; display: flex;
+            align-items: center; justify-content: center; gap: 8px;
+            text-decoration: none;
+        }
+        .env.enviado .btn-wa { background: #9ca3af; }
+        .env-estado { font-size: 13px; color: #15803d; font-weight: 700; margin-top: 8px; text-align: center; }
+
+        /* ── Barra inferior ── */
+        .barra {
+            position: fixed; left: 0; right: 0; bottom: 0;
+            background: white; border-top: 1px solid #e5e7eb;
+            padding: 12px; display: flex; gap: 10px; align-items: center;
+            box-shadow: 0 -2px 10px rgba(0,0,0,.06);
+        }
+        .barra-info { flex: 1; font-size: 13px; color: #6b7280; }
+        .btn-principal {
+            background: #2563eb; color: white; padding: 14px 22px;
+            border-radius: 9px; font-size: 15px;
+        }
+        .btn-principal:disabled { background: #d1d5db; cursor: not-allowed; }
+        .btn-sec { background: #f3f4f6; color: #374151; padding: 14px 18px; border-radius: 9px; font-size: 15px; }
+
+        .aviso {
+            background: #fef3c7; border: 1px solid #fde68a; border-radius: 10px;
+            padding: 18px; text-align: center; color: #92400e; font-size: 14px; line-height: 1.5;
+        }
+        .msg { padding: 12px; border-radius: 8px; margin-bottom: 12px; font-size: 14px; font-weight: 600; display: none; }
+        .msg.error { background: #fee2e2; color: #7f1d1d; display: block; }
+        .msg.ok { background: #d1fae5; color: #065f46; display: block; }
+        .cargando { text-align: center; color: #9ca3af; padding: 30px; font-size: 14px; }
+    </style>
+</head>
+<body>
+<div class="container">
+    <div class="header">
+        <button class="btn-volver" id="btnVolver" aria-label="Volver">
+            <i data-lucide="arrow-left" style="width:20px;height:20px"></i>
+        </button>
+        <h1>Pedido a proveedores</h1>
+    </div>
+    <div class="centro" id="centroTxt"></div>
+
+    <div class="msg" id="msg"></div>
+
+    <!-- Paso 1: elegir -->
+    <div class="paso activo" id="paso1">
+        <div id="listaProv"><div class="cargando">Cargando proveedores…</div></div>
+    </div>
+
+    <!-- Paso 2: revisar -->
+    <div class="paso" id="paso2">
+        <div id="listaRev"></div>
+    </div>
+
+    <!-- Paso 3: enviar -->
+    <div class="paso" id="paso3">
+        <div id="listaEnv"></div>
+    </div>
+</div>
+
+<div class="barra" id="barra" style="display:none">
+    <div class="barra-info" id="barraInfo"></div>
+    <button class="btn-sec" id="btnAtras" style="display:none">Atrás</button>
+    <button class="btn-principal" id="btnSiguiente" disabled>Revisar</button>
+</div>
+
+<script>
+const params = new URLSearchParams(location.search);
+const centro = params.get('centro') || sessionStorage.getItem('encargadoCentro') || 'Corte de Manga';
+const empleado = sessionStorage.getItem('encargadoNombre')
+              || sessionStorage.getItem('adminNombre') || 'Encargado';
+
+const H = { 'Content-Type': 'application/json', 'X-Auth-Token': TOKEN };
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c =>
+    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+let proveedores = [];
+let seleccion = new Map();   // `${provId}|${prodId}` → {provId, prodId, nombre, cantidad, unidad}
+let envios = [];
+let paso = 1;
+
+function msg(texto, tipo) {
+    const el = document.getElementById('msg');
+    el.textContent = texto;
+    el.className = `msg ${tipo}`;
+    if (tipo === 'ok') setTimeout(() => { el.className = 'msg'; }, 5000);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+function fmtCant(n) {
+    return Number.isInteger(n) ? String(n) : String(Math.round(n * 1000) / 1000).replace('.', ',');
+}
+
+// ── Paso 1 ───────────────────────────────────────────────────
+async function cargar() {
+    document.getElementById('centroTxt').textContent = centro;
+    try {
+        const r = await fetch(`/api/pedidos?recurso=proveedores&centro=${encodeURIComponent(centro)}`, { headers: H });
+        if (r.status === 403) { msg('No tienes permiso para hacer pedidos.', 'error'); return; }
+        if (!r.ok) throw new Error();
+        proveedores = await r.json();
+    } catch {
+        document.getElementById('listaProv').innerHTML =
+            '<div class="aviso">No se han podido cargar los proveedores. Comprueba la conexión y vuelve a intentarlo.</div>';
+        return;
+    }
+
+    if (!proveedores.length) {
+        document.getElementById('listaProv').innerHTML =
+            '<div class="aviso"><strong>No hay proveedores configurados</strong><br>' +
+            'Todavía no se ha dado de alta ningún proveedor para este local. Contacta con administración.</div>';
+        return;
+    }
+
+    pintarProveedores();
+    document.getElementById('barra').style.display = 'flex';
+    actualizarBarra();
+}
+
+function pintarProveedores() {
+    document.getElementById('listaProv').innerHTML = proveedores.map(p => {
+        const nSel = [...seleccion.values()].filter(s => s.provId === Number(p.id)).length;
+        const productos = p.productos.length
+            ? p.productos.map(prod => {
+                const clave = `${p.id}|${prod.id}`;
+                const sel = seleccion.get(clave);
+                return `
+                <div class="linea ${sel ? 'marcada' : ''}">
+                    <span class="linea-nombre">${esc(prod.nombre)}</span>
+                    <input type="number" min="0" step="0.5" inputmode="decimal"
+                           value="${sel ? sel.cantidad : ''}" placeholder="0"
+                           data-cant="${clave}" aria-label="Cantidad de ${esc(prod.nombre)}">
+                    <select data-uni="${clave}" aria-label="Unidad de ${esc(prod.nombre)}">
+                        ${['kg','g','uds','cajas','litros','l'].map(u =>
+                            `<option value="${u}"${sel && sel.unidad === u ? ' selected' : ''}>${u}</option>`).join('')}
+                    </select>
+                </div>`;
+            }).join('')
+            : '<div class="linea"><span class="linea-nombre" style="color:#9ca3af">Este proveedor no tiene productos dados de alta</span></div>';
+
+        return `
+        <div class="prov" data-prov="${p.id}">
+            <button class="prov-cab" data-toggle="${p.id}">
+                <span class="prov-nombre">${esc(p.nombre)}</span>
+                ${nSel ? `<span class="prov-chip">${nSel}</span>` : ''}
+                <i data-lucide="chevron-down" class="prov-flecha" style="width:18px;height:18px"></i>
+            </button>
+            <div class="prov-cuerpo">${productos}</div>
+        </div>`;
+    }).join('');
+
+    if (typeof lucide !== 'undefined') lucide.createIcons();
+
+    document.querySelectorAll('[data-toggle]').forEach(b => {
+        b.addEventListener('click', () => b.closest('.prov').classList.toggle('abierto'));
+    });
+    document.querySelectorAll('[data-cant]').forEach(inp => {
+        inp.addEventListener('input', () => cambiarLinea(inp.dataset.cant));
+    });
+    document.querySelectorAll('[data-uni]').forEach(sel => {
+        sel.addEventListener('change', () => cambiarLinea(sel.dataset.uni));
+    });
+}
+
+function cambiarLinea(clave) {
+    const [provId, prodId] = clave.split('|').map(Number);
+    const inp = document.querySelector(`[data-cant="${clave}"]`);
+    const sel = document.querySelector(`[data-uni="${clave}"]`);
+    const cantidad = parseFloat(inp.value);
+
+    const fila = inp.closest('.linea');
+    if (!Number.isFinite(cantidad) || cantidad <= 0) {
+        seleccion.delete(clave);
+        fila.classList.remove('marcada');
+    } else {
+        const prov = proveedores.find(p => Number(p.id) === provId);
+        const prod = prov?.productos.find(x => Number(x.id) === prodId);
+        seleccion.set(clave, { provId, prodId, nombre: prod?.nombre || '', cantidad, unidad: sel.value });
+        fila.classList.add('marcada');
+    }
+    actualizarChip(provId);
+    actualizarBarra();
+}
+
+function actualizarChip(provId) {
+    const cab = document.querySelector(`.prov[data-prov="${provId}"] .prov-cab`);
+    if (!cab) return;
+    const n = [...seleccion.values()].filter(s => s.provId === provId).length;
+    let chip = cab.querySelector('.prov-chip');
+    if (n && !chip) {
+        chip = document.createElement('span');
+        chip.className = 'prov-chip';
+        cab.insertBefore(chip, cab.querySelector('.prov-flecha'));
+    }
+    if (chip) { if (n) chip.textContent = n; else chip.remove(); }
+}
+
+// ── Paso 2 ───────────────────────────────────────────────────
+function pintarRevision() {
+    const porProv = {};
+    for (const [clave, s] of seleccion) (porProv[s.provId] ||= []).push({ clave, ...s });
+
+    document.getElementById('listaRev').innerHTML = Object.entries(porProv).map(([provId, lineas]) => {
+        const prov = proveedores.find(p => Number(p.id) === Number(provId));
+        return `
+        <div class="rev-prov">
+            <h3>${esc(prov?.nombre || '')}</h3>
+            ${lineas.map(l => `
+                <div class="rev-linea">
+                    <span>${esc(l.nombre)}</span>
+                    <span class="rev-cant">${fmtCant(l.cantidad)} ${esc(l.unidad)}</span>
+                    <button class="btn-quitar" data-quitar="${l.clave}" aria-label="Quitar ${esc(l.nombre)}">×</button>
+                </div>`).join('')}
+        </div>`;
+    }).join('');
+
+    document.querySelectorAll('[data-quitar]').forEach(b => {
+        b.addEventListener('click', () => {
+            seleccion.delete(b.dataset.quitar);
+            if (!seleccion.size) { irAPaso(1); return; }
+            pintarRevision();
+            actualizarBarra();
+        });
+    });
+}
+
+// ── Paso 3 ───────────────────────────────────────────────────
+function pintarEnvio() {
+    document.getElementById('listaEnv').innerHTML = envios.map(e => `
+        <div class="env" id="env-${e.envio_id}">
+            <h3>${esc(e.proveedor)}</h3>
+            <pre>${esc(e.mensaje)}</pre>
+            <a class="btn-wa" href="${esc(e.enlace_wa)}" target="_blank" rel="noopener"
+               data-enviar="${e.envio_id}">
+                <i data-lucide="send" style="width:17px;height:17px"></i>
+                Enviar a ${esc(e.proveedor)}
+            </a>
+            <div class="env-estado" id="est-${e.envio_id}" style="display:none">✓ Marcado como enviado</div>
+        </div>`).join('');
+
+    if (typeof lucide !== 'undefined') lucide.createIcons();
+
+    // Un botón por proveedor: abrir varios wa.me de un solo toque lo bloquean
+    // los navegadores móviles. El enlace es un <a> de verdad, así que el toque
+    // del usuario abre WhatsApp aunque el marcado en servidor falle.
+    document.querySelectorAll('[data-enviar]').forEach(a => {
+        a.addEventListener('click', () => marcarEnviado(a.dataset.enviar));
+    });
+}
+
+async function marcarEnviado(envioId) {
+    const caja = document.getElementById(`env-${envioId}`);
+    const est = document.getElementById(`est-${envioId}`);
+    if (caja) caja.classList.add('enviado');
+    if (est) est.style.display = 'block';
+    try {
+        await fetch('/api/pedidos?recurso=envio-enviado', {
+            method: 'POST', headers: H,
+            body: JSON.stringify({ envio_id: Number(envioId), centro }),
+        });
+    } catch {}
+    const pendientes = envios.filter(e => {
+        const c = document.getElementById(`env-${e.envio_id}`);
+        return c && !c.classList.contains('enviado');
+    }).length;
+    document.getElementById('barraInfo').textContent =
+        pendientes ? `${pendientes} proveedor${pendientes !== 1 ? 'es' : ''} por enviar` : 'Todos enviados';
+}
+
+// ── Navegación ───────────────────────────────────────────────
+function irAPaso(n) {
+    paso = n;
+    document.querySelectorAll('.paso').forEach((p, i) => p.classList.toggle('activo', i + 1 === n));
+    if (n === 2) pintarRevision();
+    if (n === 1) pintarProveedores();
+    actualizarBarra();
+    window.scrollTo({ top: 0 });
+}
+
+function actualizarBarra() {
+    const info = document.getElementById('barraInfo');
+    const btn = document.getElementById('btnSiguiente');
+    const atras = document.getElementById('btnAtras');
+
+    if (paso === 3) {
+        atras.style.display = 'none';
+        btn.textContent = 'Terminar';
+        btn.disabled = false;
+        const pend = envios.length;
+        info.textContent = `${pend} proveedor${pend !== 1 ? 'es' : ''} por enviar`;
+        return;
+    }
+
+    const n = seleccion.size;
+    const provs = new Set([...seleccion.values()].map(s => s.provId)).size;
+    info.textContent = n
+        ? `${n} línea${n !== 1 ? 's' : ''} · ${provs} proveedor${provs !== 1 ? 'es' : ''}`
+        : 'Marca lo que necesites';
+    btn.disabled = n === 0;
+    btn.textContent = paso === 1 ? 'Revisar' : 'Confirmar pedido';
+    atras.style.display = paso === 2 ? 'inline-block' : 'none';
+}
+
+async function confirmar() {
+    const porProv = {};
+    for (const s of seleccion.values()) {
+        (porProv[s.provId] ||= []).push({ producto_id: s.prodId, cantidad: s.cantidad, unidad: s.unidad });
+    }
+    const cuerpo = {
+        centro, empleado,
+        envios: Object.entries(porProv).map(([proveedor_id, items]) => ({ proveedor_id: Number(proveedor_id), items })),
+    };
+
+    const btn = document.getElementById('btnSiguiente');
+    btn.disabled = true;
+    try {
+        const r = await fetch('/api/pedidos?recurso=pedido', {
+            method: 'POST', headers: H, body: JSON.stringify(cuerpo),
+        });
+        const d = await r.json().catch(() => ({}));
+        if (!r.ok) { msg(d.error || 'No se ha podido confirmar el pedido', 'error'); return; }
+        envios = d.envios || [];
+        pintarEnvio();
+        irAPaso(3);
+        msg('Pedido guardado. Ahora envía cada uno por WhatsApp.', 'ok');
+    } catch {
+        msg('Error de conexión. El pedido no se ha guardado.', 'error');
+    } finally {
+        btn.disabled = false;
+    }
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    if (typeof lucide !== 'undefined') lucide.createIcons();
+    document.getElementById('btnVolver').addEventListener('click', () => {
+        if (paso === 2) { irAPaso(1); return; }
+        window.location.href = ES_ADMIN ? 'admin.html' : 'horario-encargado.html';
+    });
+    document.getElementById('btnAtras').addEventListener('click', () => irAPaso(1));
+    document.getElementById('btnSiguiente').addEventListener('click', () => {
+        if (paso === 1) irAPaso(2);
+        else if (paso === 2) confirmar();
+        else window.location.href = ES_ADMIN ? 'admin.html' : 'horario-encargado.html';
+    });
+    cargar();
+});
+</script>
+</body>
+</html>

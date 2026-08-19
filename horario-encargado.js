@@ -246,6 +246,9 @@ function configurarEventos() {
     document.getElementById('btnResumenDia')?.addEventListener('click', () => {
         window.location.href = 'resumen-dia.html';
     });
+    document.getElementById('btnPedidos')?.addEventListener('click', () => {
+        window.location.href = 'pedidos.html' + (centroActual ? `?centro=${encodeURIComponent(centroActual)}` : '');
+    });
 
     // Importación del cuadrante que hace Albert en su hoja
     document.getElementById('btnSubirHorario')?.addEventListener('click', () => {

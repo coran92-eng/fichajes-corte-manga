@@ -1,0 +1,386 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#2563eb">
+    <title>Proveedores y pedidos</title>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <script>
+        const TOKEN = sessionStorage.getItem('adminToken') || '';
+        if (TOKEN !== 'auth-token-fichaje-admin') window.location.href = 'login.html';
+    </script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100dvh; padding: 20px;
+        }
+        .container {
+            background: white; border-radius: 12px; padding: 26px;
+            box-shadow: 0 20px 60px rgba(0,0,0,.3); max-width: 900px; margin: 0 auto;
+        }
+        .header {
+            display: flex; justify-content: space-between; align-items: center;
+            gap: 14px; flex-wrap: wrap; margin-bottom: 6px;
+        }
+        .header h1 { font-size: 23px; color: #1f2937; }
+        .sub { color: #6b7280; font-size: 14px; margin-bottom: 20px; line-height: 1.5; }
+
+        button { padding: 9px 16px; border: none; border-radius: 8px; font-size: 14px;
+                 font-weight: 600; cursor: pointer; font-family: inherit; }
+        button:disabled { opacity: .5; cursor: not-allowed; }
+        .btn-volver { background: #6b7280; color: white; display: inline-flex; align-items: center; gap: 6px; }
+        .btn-add { background: #10b981; color: white; }
+        .btn-mini { background: #f3f4f6; color: #374151; padding: 6px 11px; font-size: 12px; }
+        .btn-del { background: #fee2e2; color: #b91c1c; padding: 6px 11px; font-size: 12px; }
+
+        .tabs { display: flex; gap: 8px; border-bottom: 2px solid #e5e7eb; margin-bottom: 20px; }
+        .tab { background: none; color: #6b7280; border-bottom: 3px solid transparent;
+               margin-bottom: -2px; border-radius: 0; padding: 11px 16px; }
+        .tab.activa { color: #2563eb; border-bottom-color: #2563eb; }
+        .panel { display: none; }
+        .panel.activo { display: block; }
+
+        .campos { display: flex; gap: 10px; flex-wrap: wrap; align-items: flex-end; margin-bottom: 18px; }
+        .campo { display: flex; flex-direction: column; gap: 4px; }
+        .campo label { font-size: 11px; color: #6b7280; font-weight: 700; text-transform: uppercase; }
+        .campo input, .campo select {
+            padding: 9px 11px; border: 1px solid #d1d5db; border-radius: 7px;
+            font-size: 14px; font-family: inherit;
+        }
+        .pista { font-size: 12px; color: #9ca3af; margin-top: -12px; margin-bottom: 18px; }
+
+        .prov-card {
+            border: 1px solid #e5e7eb; border-radius: 10px; padding: 16px; margin-bottom: 12px;
+        }
+        .prov-card.inactivo { opacity: .55; background: #f9fafb; }
+        .prov-top { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 4px; }
+        .prov-top h3 { font-size: 16px; flex: 1; min-width: 140px; }
+        .tel { font-family: ui-monospace, monospace; font-size: 13px; color: #6b7280; }
+        .prods { margin-top: 12px; border-top: 1px solid #f3f4f6; padding-top: 10px; }
+        .prod {
+            display: flex; align-items: center; gap: 8px; padding: 6px 0; font-size: 14px;
+        }
+        .prod span { flex: 1; }
+        .prod.inactivo span { color: #9ca3af; text-decoration: line-through; }
+        .add-prod { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+        .add-prod input { flex: 1; min-width: 150px; padding: 8px 10px; border: 1px solid #d1d5db;
+                          border-radius: 7px; font-size: 14px; font-family: inherit; }
+
+        .ped { border: 1px solid #e5e7eb; border-radius: 10px; padding: 14px; margin-bottom: 10px; }
+        .ped-cab { display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; margin-bottom: 8px; }
+        .ped-fecha { font-weight: 700; font-size: 15px; }
+        .ped-quien { font-size: 13px; color: #6b7280; flex: 1; }
+        .ped-env { border-top: 1px solid #f3f4f6; padding-top: 8px; margin-top: 8px; }
+        .ped-env h4 { font-size: 14px; display: flex; gap: 8px; align-items: center; }
+        .badge { font-size: 11px; padding: 2px 8px; border-radius: 20px; font-weight: 700; }
+        .badge.si { background: #d1fae5; color: #065f46; }
+        .badge.no { background: #fef3c7; color: #92400e; }
+        .ped-items { font-size: 13px; color: #4b5563; margin-top: 5px; padding-left: 4px; line-height: 1.6; }
+
+        .msg { padding: 12px; border-radius: 8px; margin-bottom: 16px; font-size: 14px; font-weight: 600; display: none; }
+        .msg.error { background: #fee2e2; color: #7f1d1d; display: block; }
+        .msg.ok { background: #d1fae5; color: #065f46; display: block; }
+        .vacio { color: #9ca3af; font-size: 14px; padding: 20px 0; text-align: center; }
+    </style>
+</head>
+<body>
+<div class="container">
+    <div class="header">
+        <h1><i data-lucide="truck" style="width:22px;height:22px;vertical-align:middle;margin-right:6px"></i>Proveedores y pedidos</h1>
+        <div style="display:flex;gap:8px">
+            <select id="selCentro" style="padding:9px 11px;border:1px solid #d1d5db;border-radius:7px;font-size:14px"></select>
+            <button class="btn-volver" id="btnVolver"><i data-lucide="arrow-left" style="width:15px;height:15px"></i> Volver</button>
+        </div>
+    </div>
+    <p class="sub">Catálogo de proveedores y productos por local, e histórico de lo que se ha pedido.</p>
+
+    <div class="msg" id="msg"></div>
+
+    <div class="tabs">
+        <button class="tab activa" data-panel="catalogo">Catálogo</button>
+        <button class="tab" data-panel="historico">Histórico</button>
+    </div>
+
+    <!-- ── Catálogo ── -->
+    <div class="panel activo" id="p-catalogo">
+        <div class="campos">
+            <div class="campo">
+                <label for="nProv">Nuevo proveedor</label>
+                <input type="text" id="nProv" placeholder="Frutas García">
+            </div>
+            <div class="campo">
+                <label for="nTel">WhatsApp</label>
+                <input type="tel" id="nTel" placeholder="+34600000000">
+            </div>
+            <button class="btn-add" id="btnAddProv">Añadir proveedor</button>
+        </div>
+        <p class="pista">El teléfono va en formato internacional: <strong>+34</strong> y el número, sin espacios. Sin él no se puede pedir.</p>
+
+        <div id="listaProv"><div class="vacio">Cargando…</div></div>
+    </div>
+
+    <!-- ── Histórico ── -->
+    <div class="panel" id="p-historico">
+        <div class="campos">
+            <div class="campo">
+                <label for="hDesde">Desde</label>
+                <input type="date" id="hDesde">
+            </div>
+            <div class="campo">
+                <label for="hHasta">Hasta</label>
+                <input type="date" id="hHasta">
+            </div>
+            <div class="campo">
+                <label for="hProv">Proveedor</label>
+                <select id="hProv"><option value="">Todos</option></select>
+            </div>
+            <button class="btn-mini" id="btnFiltrar" style="padding:9px 16px;font-size:14px">Filtrar</button>
+        </div>
+        <div id="listaHist"><div class="vacio">Elige un periodo y pulsa Filtrar.</div></div>
+    </div>
+</div>
+
+<script>
+const H = { 'Content-Type': 'application/json', 'X-Auth-Token': TOKEN };
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c =>
+    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const fmtCant = n => Number.isInteger(Number(n))
+    ? String(Number(n)) : String(Math.round(Number(n) * 1000) / 1000).replace('.', ',');
+
+let centro = '';
+let proveedores = [];
+
+function msg(t, tipo) {
+    const el = document.getElementById('msg');
+    el.textContent = t; el.className = `msg ${tipo}`;
+    if (tipo === 'ok') setTimeout(() => { el.className = 'msg'; }, 5000);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+async function api(url, opciones = {}) {
+    const r = await fetch(url, { headers: H, ...opciones });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(d.error || 'Error inesperado');
+    return d;
+}
+
+async function cargarCentros() {
+    let centros = ['Corte de Manga'];
+    try {
+        const r = await fetch('/config.json');
+        if (r.ok) { const c = await r.json(); if (Array.isArray(c.centros) && c.centros.length) centros = c.centros; }
+    } catch {}
+    const sel = document.getElementById('selCentro');
+    sel.innerHTML = centros.map(c => `<option value="${esc(c)}">${esc(c)}</option>`).join('');
+    centro = new URLSearchParams(location.search).get('centro') || centros[0];
+    if (centros.includes(centro)) sel.value = centro; else centro = sel.value;
+}
+
+async function cargarCatalogo() {
+    const cont = document.getElementById('listaProv');
+    cont.innerHTML = '<div class="vacio">Cargando…</div>';
+    try {
+        proveedores = await api(`/api/pedidos?recurso=proveedores&centro=${encodeURIComponent(centro)}&incluir_inactivos=1`);
+    } catch (e) {
+        cont.innerHTML = `<div class="vacio">${esc(e.message)}</div>`;
+        return;
+    }
+
+    document.getElementById('hProv').innerHTML = '<option value="">Todos</option>' +
+        proveedores.map(p => `<option value="${p.id}">${esc(p.nombre)}</option>`).join('');
+
+    if (!proveedores.length) {
+        cont.innerHTML = '<div class="vacio">Todavía no hay proveedores en este local. Añade el primero arriba.</div>';
+        return;
+    }
+
+    cont.innerHTML = proveedores.map(p => `
+        <div class="prov-card ${p.activo ? '' : 'inactivo'}">
+            <div class="prov-top">
+                <h3>${esc(p.nombre)}</h3>
+                <span class="tel">${esc(p.telefono_whatsapp)}</span>
+                <button class="btn-mini" data-toggle-prov="${p.id}">${p.activo ? 'Desactivar' : 'Activar'}</button>
+                <button class="btn-mini" data-edit-prov="${p.id}">Editar</button>
+                <button class="btn-del" data-del-prov="${p.id}">Borrar</button>
+            </div>
+            <div class="prods">
+                ${p.productos.length
+                    ? p.productos.map(pr => `
+                        <div class="prod ${pr.activo ? '' : 'inactivo'}">
+                            <span>${esc(pr.nombre)}</span>
+                            <button class="btn-mini" data-toggle-prod="${pr.id}" data-activo="${pr.activo}" data-nombre="${esc(pr.nombre)}">${pr.activo ? 'Desactivar' : 'Activar'}</button>
+                            <button class="btn-del" data-del-prod="${pr.id}">Borrar</button>
+                        </div>`).join('')
+                    : '<div style="color:#9ca3af;font-size:13px">Sin productos todavía</div>'}
+                <div class="add-prod">
+                    <input type="text" placeholder="Nuevo producto" data-nuevo-prod="${p.id}">
+                    <button class="btn-add" data-add-prod="${p.id}">Añadir</button>
+                </div>
+            </div>
+        </div>`).join('');
+
+    engancharCatalogo();
+}
+
+function engancharCatalogo() {
+    const prov = id => proveedores.find(p => Number(p.id) === Number(id));
+
+    document.querySelectorAll('[data-toggle-prov]').forEach(b => b.addEventListener('click', async () => {
+        const p = prov(b.dataset.toggleProv);
+        try {
+            await api('/api/pedidos?recurso=proveedor', {
+                method: 'POST',
+                body: JSON.stringify({ centro, id: p.id, nombre: p.nombre, telefono_whatsapp: p.telefono_whatsapp, activo: p.activo ? 0 : 1, orden: p.orden }),
+            });
+            cargarCatalogo();
+        } catch (e) { msg(e.message, 'error'); }
+    }));
+
+    document.querySelectorAll('[data-edit-prov]').forEach(b => b.addEventListener('click', async () => {
+        const p = prov(b.dataset.editProv);
+        const nombre = prompt('Nombre del proveedor:', p.nombre);
+        if (nombre === null) return;
+        const tel = prompt('WhatsApp (formato +34600000000):', p.telefono_whatsapp);
+        if (tel === null) return;
+        try {
+            await api('/api/pedidos?recurso=proveedor', {
+                method: 'POST',
+                body: JSON.stringify({ centro, id: p.id, nombre, telefono_whatsapp: tel, activo: p.activo, orden: p.orden }),
+            });
+            msg('Proveedor actualizado', 'ok');
+            cargarCatalogo();
+        } catch (e) { msg(e.message, 'error'); }
+    }));
+
+    document.querySelectorAll('[data-del-prov]').forEach(b => b.addEventListener('click', async () => {
+        const p = prov(b.dataset.delProv);
+        if (!confirm(`Se borrará "${p.nombre}" y sus productos.\n\nLos pedidos ya hechos se conservan tal cual. ¿Seguimos?`)) return;
+        try {
+            await api(`/api/pedidos?recurso=proveedor&id=${p.id}&centro=${encodeURIComponent(centro)}`, { method: 'DELETE' });
+            msg('Proveedor borrado', 'ok');
+            cargarCatalogo();
+        } catch (e) { msg(e.message, 'error'); }
+    }));
+
+    document.querySelectorAll('[data-add-prod]').forEach(b => b.addEventListener('click', async () => {
+        const inp = document.querySelector(`[data-nuevo-prod="${b.dataset.addProd}"]`);
+        const nombre = inp.value.trim();
+        if (!nombre) { msg('Escribe el nombre del producto', 'error'); return; }
+        try {
+            await api('/api/pedidos?recurso=producto', {
+                method: 'POST',
+                body: JSON.stringify({ centro, proveedor_id: Number(b.dataset.addProd), nombre }),
+            });
+            inp.value = '';
+            cargarCatalogo();
+        } catch (e) { msg(e.message, 'error'); }
+    }));
+
+    document.querySelectorAll('[data-toggle-prod]').forEach(b => b.addEventListener('click', async () => {
+        try {
+            await api('/api/pedidos?recurso=producto', {
+                method: 'POST',
+                body: JSON.stringify({ centro, id: Number(b.dataset.toggleProd), nombre: b.dataset.nombre, activo: b.dataset.activo === '1' ? 0 : 1 }),
+            });
+            cargarCatalogo();
+        } catch (e) { msg(e.message, 'error'); }
+    }));
+
+    document.querySelectorAll('[data-del-prod]').forEach(b => b.addEventListener('click', async () => {
+        if (!confirm('¿Borrar este producto?')) return;
+        try {
+            await api(`/api/pedidos?recurso=producto&id=${b.dataset.delProd}&centro=${encodeURIComponent(centro)}`, { method: 'DELETE' });
+            cargarCatalogo();
+        } catch (e) { msg(e.message, 'error'); }
+    }));
+}
+
+async function cargarHistorico() {
+    const cont = document.getElementById('listaHist');
+    cont.innerHTML = '<div class="vacio">Cargando…</div>';
+
+    const desde = document.getElementById('hDesde').value;
+    const hasta = document.getElementById('hHasta').value;
+    const provId = document.getElementById('hProv').value;
+
+    const q = new URLSearchParams({ recurso: 'historico', centro });
+    if (desde) q.set('desde', new Date(`${desde}T00:00:00`).getTime());
+    if (hasta) q.set('hasta', new Date(`${hasta}T00:00:00`).getTime() + 86400000);
+    if (provId) q.set('proveedor_id', provId);
+
+    let datos;
+    try { datos = await api(`/api/pedidos?${q}`); }
+    catch (e) { cont.innerHTML = `<div class="vacio">${esc(e.message)}</div>`; return; }
+
+    if (!datos.length) {
+        cont.innerHTML = '<div class="vacio">No hay pedidos con esos filtros.</div>';
+        return;
+    }
+
+    const fmtFecha = ts => new Intl.DateTimeFormat('es-ES', {
+        day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit',
+    }).format(new Date(Number(ts)));
+
+    cont.innerHTML = datos.map(p => `
+        <div class="ped">
+            <div class="ped-cab">
+                <span class="ped-fecha">${fmtFecha(p.fecha_hora)}</span>
+                <span class="ped-quien">${esc(p.empleado || '—')} · ${esc(p.centro)}</span>
+            </div>
+            ${p.envios.map(e => `
+                <div class="ped-env">
+                    <h4>
+                        ${esc(e.proveedor_nombre || 'Proveedor borrado')}
+                        <span class="badge ${e.enviado ? 'si' : 'no'}">${e.enviado ? 'Enviado' : 'Sin marcar'}</span>
+                    </h4>
+                    <div class="ped-items">
+                        ${e.items.map(i => `${esc(i.producto_nombre || '—')}: <strong>${fmtCant(i.cantidad)} ${esc(i.unidad)}</strong>`).join('<br>')}
+                    </div>
+                </div>`).join('')}
+        </div>`).join('');
+}
+
+document.addEventListener('DOMContentLoaded', async () => {
+    if (typeof lucide !== 'undefined') lucide.createIcons();
+
+    document.getElementById('btnVolver').addEventListener('click', () => { window.location.href = 'admin.html'; });
+
+    document.querySelectorAll('.tab').forEach(t => t.addEventListener('click', () => {
+        document.querySelectorAll('.tab').forEach(x => x.classList.remove('activa'));
+        document.querySelectorAll('.panel').forEach(x => x.classList.remove('activo'));
+        t.classList.add('activa');
+        document.getElementById(`p-${t.dataset.panel}`).classList.add('activo');
+        if (t.dataset.panel === 'historico') cargarHistorico();
+    }));
+
+    document.getElementById('selCentro').addEventListener('change', e => {
+        centro = e.target.value;
+        cargarCatalogo();
+    });
+
+    document.getElementById('btnAddProv').addEventListener('click', async () => {
+        const nombre = document.getElementById('nProv').value.trim();
+        const tel = document.getElementById('nTel').value.trim();
+        if (!nombre) { msg('Escribe el nombre del proveedor', 'error'); return; }
+        try {
+            await api('/api/pedidos?recurso=proveedor', {
+                method: 'POST', body: JSON.stringify({ centro, nombre, telefono_whatsapp: tel }),
+            });
+            document.getElementById('nProv').value = '';
+            document.getElementById('nTel').value = '';
+            msg('Proveedor añadido', 'ok');
+            cargarCatalogo();
+        } catch (e) { msg(e.message, 'error'); }
+    });
+
+    document.getElementById('btnFiltrar').addEventListener('click', cargarHistorico);
+
+    await cargarCentros();
+    cargarCatalogo();
+});
+</script>
+</body>
+</html>
