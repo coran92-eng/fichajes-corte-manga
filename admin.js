@@ -712,6 +712,11 @@ function configurarBotones() {
         window.location.href = 'resumen-dia.html';
     });
 
+    document.getElementById('btnPedidos')?.addEventListener('click', () => {
+        const centro = document.getElementById('filtroCentro')?.value || '';
+        window.location.href = 'pedidos-admin.html' + (centro ? `?centro=${encodeURIComponent(centro)}` : '');
+    });
+
     document.getElementById('btnMantenimiento')?.addEventListener('click', () => {
         const centro = document.getElementById('filtroCentro')?.value || '';
         window.location.href = 'mantenimiento.html' + (centro ? `?centro=${encodeURIComponent(centro)}` : '');
@@ -866,13 +871,22 @@ async function cargarHorarios() {
     if (!contenido) return;
     contenido.innerHTML = '<p style="color:#9ca3af;font-size:13px">Cargando...</p>';
 
+    // Tope de espera: si la consulta no vuelve, hay que decirlo. Quedarse en
+    // "Cargando..." para siempre es el peor de los estados posibles.
+    const ctrl = new AbortController();
+    const to = setTimeout(() => ctrl.abort(), 12000);
+
     try {
-        const res = await fetch(`/api/horarios?estado=${encodeURIComponent(estado)}`);
+        const centroSel = document.getElementById('filtroCentro')?.value || '';
+        const url = `/api/horarios?estado=${encodeURIComponent(estado)}&orden=desc&limite=600`
+            + (centroSel ? `&centro=${encodeURIComponent(centroSel)}` : '');
+        const res = await fetch(url, { signal: ctrl.signal, cache: 'no-store' });
+        clearTimeout(to);
         if (!res.ok) throw new Error();
         const horarios = await res.json();
 
         if (horarios.length === 0) {
-            contenido.innerHTML = `<p style="color:#9ca3af;font-size:13px">No hay horarios con estado "${estado}".</p>`;
+            contenido.innerHTML = `<p style="color:#9ca3af;font-size:13px">No hay horarios con estado "${estado}"${centroSel ? ` en ${centroSel}` : ''}.</p>`;
             return;
         }
 
@@ -884,8 +898,15 @@ async function cargarHorarios() {
             grupos[key].filas.push(h);
         });
 
+        // Las semanas, de la más reciente a la más antigua; dentro de cada
+        // una, los días en orden de agenda.
+        const ordenados = Object.values(grupos)
+            .sort((a, b) => String(b.semana).localeCompare(String(a.semana)));
+        ordenados.forEach(g => g.filas.sort((a, b) =>
+            String(a.fecha).localeCompare(String(b.fecha)) || String(a.empleado).localeCompare(String(b.empleado))));
+
         const diasSemana = ['Lun','Mar','Mié','Jue','Vie','Sáb','Dom'];
-        const html = Object.values(grupos).map(g => {
+        const html = ordenados.map(g => {
             const filas = g.filas.map(h => {
                 const diaIdx = (new Date(h.fecha + 'T00:00:00').getDay() + 6) % 7;
                 return `<tr>
@@ -915,8 +936,12 @@ async function cargarHorarios() {
         }).join('');
 
         contenido.innerHTML = html;
-    } catch {
-        contenido.innerHTML = '<p style="color:#ef4444;font-size:13px">Error al cargar horarios.</p>';
+    } catch (err) {
+        clearTimeout(to);
+        contenido.innerHTML = err?.name === 'AbortError'
+            ? '<p style="color:#ef4444;font-size:13px">La consulta ha tardado demasiado. Filtra por un centro concreto y vuelve a intentarlo.</p>'
+            : '<p style="color:#ef4444;font-size:13px">Error al cargar horarios. <button id="btnReintentarHorarios" style="background:none;border:none;color:#2563eb;cursor:pointer;text-decoration:underline;font-size:13px;padding:0">Reintentar</button></p>';
+        document.getElementById('btnReintentarHorarios')?.addEventListener('click', cargarHorarios);
     }
 }
 
