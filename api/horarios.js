@@ -1,35 +1,69 @@
 import { getDbClient } from "./_db.js";
 
+// El esquema se prepara una vez por instancia, no en cada petición. Antes
+// eran ocho viajes a la base de datos antes de la consulta —cuatro de ellos
+// ALTER que fallan y se capturan— y las funciones de Vercel se cortan a los
+// 10 s: la petición moría antes de responder y el usuario solo veía
+// "Cargando...".
+let esquemaListo = false;
+
+async function prepararEsquema(db) {
+  if (esquemaListo) return;
+
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS horarios (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      empleado TEXT NOT NULL,
+      centro TEXT NOT NULL DEFAULT '',
+      fecha TEXT NOT NULL,
+      hora_entrada TEXT NOT NULL,
+      hora_salida TEXT NOT NULL,
+      semana TEXT NOT NULL,
+      estado TEXT NOT NULL DEFAULT 'pendiente',
+      creado_en INTEGER NOT NULL,
+      notas TEXT NOT NULL DEFAULT ''
+    )
+  `);
+
+  // Migraciones para rol del día, cambio a media jornada y descanso planificado
+  try { await db.execute("ALTER TABLE horarios ADD COLUMN rol_primera TEXT NOT NULL DEFAULT ''"); } catch {}
+  try { await db.execute("ALTER TABLE horarios ADD COLUMN hora_cambio TEXT NOT NULL DEFAULT ''"); } catch {}
+  try { await db.execute("ALTER TABLE horarios ADD COLUMN rol_segunda TEXT NOT NULL DEFAULT ''"); } catch {}
+  try { await db.execute("ALTER TABLE horarios ADD COLUMN hora_descanso TEXT NOT NULL DEFAULT ''"); } catch {}
+
+  try { await db.execute("CREATE INDEX IF NOT EXISTS idx_horarios_estado ON horarios (estado, fecha)"); } catch {}
+  try { await db.execute("CREATE INDEX IF NOT EXISTS idx_horarios_centro_fecha ON horarios (centro, fecha)"); } catch {}
+  try { await db.execute("CREATE INDEX IF NOT EXISTS idx_horarios_empleado_fecha ON horarios (empleado, fecha)"); } catch {}
+
+  esquemaListo = true;
+}
+
 export default async function handler(req, res) {
   try {
     const db = getDbClient();
+    const t0 = Date.now();
+    await prepararEsquema(db);
+    const msEsquema = Date.now() - t0;
 
-    await db.execute(`
-      CREATE TABLE IF NOT EXISTS horarios (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        empleado TEXT NOT NULL,
-        centro TEXT NOT NULL DEFAULT '',
-        fecha TEXT NOT NULL,
-        hora_entrada TEXT NOT NULL,
-        hora_salida TEXT NOT NULL,
-        semana TEXT NOT NULL,
-        estado TEXT NOT NULL DEFAULT 'pendiente',
-        creado_en INTEGER NOT NULL,
-        notas TEXT NOT NULL DEFAULT ''
-      )
-    `);
-
-    // Migraciones para rol del día, cambio a media jornada y descanso planificado
-    try { await db.execute("ALTER TABLE horarios ADD COLUMN rol_primera TEXT NOT NULL DEFAULT ''"); } catch {}
-    try { await db.execute("ALTER TABLE horarios ADD COLUMN hora_cambio TEXT NOT NULL DEFAULT ''"); } catch {}
-    try { await db.execute("ALTER TABLE horarios ADD COLUMN rol_segunda TEXT NOT NULL DEFAULT ''"); } catch {}
-    try { await db.execute("ALTER TABLE horarios ADD COLUMN hora_descanso TEXT NOT NULL DEFAULT ''"); } catch {}
-
-    // Sin índices, listar por estado recorría la tabla entera. Con un
-    // cuadrante subido cada semana eso crece sin parar.
-    try { await db.execute("CREATE INDEX IF NOT EXISTS idx_horarios_estado ON horarios (estado, fecha)"); } catch {}
-    try { await db.execute("CREATE INDEX IF NOT EXISTS idx_horarios_centro_fecha ON horarios (centro, fecha)"); } catch {}
-    try { await db.execute("CREATE INDEX IF NOT EXISTS idx_horarios_empleado_fecha ON horarios (empleado, fecha)"); } catch {}
+    // Modo diagnóstico: dice cuánto ocupa la tabla y en qué se va el tiempo.
+    // Sirve para no volver a suponer cuando una pantalla no carga.
+    if (req.method === "GET" && req.query.diagnostico === '1') {
+      const t1 = Date.now();
+      const total = await db.execute("SELECT COUNT(*) AS n FROM horarios");
+      const porEstado = await db.execute(
+        "SELECT estado, COUNT(*) AS n FROM horarios GROUP BY estado"
+      );
+      const porCentro = await db.execute(
+        "SELECT centro, COUNT(*) AS n FROM horarios GROUP BY centro"
+      );
+      return res.status(200).json({
+        filas: Number(total.rows[0]?.n || 0),
+        por_estado: porEstado.rows,
+        por_centro: porCentro.rows,
+        ms_esquema: msEsquema,
+        ms_consultas: Date.now() - t1,
+      });
+    }
 
     if (req.method === "GET") {
       const {
@@ -88,6 +122,8 @@ export default async function handler(req, res) {
       args.push(tope);
 
       const result = await db.execute({ sql: query, args });
+      res.setHeader('X-Ms-Esquema', String(msEsquema));
+      res.setHeader('X-Ms-Total', String(Date.now() - t0));
       return res.status(200).json(result.rows);
     }
     else if (req.method === "POST") {
