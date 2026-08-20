@@ -68,8 +68,30 @@ export default async function handler(req, res) {
     if (req.method === "GET") {
       const {
         empleado, centro, semana, estado, fecha, fecha_desde, fecha_hasta,
-        orden, limite,
+        orden, limite, resumen,
       } = req.query;
+
+      // Lista de semanas con cuántos turnos tiene cada una. Es lo que ve la
+      // pantalla de validación al abrirse: se valida semana a semana, así que
+      // no hay motivo para bajar todos los turnos de golpe.
+      if (resumen === 'semanas') {
+        const cond = [];
+        const argsR = [];
+        if (estado) { cond.push("estado = ?"); argsR.push(estado); }
+        if (centro) { cond.push("centro = ?"); argsR.push(centro); }
+
+        const sql = `SELECT semana, centro, COUNT(*) AS turnos,
+                            COUNT(DISTINCT empleado) AS personas,
+                            MIN(fecha) AS desde, MAX(fecha) AS hasta
+                     FROM horarios
+                     ${cond.length ? 'WHERE ' + cond.join(' AND ') : ''}
+                     GROUP BY semana, centro
+                     ORDER BY semana DESC
+                     LIMIT 40`;
+        const r = await db.execute({ sql, args: argsR });
+        res.setHeader('X-Ms-Total', String(Date.now() - t0));
+        return res.status(200).json(r.rows);
+      }
 
       let conditions = [];
       let args = [];
@@ -116,10 +138,11 @@ export default async function handler(req, res) {
         : " ORDER BY fecha ASC, hora_entrada ASC";
 
       // Techo siempre presente: una consulta sin límite acaba colgando la
-      // pantalla en cuanto la tabla crece, y sin decir por qué.
+      // pantalla en cuanto la tabla crece, y sin decir por qué. Va inline
+      // (ya es un entero acotado) porque LIMIT con parámetro ligado ha dado
+      // problemas en esta ruta.
       const tope = Math.min(3000, Math.max(1, parseInt(limite, 10) || 2000));
-      query += " LIMIT ?";
-      args.push(tope);
+      query += ` LIMIT ${tope}`;
 
       const result = await db.execute({ sql: query, args });
       res.setHeader('X-Ms-Esquema', String(msEsquema));
