@@ -896,84 +896,109 @@ async function cargarHorarios() {
     const estado = document.getElementById('filtroEstadoHorario')?.value || 'pendiente';
     const contenido = document.getElementById('horariosContenido');
     if (!contenido) return;
-    contenido.innerHTML = '<p style="color:#9ca3af;font-size:13px">Cargando...</p>';
+    contenido.innerHTML = '<p style="color:#9ca3af;font-size:13px">Cargando semanas...</p>';
 
-    // Tope de espera: si la consulta no vuelve, hay que decirlo. Quedarse en
-    // "Cargando..." para siempre es el peor de los estados posibles.
+    const centroSel = document.getElementById('filtroCentro')?.value || '';
     const ctrl = new AbortController();
     const to = setTimeout(() => ctrl.abort(), 25000);
 
     try {
-        const centroSel = document.getElementById('filtroCentro')?.value || '';
-        const url = `/api/horarios?estado=${encodeURIComponent(estado)}&orden=desc&limite=600`
+        // Solo el recuento por semana: una fila por semana, no todos los
+        // turnos. El detalle se baja al abrir la semana que se va a validar.
+        const url = `/api/horarios?resumen=semanas&estado=${encodeURIComponent(estado)}`
             + (centroSel ? `&centro=${encodeURIComponent(centroSel)}` : '');
         const res = await fetch(url, { signal: ctrl.signal, cache: 'no-store' });
         clearTimeout(to);
-        if (!res.ok) throw new Error();
-        const horarios = await res.json();
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const semanas = await res.json();
 
-        if (horarios.length === 0) {
+        if (!semanas.length) {
             contenido.innerHTML = `<p style="color:#9ca3af;font-size:13px">No hay horarios con estado "${estado}"${centroSel ? ` en ${centroSel}` : ''}.</p>`;
             return;
         }
 
-        // Group by semana → centro
-        const grupos = {};
-        horarios.forEach(h => {
-            const key = `${h.semana}||${h.centro}`;
-            if (!grupos[key]) grupos[key] = { semana: h.semana, centro: h.centro, filas: [] };
-            grupos[key].filas.push(h);
-        });
-
-        // Las semanas, de la más reciente a la más antigua; dentro de cada
-        // una, los días en orden de agenda.
-        const ordenados = Object.values(grupos)
-            .sort((a, b) => String(b.semana).localeCompare(String(a.semana)));
-        ordenados.forEach(g => g.filas.sort((a, b) =>
-            String(a.fecha).localeCompare(String(b.fecha)) || String(a.empleado).localeCompare(String(b.empleado))));
-
-        const diasSemana = ['Lun','Mar','Mié','Jue','Vie','Sáb','Dom'];
-        const html = ordenados.map(g => {
-            const filas = g.filas.map(h => {
-                const diaIdx = (new Date(h.fecha + 'T00:00:00').getDay() + 6) % 7;
-                return `<tr>
-                    <td><strong>${h.empleado}</strong></td>
-                    <td>${diasSemana[diaIdx]} ${h.fecha.slice(5)}</td>
-                    <td style="font-family:monospace">${h.hora_entrada} – ${h.hora_salida}</td>
-                    <td><span class="badge-estado badge-${h.estado}">${h.estado}</span></td>
-                </tr>`;
-            }).join('');
-
-            const acciones = estado === 'pendiente' ? `
-                <div class="horario-grupo-acciones">
-                    <button class="btn-validar" onclick="validarHorario('${g.semana}','${g.centro}','validado')">✓ Validar</button>
-                    <button class="btn-rechazar" onclick="validarHorario('${g.semana}','${g.centro}','rechazado')">✗ Rechazar</button>
-                </div>` : '';
-
-            return `<div class="horario-grupo">
+        contenido.innerHTML = semanas.map((s, i) => `
+            <div class="horario-grupo" data-semana-idx="${i}">
                 <div class="horario-grupo-header">
-                    <span class="horario-grupo-titulo">📅 ${g.semana} • ${g.centro || 'Sin centro'}</span>
-                    ${acciones}
+                    <span class="horario-grupo-titulo">📅 ${s.semana} • ${s.centro || 'Sin centro'}</span>
+                    <div class="horario-grupo-acciones">
+                        <button class="btn-validar" style="background:#6b7280" data-abrir="${i}">Ver turnos</button>
+                        ${estado === 'pendiente' ? `
+                            <button class="btn-validar" data-validar="${i}">✓ Validar</button>
+                            <button class="btn-rechazar" data-rechazar="${i}">✗ Rechazar</button>` : ''}
+                    </div>
                 </div>
-                <table class="horario-tabla">
-                    <thead><tr><th>Empleado</th><th>Día</th><th>Horario</th><th>Estado</th></tr></thead>
-                    <tbody>${filas}</tbody>
-                </table>
-            </div>`;
-        }).join('');
+                <div style="font-size:13px;color:#6b7280;padding:4px 0">
+                    ${s.turnos} turno${Number(s.turnos) !== 1 ? 's' : ''} ·
+                    ${s.personas} persona${Number(s.personas) !== 1 ? 's' : ''} ·
+                    ${String(s.desde).slice(5)} → ${String(s.hasta).slice(5)}
+                </div>
+                <div class="detalle-semana" id="det-${i}"></div>
+            </div>`).join('');
 
-        contenido.innerHTML = html;
+        contenido.querySelectorAll('[data-abrir]').forEach(b => b.addEventListener('click', () => {
+            const s = semanas[+b.dataset.abrir];
+            const caja = document.getElementById(`det-${b.dataset.abrir}`);
+            if (caja.innerHTML) { caja.innerHTML = ''; b.textContent = 'Ver turnos'; return; }
+            b.textContent = 'Ocultar';
+            cargarDetalleSemana(s, estado, caja);
+        }));
+        contenido.querySelectorAll('[data-validar]').forEach(b => b.addEventListener('click', () => {
+            const s = semanas[+b.dataset.validar];
+            window.validarHorario(s.semana, s.centro, 'validado');
+        }));
+        contenido.querySelectorAll('[data-rechazar]').forEach(b => b.addEventListener('click', () => {
+            const s = semanas[+b.dataset.rechazar];
+            window.validarHorario(s.semana, s.centro, 'rechazado');
+        }));
     } catch (err) {
         clearTimeout(to);
         const motivo = err?.name === 'AbortError'
             ? 'La consulta ha tardado demasiado.'
-            : 'Error al cargar horarios.';
+            : `Error al cargar horarios (${err.message}).`;
         contenido.innerHTML =
             `<p style="color:#ef4444;font-size:13px">${motivo}
              <button id="btnReintentarHorarios" style="background:none;border:none;color:#2563eb;cursor:pointer;text-decoration:underline;font-size:13px;padding:0">Reintentar</button></p>
              <p id="diagHorarios" style="color:#9ca3af;font-size:12px;margin-top:6px">Comprobando qué pasa…</p>`;
         document.getElementById('btnReintentarHorarios')?.addEventListener('click', cargarHorarios);
         diagnosticarHorarios();
+    }
+}
+
+/** Los turnos de UNA semana, solo cuando se piden. */
+async function cargarDetalleSemana(s, estado, caja) {
+    caja.innerHTML = '<p style="color:#9ca3af;font-size:13px">Cargando turnos...</p>';
+    const ctrl = new AbortController();
+    const to = setTimeout(() => ctrl.abort(), 25000);
+    try {
+        const url = `/api/horarios?semana=${encodeURIComponent(s.semana)}`
+            + `&centro=${encodeURIComponent(s.centro || '')}`
+            + `&estado=${encodeURIComponent(estado)}&limite=400`;
+        const res = await fetch(url, { signal: ctrl.signal, cache: 'no-store' });
+        clearTimeout(to);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const filas = await res.json();
+
+        if (!filas.length) { caja.innerHTML = '<p style="color:#9ca3af;font-size:13px">Sin turnos.</p>'; return; }
+
+        const diasSemana = ['Lun','Mar','Mié','Jue','Vie','Sáb','Dom'];
+        caja.innerHTML = `
+            <table class="horario-tabla">
+                <thead><tr><th>Empleado</th><th>Día</th><th>Horario</th><th>Estado</th></tr></thead>
+                <tbody>${filas.map(h => {
+                    const diaIdx = (new Date(h.fecha + 'T00:00:00').getDay() + 6) % 7;
+                    return `<tr>
+                        <td><strong>${h.empleado}</strong></td>
+                        <td>${diasSemana[diaIdx]} ${String(h.fecha).slice(5)}</td>
+                        <td style="font-family:monospace">${h.hora_entrada} – ${h.hora_salida}</td>
+                        <td><span class="badge-estado badge-${h.estado}">${h.estado}</span></td>
+                    </tr>`;
+                }).join('')}</tbody>
+            </table>`;
+    } catch (err) {
+        clearTimeout(to);
+        caja.innerHTML = `<p style="color:#ef4444;font-size:13px">${
+            err?.name === 'AbortError' ? 'Los turnos han tardado demasiado.' : `Error: ${err.message}`}</p>`;
     }
 }
 

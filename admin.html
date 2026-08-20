@@ -891,7 +891,8 @@
             font-size: 14px;
             color: #1f2937;
         }
-        .horario-grupo-acciones { display: flex; gap: 8px; }
+        .horario-grupo-acciones { display: flex; gap: 8px; flex-wrap: wrap; }
+        .detalle-semana:not(:empty) { margin-top: 8px; }
         .btn-validar { background: #10b981; color: white; padding: 6px 14px; font-size: 12px; }
         .btn-validar:hover { background: #059669; }
         .btn-rechazar { background: #ef4444; color: white; padding: 6px 14px; font-size: 12px; }
@@ -1154,7 +1155,7 @@
         });
     })();
     </script>
-    <script type="module" src="admin.js?v=4"></script>
+    <script type="module" src="admin.js?v=5"></script>
 
     <!-- Red del local: desde dónde se puede fichar -->
     <div id="modalHabitual2" style="display:none"></div>
