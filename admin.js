@@ -865,6 +865,33 @@ function mostrarMensaje(texto, tipo) {
     }, 3000);
 }
 
+/**
+ * Cuando la lista falla, se pregunta a la API qué hay dentro y cuánto tarda.
+ * Un mensaje de error que no dice nada obliga a suponer, y suponer ya nos ha
+ * costado varias vueltas en este mismo panel.
+ */
+async function diagnosticarHorarios() {
+    const el = document.getElementById('diagHorarios');
+    if (!el) return;
+    const ctrl = new AbortController();
+    const to = setTimeout(() => ctrl.abort(), 25000);
+    try {
+        const t0 = Date.now();
+        const res = await fetch('/api/horarios?diagnostico=1', { signal: ctrl.signal, cache: 'no-store' });
+        clearTimeout(to);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const d = await res.json();
+        const estados = (d.por_estado || []).map(e => `${e.estado || 'sin estado'}: ${e.n}`).join(' · ');
+        el.textContent = `${d.filas} horarios guardados (${estados}). `
+            + `Preparar esquema: ${d.ms_esquema} ms · consultas: ${d.ms_consultas} ms · total ida y vuelta: ${Date.now() - t0} ms.`;
+    } catch (e) {
+        clearTimeout(to);
+        el.textContent = e?.name === 'AbortError'
+            ? 'La API de horarios no responde en 25 s: el problema está en el servidor, no en esta pantalla.'
+            : `No se ha podido diagnosticar (${e.message}).`;
+    }
+}
+
 async function cargarHorarios() {
     const estado = document.getElementById('filtroEstadoHorario')?.value || 'pendiente';
     const contenido = document.getElementById('horariosContenido');
@@ -874,7 +901,7 @@ async function cargarHorarios() {
     // Tope de espera: si la consulta no vuelve, hay que decirlo. Quedarse en
     // "Cargando..." para siempre es el peor de los estados posibles.
     const ctrl = new AbortController();
-    const to = setTimeout(() => ctrl.abort(), 12000);
+    const to = setTimeout(() => ctrl.abort(), 25000);
 
     try {
         const centroSel = document.getElementById('filtroCentro')?.value || '';
@@ -938,10 +965,15 @@ async function cargarHorarios() {
         contenido.innerHTML = html;
     } catch (err) {
         clearTimeout(to);
-        contenido.innerHTML = err?.name === 'AbortError'
-            ? '<p style="color:#ef4444;font-size:13px">La consulta ha tardado demasiado. Filtra por un centro concreto y vuelve a intentarlo.</p>'
-            : '<p style="color:#ef4444;font-size:13px">Error al cargar horarios. <button id="btnReintentarHorarios" style="background:none;border:none;color:#2563eb;cursor:pointer;text-decoration:underline;font-size:13px;padding:0">Reintentar</button></p>';
+        const motivo = err?.name === 'AbortError'
+            ? 'La consulta ha tardado demasiado.'
+            : 'Error al cargar horarios.';
+        contenido.innerHTML =
+            `<p style="color:#ef4444;font-size:13px">${motivo}
+             <button id="btnReintentarHorarios" style="background:none;border:none;color:#2563eb;cursor:pointer;text-decoration:underline;font-size:13px;padding:0">Reintentar</button></p>
+             <p id="diagHorarios" style="color:#9ca3af;font-size:12px;margin-top:6px">Comprobando qué pasa…</p>`;
         document.getElementById('btnReintentarHorarios')?.addEventListener('click', cargarHorarios);
+        diagnosticarHorarios();
     }
 }
 
