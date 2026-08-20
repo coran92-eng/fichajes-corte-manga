@@ -25,8 +25,17 @@ export default async function handler(req, res) {
     try { await db.execute("ALTER TABLE horarios ADD COLUMN rol_segunda TEXT NOT NULL DEFAULT ''"); } catch {}
     try { await db.execute("ALTER TABLE horarios ADD COLUMN hora_descanso TEXT NOT NULL DEFAULT ''"); } catch {}
 
+    // Sin índices, listar por estado recorría la tabla entera. Con un
+    // cuadrante subido cada semana eso crece sin parar.
+    try { await db.execute("CREATE INDEX IF NOT EXISTS idx_horarios_estado ON horarios (estado, fecha)"); } catch {}
+    try { await db.execute("CREATE INDEX IF NOT EXISTS idx_horarios_centro_fecha ON horarios (centro, fecha)"); } catch {}
+    try { await db.execute("CREATE INDEX IF NOT EXISTS idx_horarios_empleado_fecha ON horarios (empleado, fecha)"); } catch {}
+
     if (req.method === "GET") {
-      const { empleado, centro, semana, estado, fecha, fecha_desde, fecha_hasta } = req.query;
+      const {
+        empleado, centro, semana, estado, fecha, fecha_desde, fecha_hasta,
+        orden, limite,
+      } = req.query;
 
       let conditions = [];
       let args = [];
@@ -64,7 +73,19 @@ export default async function handler(req, res) {
 
       let query = "SELECT * FROM horarios";
       if (conditions.length) query += " WHERE " + conditions.join(" AND ");
-      query += " ORDER BY fecha ASC, hora_entrada ASC";
+
+      // 'desc' sirve para pedir lo más reciente cuando hay mucho acumulado
+      // (la pantalla de validación); el resto de llamadas siguen en orden de
+      // agenda, que es como se leen.
+      query += orden === 'desc'
+        ? " ORDER BY fecha DESC, hora_entrada ASC"
+        : " ORDER BY fecha ASC, hora_entrada ASC";
+
+      // Techo siempre presente: una consulta sin límite acaba colgando la
+      // pantalla en cuanto la tabla crece, y sin decir por qué.
+      const tope = Math.min(3000, Math.max(1, parseInt(limite, 10) || 2000));
+      query += " LIMIT ?";
+      args.push(tope);
 
       const result = await db.execute({ sql: query, args });
       return res.status(200).json(result.rows);
