@@ -82,6 +82,30 @@
         .barra-h { height: 4px; background: #0f172a; border-radius: 4px; margin-top: 9px; overflow: hidden; }
         .barra-h span { display: block; height: 100%; background: #38bdf8; }
 
+        /* ── Tabla por persona ── */
+        .tabla-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+        .tp { width: 100%; border-collapse: collapse; font-size: 13px; min-width: 560px; }
+        .tp th {
+            text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: .4px;
+            color: #64748b; padding: 6px 8px; border-bottom: 1px solid #334155; font-weight: 700;
+        }
+        .tp td { padding: 9px 8px; border-bottom: 1px solid #1e293b; vertical-align: middle; }
+        .tp-nom { font-weight: 700; color: #f8fafc; white-space: nowrap; }
+        .tp-num { font-family: ui-monospace, monospace; }
+
+        /* ── Detalle de un día ── */
+        .dia-cab { cursor: pointer; }
+        .dia-flecha { color: #64748b; font-size: 12px; transition: transform .18s; }
+        .dia-flecha.girada { transform: rotate(180deg); display: inline-block; }
+        .dia-gente { display: none; margin-top: 10px; border-top: 1px solid #334155; padding-top: 8px; }
+        .dia-gente.abierta { display: block; }
+        .pers {
+            display: flex; align-items: center; gap: 7px; flex-wrap: wrap;
+            padding: 6px 0; font-size: 12.5px;
+        }
+        .pers-nom { font-weight: 700; color: #e2e8f0; min-width: 88px; }
+        .pers-dato { display: inline-flex; }
+
         .nota-pie { color: #64748b; font-size: 12px; line-height: 1.6; margin-top: 26px; }
         .cargando { color: #64748b; padding: 40px 0; text-align: center; font-size: 14px; }
         .error { background: #450a0a; color: #fca5a5; padding: 13px; border-radius: 9px; font-size: 13.5px; }
@@ -206,10 +230,19 @@ async function cargar() {
     const desde = iniHoy - 13 * DIA_MS;
     const ayer = fechaOperativaDe(iniHoy - DIA_MS);
 
-    // Los fichajes van solos y primero: son lo único imprescindible, y
-    // lanzarlo todo a la vez hacía que compitieran entre ellas.
-    const rFich = await pedir(
-        `/api/fichajes?centro=${encodeURIComponent(centro)}&desde=${desde}&hasta=${ahora + 60000}`);
+    // Sin filtros de servidor: la consulta con centro + rango de fechas se
+    // quedaba colgada, mientras que esta misma llamada sin filtros lleva meses
+    // funcionando en el panel de reportes. Se acota aquí, que para unos miles
+    // de filas no cuesta nada.
+    const rFich = await pedir(`/api/fichajes?limit=6000`);
+    if (rFich.datos) {
+        const mismoCentro = c => {
+            const v = String(c || '').trim().toLowerCase();
+            return v === '' || v === centro.trim().toLowerCase();
+        };
+        rFich.datos = rFich.datos.filter(f =>
+            mismoCentro(f.centro) && Number(f.timestamp) >= desde && Number(f.timestamp) <= ahora + 60000);
+    }
 
     if (!rFich.datos) {
         cont.innerHTML = `<div class="error">
@@ -224,13 +257,18 @@ async function cargar() {
     }
 
     const [rCuad, rNotas, rTareas] = await Promise.all([
-        pedir(`/api/horarios?centro=${encodeURIComponent(centro)}&fecha_desde=${iso(new Date(desde))}&fecha_hasta=${iso(new Date(ahora))}`),
+        pedir(`/api/horarios?centro=${encodeURIComponent(centro)}&limite=1500`),
         pedir(`/api/turno-notas?centro=${encodeURIComponent(centro)}&dias=7`),
         pedir(`/api/tareas?centro=${encodeURIComponent(centro)}&fecha_operativa=${ayer}`),
     ]);
 
     // Las demás fuentes no son imprescindibles: si una falla, el resto de la
     // pantalla se pinta igual y se avisa de lo que falta.
+    if (rCuad.datos) {
+        const dDesde = iso(new Date(desde)), dHasta = iso(new Date(ahora));
+        rCuad.datos = rCuad.datos.filter(h => h.fecha >= dDesde && h.fecha <= dHasta);
+    }
+
     const avisos = [];
     if (!rCuad.datos) avisos.push(`el cuadrante (${rCuad.fallo})`);
     if (!rNotas.datos) avisos.push(`las notas e incidencias (${rNotas.fallo})`);
@@ -307,6 +345,45 @@ function construir(fichajes, cuadrante, notas, tareasAyer, iniHoy) {
     };
 }
 
+/**
+ * Qué hizo cada persona ese día: a qué hora entró frente a la que le tocaba,
+ * a qué hora salió frente a la suya, y si paró a descansar.
+ */
+function detallePersona(p, prev) {
+    const entrada = p.ev.find(e => e.tipo === 'entrada');
+    let salida = null;
+    for (const e of p.ev) if (e.tipo === 'salida') salida = e;
+
+    const descansos = [];
+    let ini = null;
+    for (const e of p.ev) {
+        if (e.tipo === 'inicio_descanso') ini = e;
+        else if (e.tipo === 'fin_descanso' && ini) {
+            descansos.push({
+                ini: String(ini.hora).slice(0, 5), fin: String(e.hora).slice(0, 5),
+                min: Math.round((Number(e.timestamp) - Number(ini.timestamp)) / 60000),
+            });
+            ini = null;
+        }
+    }
+    const { minutos, abierto } = minutosTrabajados(p.ev);
+
+    const difEnt = entrada && prev ? difMin(minutosDeHHMM(entrada.hora), minutosDeHHMM(prev.entrada)) : null;
+    const difSal = salida && prev?.salida ? difMin(minutosDeHHMM(salida.hora), minutosDeHHMM(prev.salida)) : null;
+
+    return {
+        nombre: p.nombre, minutos, abierto,
+        entrada: entrada ? String(entrada.hora).slice(0, 5) : null,
+        salida: salida ? String(salida.hora).slice(0, 5) : null,
+        prevEntrada: prev?.entrada ? String(prev.entrada).slice(0, 5) : null,
+        prevSalida: prev?.salida ? String(prev.salida).slice(0, 5) : null,
+        difEnt, difSal, descansos,
+        descansoMin: descansos.reduce((a, d) => a + d.min, 0),
+        // Descanso "sin cerrar": empezó y nunca marcó la vuelta.
+        descansoAbierto: !!ini,
+    };
+}
+
 function resumenDia(fecha, ts, porDia, prevDe, esHoy) {
     const gente = porDia[fecha] || {};
     let minutos = 0, personas = 0, tarde = 0, conPrevisto = 0, minPrev = 0, sinCerrar = 0;
@@ -331,7 +408,12 @@ function resumenDia(fecha, ts, porDia, prevDe, esHoy) {
         if (k.startsWith(`${fecha}|`)) minPrev += v.minutos;
     }
 
-    return { fecha, ts, esHoy, personas, minutos, minPrev, tarde, conPrevisto, sinCerrar };
+    const gentes = Object.entries(gente)
+        .map(([k, p]) => detallePersona(p, prevDe[`${fecha}|${k}`]))
+        .filter(x => x.minutos > 0 || x.abierto || x.entrada)
+        .sort((a, b) => (a.entrada || '99').localeCompare(b.entrada || '99'));
+
+    return { fecha, ts, esHoy, personas, minutos, minPrev, tarde, conPrevisto, sinCerrar, gentes };
 }
 
 /**
@@ -343,9 +425,9 @@ async function sondear(desde, ahora) {
     const caja = document.getElementById('sonda');
     if (!caja) return;
     const pruebas = [
-        ['1 registro, sin filtros', `/api/fichajes?limit=1`],
-        ['último día de este centro', `/api/fichajes?centro=${encodeURIComponent(centro)}&desde=${ahora - DIA_MS}&hasta=${ahora + 60000}`],
-        ['los 14 días que pide el panel', `/api/fichajes?centro=${encodeURIComponent(centro)}&desde=${desde}&hasta=${ahora + 60000}`],
+        ['1 registro', `/api/fichajes?limit=1`],
+        ['500 registros', `/api/fichajes?limit=500`],
+        ['los 6000 que pide el panel', `/api/fichajes?limit=6000`],
     ];
     const lineas = [];
     for (const [nombre, url] of pruebas) {
@@ -424,6 +506,57 @@ function pintar(d, avisos = [], tiempos = null) {
                     : '<span class="flat">sin tareas</span>')}
         </div>`;
 
+    // ── Cada persona en los 7 días ──
+    const porPersona = {};
+    for (const dia of d.dias) {
+        for (const g of dia.gentes) {
+            const k = g.nombre.trim().toUpperCase();
+            const p = (porPersona[k] ||= {
+                nombre: g.nombre, dias: 0, minutos: 0,
+                tarde: 0, minTarde: 0, puntual: 0,
+                antes: 0, deMas: 0, conDescanso: 0, sinDescanso: 0, sinCerrar: 0,
+            });
+            p.dias++;
+            p.minutos += g.minutos;
+            if (g.abierto) p.sinCerrar++;
+            if (g.difEnt !== null) {
+                if (g.difEnt > MARGEN_TARDE) { p.tarde++; p.minTarde += g.difEnt; }
+                else p.puntual++;
+            }
+            if (g.difSal !== null) {
+                if (g.difSal < -MARGEN_TARDE) p.antes++;
+                else if (g.difSal > 15) p.deMas++;
+            }
+            if (g.descansos.length) p.conDescanso++; else p.sinDescanso++;
+        }
+    }
+    const personas = Object.values(porPersona)
+        .sort((a, b) => b.tarde - a.tarde || b.minutos - a.minutos);
+
+    const tablaPersonas = personas.length ? `
+        <div class="tabla-wrap"><table class="tp">
+            <thead><tr>
+                <th>Persona</th><th>Días</th><th>Horas</th>
+                <th>Entrada</th><th>Salida</th><th>Descanso</th>
+            </tr></thead>
+            <tbody>${personas.map(p => `
+                <tr>
+                    <td class="tp-nom">${esc(p.nombre)}</td>
+                    <td>${p.dias}</td>
+                    <td class="tp-num">${fmtH(horas(p.minutos))}</td>
+                    <td>${p.tarde
+                        ? `<span class="tag ${p.tarde > 2 ? 'mal' : 'ojo'}">${p.tarde} tarde · +${Math.round(p.minTarde)} min</span>`
+                        : p.puntual ? '<span class="tag bien">puntual</span>' : '<span class="tag">sin horario</span>'}</td>
+                    <td>${p.antes || p.deMas
+                        ? [p.antes ? `<span class="tag ojo">${p.antes} antes</span>` : '',
+                           p.deMas ? `<span class="tag">${p.deMas} de más</span>` : ''].join(' ')
+                        : '<span class="tag bien">a su hora</span>'}</td>
+                    <td>${p.conDescanso
+                        ? `<span class="tag ${p.sinDescanso ? '' : 'bien'}">${p.conDescanso} de ${p.dias}</span>`
+                        : `<span class="tag ojo">ninguno</span>`}</td>
+                </tr>`).join('')}</tbody>
+        </table></div>` : '<div class="todo-ok" style="background:#1e293b;color:#94a3b8;border-left-color:#334155">Nadie ha fichado en los últimos 7 días.</div>';
+
     // ── Días ──
     const maxMin = Math.max(1, ...d.dias.map(x => Math.max(x.minutos, x.minPrev)));
     const filas = d.dias.slice().reverse().map(x => {
@@ -444,15 +577,30 @@ function pintar(d, avisos = [], tiempos = null) {
         if (x.sinCerrar) tags.push(`<span class="tag mal">${x.sinCerrar} sin cerrar</span>`);
         if (!x.personas) tags.push('<span class="tag">sin actividad</span>');
 
+        const gente = x.gentes.map(g => `
+            <div class="pers">
+                <span class="pers-nom">${esc(g.nombre)}</span>
+                <span class="pers-dato">${marcaHora('E', g.prevEntrada, g.entrada, g.difEnt, MARGEN_TARDE)}</span>
+                <span class="pers-dato">${marcaHora('S', g.prevSalida, g.salida, g.difSal, 15)}</span>
+                <span class="pers-dato">${g.descansoAbierto
+                    ? '<span class="tag ojo">descanso sin cerrar</span>'
+                    : g.descansos.length
+                        ? `<span class="tag">descanso ${g.descansoMin} min</span>`
+                        : '<span class="tag ojo">sin descanso</span>'}</span>
+                <span class="pers-dato">${g.abierto ? '<span class="tag mal">sin cerrar</span>' : fmtH(horas(g.minutos))}</span>
+            </div>`).join('');
+
         return `
         <div class="dia ${color}">
-            <div class="dia-cab">
+            <div class="dia-cab" data-dia="${x.fecha}" role="button" tabindex="0">
                 <span class="dia-nombre">${nom}${x.esHoy ? ' · hoy' : ''}</span>
                 <span class="dia-horas">${fmtH(horas(x.minutos))}</span>
                 ${x.minPrev ? `<span class="dia-prev">previsto ${fmtH(horas(x.minPrev))}</span>` : ''}
+                ${x.gentes.length ? '<span class="dia-flecha">▾</span>' : ''}
             </div>
             <div class="dia-tags">${tags.join('')}</div>
             <div class="barra-h"><span style="width:${Math.round(x.minutos / maxMin * 100)}%"></span></div>
+            ${gente ? `<div class="dia-gente" id="g-${x.fecha}">${gente}</div>` : ''}
         </div>`;
     }).join('');
 
@@ -464,7 +612,10 @@ function pintar(d, avisos = [], tiempos = null) {
         <h2>Los últimos 7 días</h2>
         ${kpis}
 
-        <h2>Día a día</h2>
+        <h2>Cada persona, estos 7 días</h2>
+        ${tablaPersonas}
+
+        <h2>Día a día <span style="text-transform:none;letter-spacing:0">(toca un día para ver quién hizo qué)</span></h2>
         ${filas}
 
         ${tiempos ? `<p class="nota-pie" style="opacity:.7">
@@ -478,7 +629,27 @@ function pintar(d, avisos = [], tiempos = null) {
             hasta que se corrige. La puntualidad solo se mide en quien tenía horario en el cuadrante.
         </p>`;
 
+    cont.querySelectorAll('[data-dia]').forEach(cab => {
+        const abrir = () => {
+            const caja = document.getElementById(`g-${cab.dataset.dia}`);
+            if (caja) caja.classList.toggle('abierta');
+            cab.querySelector('.dia-flecha')?.classList.toggle('girada');
+        };
+        cab.addEventListener('click', abrir);
+        cab.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); abrir(); } });
+    });
+
     if (typeof lucide !== 'undefined') lucide.createIcons();
+}
+
+/** "19:00 → 19:04  +4" con el color según se pase o no de la tolerancia. */
+function marcaHora(letra, prev, real, dif, tolerancia) {
+    if (!prev && !real) return `<span class="tag">${letra} —</span>`;
+    const cuerpo = prev && real ? `${prev}→${real}` : (real || `${prev}→—`);
+    if (dif === null || dif === undefined) return `<span class="tag">${letra} ${cuerpo}</span>`;
+    const fuera = Math.abs(dif) > tolerancia;
+    const signo = dif > 0 ? '+' : '';
+    return `<span class="tag ${fuera ? (dif > 0 ? 'ojo' : 'mal') : 'bien'}">${letra} ${cuerpo} ${signo}${dif}</span>`;
 }
 
 function tarjeta(clase, icono, titulo, sub) {
