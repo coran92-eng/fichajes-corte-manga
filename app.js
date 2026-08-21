@@ -619,7 +619,12 @@ function fechaOperativa() {
     return fechaISO(d);
 }
 
-/** El cuadrante del centro para la jornada de hoy. */
+/**
+ * El cuadrante del centro para la jornada de hoy.
+ * Devuelve también si la consulta falló: no es lo mismo "hoy no hay nadie
+ * puesto en el cuadrante" que "no he podido preguntarlo", y el panel tiene que
+ * poder decir cuál de las dos es.
+ */
 async function fetchCuadranteDelDia() {
     const ctrl = new AbortController();
     const to = setTimeout(() => ctrl.abort(), 8000);
@@ -629,14 +634,15 @@ async function fetchCuadranteDelDia() {
             { signal: ctrl.signal, cache: 'no-store' }
         );
         clearTimeout(to);
-        if (!res.ok) return [];
+        if (!res.ok) return { filas: [], fallo: `HTTP ${res.status}` };
         const data = await res.json();
-        return Array.isArray(data)
+        const filas = Array.isArray(data)
             ? data.filter(h => (h.estado || '').toLowerCase() !== 'rechazado')
             : [];
-    } catch {
+        return { filas, fallo: '' };
+    } catch (e) {
         clearTimeout(to);
-        return [];
+        return { filas: [], fallo: e?.name === 'AbortError' ? 'tardó demasiado' : 'sin conexión' };
     }
 }
 
@@ -719,12 +725,22 @@ function construirEquipoDelDia(fichajes, cuadrante, inicioJornada) {
 }
 
 async function cargarTurnoActual() {
-    const inicioJornada = ventanaDiaAnterior().hasta;
-    const [fichajes, cuadrante] = await Promise.all([
-        fetchFichajes(Date.now() - 36 * 60 * 60 * 1000, Date.now() + 60000),
-        fetchCuadranteDelDia(),
-    ]);
-    renderizarTurnoPanel(construirEquipoDelDia(fichajes, cuadrante, inicioJornada));
+    const fecha = fechaOperativa();
+    try {
+        const inicioJornada = ventanaDiaAnterior().hasta;
+        const [fichajes, cuadrante] = await Promise.all([
+            fetchFichajes(Date.now() - 36 * 60 * 60 * 1000, Date.now() + 60000),
+            fetchCuadranteDelDia(),
+        ]);
+        renderizarTurnoPanel(
+            construirEquipoDelDia(fichajes, cuadrante.filas, inicioJornada),
+            { fecha, sinCuadrante: cuadrante.filas.length === 0, fallo: cuadrante.fallo }
+        );
+    } catch (e) {
+        // Un fallo aquí dejaba el panel en blanco sin decir nada, y desde fuera
+        // parecía que la función se había perdido.
+        renderizarTurnoPanel([], { fecha, sinCuadrante: true, fallo: e?.message || 'error inesperado' });
+    }
 }
 
 /**
@@ -753,7 +769,7 @@ function lineaFichaje(label, prev, real, tolerancia) {
         </div>`;
 }
 
-function renderizarTurnoPanel(equipo) {
+function renderizarTurnoPanel(equipo, ctx = {}) {
     const panel = document.getElementById('turnoPanel');
     const lista = document.getElementById('turnoLista');
     const countEl = document.getElementById('turnoCount');
@@ -761,9 +777,19 @@ function renderizarTurnoPanel(equipo) {
 
     panel.style.display = 'block';
 
+    // Cuando falta el cuadrante hay que decirlo: si no, el panel enseña solo a
+    // quien ha fichado y parece que la comparación con el horario ha
+    // desaparecido, cuando lo que pasa es que hoy no hay horario que comparar.
+    const nota = !ctx.sinCuadrante ? '' : ctx.fallo
+        ? `<div class="turno-nota-cuadrante">No se ha podido consultar el horario (${ctx.fallo}).
+           Se muestra solo quien ha fichado.</div>`
+        : `<div class="turno-nota-cuadrante">No hay horario cargado para hoy (${ctx.fecha || ''}) en ${centroActual || 'este centro'}.
+           En cuanto el encargado suba el cuadrante saldrá aquí quién entra y a qué hora.</div>`;
+
     if (equipo.length === 0) {
         countEl.textContent = 'Sin datos';
-        lista.innerHTML = '<div class="turno-vacio">Nadie en el local y ningún horario cargado para hoy</div>';
+        lista.innerHTML = nota
+            || '<div class="turno-vacio">Nadie en el local y ningún horario cargado para hoy</div>';
         return;
     }
 
@@ -772,7 +798,7 @@ function renderizarTurnoPanel(equipo) {
         ? `${dentro} en el local · ${equipo.length} hoy`
         : `${equipo.length} hoy`;
 
-    lista.innerHTML = equipo.map(p => {
+    lista.innerHTML = nota + equipo.map(p => {
         const { nombre, estado, prevEntrada, prevSalida, entradaHora, salidaHora, descansos, descansoActivo } = p;
 
         const minDescanso = descansoActivo

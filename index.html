@@ -479,6 +479,11 @@
         .turno-flecha { color: #cbd5e1; font-weight: 400; }
         .turno-pendiente-val { color: #cbd5e1; }
 
+        .turno-nota-cuadrante {
+            background: #fef3c7; border-radius: 8px; padding: 10px 12px;
+            font-size: 12.5px; color: #92400e; line-height: 1.45; margin-bottom: 8px;
+        }
+
         @media (prefers-color-scheme: dark) {
             .turno-panel { background: #022c22; border-color: #064e3b; }
             .turno-title { color: #6ee7b7; }
@@ -495,6 +500,7 @@
             .turno-linea-val { color: #d1d5db; }
             .turno-linea--warning .turno-linea-val { color: #f87171; }
             .turno-flecha, .turno-pendiente-val { color: #4b5563; }
+            .turno-nota-cuadrante { background: #271a05; color: #fcd34d; }
         }
 
         /* Panel de tareas del día: marcar en la propia pantalla de fichaje */
@@ -1223,7 +1229,7 @@
         <button id="btnUndo" class="undo-btn" type="button">Deshacer</button>
     </div>
 
-    <script type="module" src="app.js?v=13"></script>
+    <script type="module" src="app.js?v=14"></script>
     <script>
         document.addEventListener('DOMContentLoaded', () => {
             if (typeof lucide !== 'undefined') lucide.createIcons();
