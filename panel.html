@@ -1,0 +1,449 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#111827">
+    <title>Cómo va el bar</title>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <script>
+        const TOKEN = sessionStorage.getItem('adminToken') || '';
+        if (TOKEN !== 'auth-token-fichaje-admin') window.location.href = 'login.html';
+    </script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #0f172a; color: #e2e8f0; min-height: 100dvh; padding: 16px;
+        }
+        .wrap { max-width: 900px; margin: 0 auto; }
+
+        .top { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 4px; }
+        .top h1 { font-size: 21px; flex: 1; min-width: 160px; }
+        select, button {
+            font-family: inherit; font-size: 13px; font-weight: 600;
+            border-radius: 8px; border: 1px solid #334155; cursor: pointer;
+            background: #1e293b; color: #e2e8f0; padding: 8px 12px;
+        }
+        .fecha-txt { color: #64748b; font-size: 13px; margin-bottom: 18px; }
+
+        h2 {
+            font-size: 12px; text-transform: uppercase; letter-spacing: .6px;
+            color: #64748b; margin: 24px 0 10px;
+        }
+
+        /* ── Atención ── */
+        .aten { display: flex; flex-direction: column; gap: 8px; }
+        .card-at {
+            background: #1e293b; border-left: 3px solid #f59e0b; border-radius: 9px;
+            padding: 12px 14px; display: flex; gap: 11px; align-items: flex-start;
+        }
+        .card-at.rojo { border-left-color: #ef4444; }
+        .card-at.info { border-left-color: #38bdf8; }
+        .card-at i { flex-shrink: 0; margin-top: 1px; color: #f59e0b; }
+        .card-at.rojo i { color: #ef4444; }
+        .card-at.info i { color: #38bdf8; }
+        .at-txt { flex: 1; font-size: 14px; line-height: 1.45; }
+        .at-txt strong { color: #f8fafc; }
+        .at-sub { color: #94a3b8; font-size: 12.5px; margin-top: 3px; line-height: 1.5; }
+        .todo-ok {
+            background: #052e1a; border-left: 3px solid #10b981; border-radius: 9px;
+            padding: 14px; font-size: 14px; color: #6ee7b7; font-weight: 600;
+        }
+
+        /* ── Semana en números ── */
+        .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
+        .kpi { background: #1e293b; border-radius: 10px; padding: 14px; }
+        .kpi-lbl { font-size: 11.5px; color: #64748b; text-transform: uppercase; letter-spacing: .4px; }
+        .kpi-val { font-size: 25px; font-weight: 800; color: #f8fafc; margin: 5px 0 2px; }
+        .kpi-delta { font-size: 12px; font-weight: 700; }
+        .up { color: #f87171; } .down { color: #6ee7b7; } .flat { color: #64748b; }
+
+        /* ── Días ── */
+        .dia {
+            background: #1e293b; border-radius: 10px; padding: 12px 14px; margin-bottom: 7px;
+            border-left: 3px solid #334155;
+        }
+        .dia.verde { border-left-color: #10b981; }
+        .dia.ambar { border-left-color: #f59e0b; }
+        .dia.rojo  { border-left-color: #ef4444; }
+        .dia-cab { display: flex; align-items: baseline; gap: 9px; flex-wrap: wrap; }
+        .dia-nombre { font-weight: 700; font-size: 14.5px; color: #f8fafc; min-width: 92px; }
+        .dia-horas { font-family: ui-monospace, monospace; font-size: 14px; }
+        .dia-prev { color: #64748b; font-size: 12.5px; }
+        .dia-tags { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 7px; }
+        .tag {
+            font-size: 11.5px; padding: 2px 8px; border-radius: 20px;
+            background: #0f172a; color: #94a3b8; font-weight: 600;
+        }
+        .tag.mal { background: #450a0a; color: #fca5a5; }
+        .tag.ojo { background: #451a03; color: #fcd34d; }
+        .tag.bien { background: #052e1a; color: #6ee7b7; }
+        .barra-h { height: 4px; background: #0f172a; border-radius: 4px; margin-top: 9px; overflow: hidden; }
+        .barra-h span { display: block; height: 100%; background: #38bdf8; }
+
+        .nota-pie { color: #64748b; font-size: 12px; line-height: 1.6; margin-top: 26px; }
+        .cargando { color: #64748b; padding: 40px 0; text-align: center; font-size: 14px; }
+        .error { background: #450a0a; color: #fca5a5; padding: 13px; border-radius: 9px; font-size: 13.5px; }
+    </style>
+</head>
+<body>
+<div class="wrap">
+    <div class="top">
+        <h1>Cómo va el bar</h1>
+        <select id="selCentro"></select>
+        <button id="btnRecargar">↻</button>
+        <button id="btnDetalle">Ver detalle</button>
+    </div>
+    <div class="fecha-txt" id="fechaTxt"></div>
+
+    <div id="contenido"><div class="cargando">Cargando los últimos 7 días…</div></div>
+</div>
+
+<script>
+const H = { 'X-Auth-Token': TOKEN };
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c =>
+    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+const DIA_MS = 86400000;
+const CORTE = 7;                  // la jornada del bar va de 07:00 a 07:00
+const MARGEN_TARDE = 5;           // minutos de cortesía en la entrada
+let centro = '';
+
+const pad = n => String(n).padStart(2, '0');
+const iso = d => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+
+/** Inicio (ms) de la jornada operativa que contiene este instante. */
+function inicioJornadaDe(ts) {
+    const d = new Date(ts);
+    const ini = new Date(d);
+    ini.setHours(CORTE, 0, 0, 0);
+    if (d.getHours() < CORTE) ini.setDate(ini.getDate() - 1);
+    return ini.getTime();
+}
+const fechaOperativaDe = ts => iso(new Date(inicioJornadaDe(ts)));
+
+function minutosDeHHMM(h) {
+    const m = /^(\d{1,2}):(\d{2})/.exec(String(h || '').trim());
+    if (!m) return null;
+    const a = +m[1], b = +m[2];
+    return a > 23 || b > 59 ? null : a * 60 + b;
+}
+function difMin(a, b) {
+    if (a === null || b === null) return null;
+    let d = a - b;
+    if (d > 720) d -= 1440;
+    if (d < -720) d += 1440;
+    return d;
+}
+const horas = m => Math.round(m / 6) / 10;   // minutos → horas con un decimal
+const fmtH = h => `${String(h).replace('.', ',')} h`;
+
+/** Minutos realmente trabajados, descontando descansos. Un turno sin cerrar
+ *  no suma: inventarle una salida falsearía las horas. */
+function minutosTrabajados(eventos) {
+    let ent = null, desc = null, restar = 0, total = 0, abierto = false;
+    for (const f of eventos) {
+        const ts = Number(f.timestamp);
+        if (f.tipo === 'entrada') { ent = ts; desc = null; restar = 0; }
+        else if (f.tipo === 'inicio_descanso') { if (ent !== null) desc = ts; }
+        else if (f.tipo === 'fin_descanso') { if (desc !== null) { restar += ts - desc; desc = null; } }
+        else if (f.tipo === 'salida' && ent !== null) {
+            if (desc !== null) { restar += ts - desc; desc = null; }
+            total += Math.max(0, (ts - ent - restar) / 60000);
+            ent = null; restar = 0;
+        }
+    }
+    if (ent !== null) abierto = true;
+    return { minutos: total, abierto };
+}
+
+async function pedir(url, ms = 12000) {
+    const c = new AbortController();
+    const t = setTimeout(() => c.abort(), ms);
+    try {
+        const r = await fetch(url, { headers: H, signal: c.signal, cache: 'no-store' });
+        clearTimeout(t);
+        if (!r.ok) return null;
+        return await r.json();
+    } catch { clearTimeout(t); return null; }
+}
+
+async function cargarCentros() {
+    let centros = ['Corte de Manga'];
+    try {
+        const r = await fetch('/config.json');
+        if (r.ok) { const c = await r.json(); if (Array.isArray(c.centros) && c.centros.length) centros = c.centros; }
+    } catch {}
+    const sel = document.getElementById('selCentro');
+    sel.innerHTML = centros.map(c => `<option value="${esc(c)}">${esc(c)}</option>`).join('');
+    centro = new URLSearchParams(location.search).get('centro') || centros[0];
+    if (centros.includes(centro)) sel.value = centro; else centro = sel.value;
+}
+
+async function cargar() {
+    const cont = document.getElementById('contenido');
+    cont.innerHTML = '<div class="cargando">Cargando los últimos 7 días…</div>';
+
+    const ahora = Date.now();
+    const iniHoy = inicioJornadaDe(ahora);
+    // 14 días: 7 para mostrar y 7 más para comparar con la semana anterior.
+    const desde = iniHoy - 13 * DIA_MS;
+    const ayer = fechaOperativaDe(iniHoy - DIA_MS);
+
+    const [fichajes, cuadrante, notas, tareasAyer] = await Promise.all([
+        pedir(`/api/fichajes?centro=${encodeURIComponent(centro)}&desde=${desde}&hasta=${ahora + 60000}`),
+        pedir(`/api/horarios?centro=${encodeURIComponent(centro)}&fecha_desde=${iso(new Date(desde))}&fecha_hasta=${iso(new Date(ahora))}`),
+        pedir(`/api/turno-notas?centro=${encodeURIComponent(centro)}&dias=7`),
+        pedir(`/api/tareas?centro=${encodeURIComponent(centro)}&fecha_operativa=${ayer}`, 15000),
+    ]);
+
+    if (!fichajes) {
+        cont.innerHTML = '<div class="error">No se han podido leer los fichajes. Recarga en un momento.</div>';
+        return;
+    }
+
+    pintar(construir(fichajes, cuadrante || [], notas, tareasAyer, iniHoy));
+    document.getElementById('fechaTxt').textContent =
+        `${centro} · jornada del ${new Intl.DateTimeFormat('es-ES', { weekday: 'long', day: 'numeric', month: 'long' }).format(new Date(iniHoy))}`;
+}
+
+function construir(fichajes, cuadrante, notas, tareasAyer, iniHoy) {
+    const clave = n => String(n || '').trim().toUpperCase();
+
+    // Previsto por día y persona, desde el cuadrante.
+    const prevDe = {};
+    for (const h of cuadrante) {
+        if (String(h.estado || '').toLowerCase() === 'rechazado') continue;
+        const ini = minutosDeHHMM(h.hora_entrada), fin = minutosDeHHMM(h.hora_salida);
+        if (ini === null || fin === null) continue;
+        prevDe[`${h.fecha}|${clave(h.empleado)}`] = {
+            entrada: h.hora_entrada, minutos: (fin <= ini ? fin + 1440 : fin) - ini,
+        };
+    }
+
+    // Fichajes agrupados por jornada y persona.
+    const porDia = {};
+    for (const f of fichajes) {
+        const fecha = fechaOperativaDe(Number(f.timestamp));
+        (porDia[fecha] ||= {});
+        (porDia[fecha][clave(f.empleado)] ||= { nombre: f.empleado, ev: [] }).ev.push(f);
+    }
+    for (const d of Object.values(porDia))
+        for (const p of Object.values(d)) p.ev.sort((a, b) => a.timestamp - b.timestamp);
+
+    const dias = [];
+    for (let i = 6; i >= 0; i--) {
+        const ts = iniHoy - i * DIA_MS;
+        dias.push(resumenDia(iso(new Date(ts)), ts, porDia, prevDe, i === 0));
+    }
+    const previos = [];
+    for (let i = 13; i >= 7; i--) {
+        const ts = iniHoy - i * DIA_MS;
+        previos.push(resumenDia(iso(new Date(ts)), ts, porDia, prevDe, false));
+    }
+
+    const abiertos = [];
+    for (const [fecha, gente] of Object.entries(porDia)) {
+        for (const p of Object.values(gente)) {
+            const { abierto } = minutosTrabajados(p.ev);
+            const ultimo = p.ev[p.ev.length - 1];
+            // Un turno abierto de hoy es alguien trabajando; de días atrás, un
+            // fichaje que nadie cerró.
+            if (abierto && Number(ultimo.timestamp) < iniHoy) {
+                abiertos.push({ nombre: p.nombre, fecha, desde: ultimo.hora });
+            }
+        }
+    }
+
+    // Salidas fuera de hora que traen explicación escrita: es lo que hay que leer.
+    const motivos = fichajes
+        .filter(f => f.tipo === 'salida' && String(f.motivo || '').trim()
+                     && Number(f.timestamp) >= iniHoy - 6 * DIA_MS)
+        .sort((a, b) => b.timestamp - a.timestamp)
+        .slice(0, 6);
+
+    return {
+        dias, previos, abiertos, motivos,
+        incidencias: (notas?.incidencias || []).filter(n => n.estado === 'abierta' || n.estado === 'en_curso'),
+        faltas: (notas?.faltas || []).filter(n => n.estado === 'abierta' || n.estado === 'en_curso'),
+        tareasAyer,
+    };
+}
+
+function resumenDia(fecha, ts, porDia, prevDe, esHoy) {
+    const gente = porDia[fecha] || {};
+    let minutos = 0, personas = 0, tarde = 0, conPrevisto = 0, minPrev = 0, sinCerrar = 0;
+
+    for (const [k, p] of Object.entries(gente)) {
+        const { minutos: m, abierto } = minutosTrabajados(p.ev);
+        if (abierto) sinCerrar++;
+        if (m <= 0 && !abierto) continue;
+        personas++;
+        minutos += m;
+
+        const prev = prevDe[`${fecha}|${k}`];
+        const entrada = p.ev.find(e => e.tipo === 'entrada');
+        if (prev && entrada) {
+            conPrevisto++;
+            const d = difMin(minutosDeHHMM(entrada.hora), minutosDeHHMM(prev.entrada));
+            if (d !== null && d > MARGEN_TARDE) tarde++;
+        }
+    }
+    // Previsto del día: todo el que estaba puesto en el cuadrante, fichara o no.
+    for (const [k, v] of Object.entries(prevDe)) {
+        if (k.startsWith(`${fecha}|`)) minPrev += v.minutos;
+    }
+
+    return { fecha, ts, esHoy, personas, minutos, minPrev, tarde, conPrevisto, sinCerrar };
+}
+
+function pintar(d) {
+    const cont = document.getElementById('contenido');
+
+    // ── Atención ──
+    const at = [];
+    if (d.incidencias.length) {
+        at.push(tarjeta('rojo', 'alert-triangle',
+            `<strong>${d.incidencias.length} incidencia${d.incidencias.length !== 1 ? 's' : ''} sin resolver</strong>`,
+            d.incidencias.slice(0, 4).map(n => `· ${esc(n.texto)} <em>(${esc(n.autor || '—')}, ${esc(n.fecha_operativa)})</em>`).join('<br>')));
+    }
+    if (d.faltas.length) {
+        at.push(tarjeta('', 'package-x',
+            `<strong>${d.faltas.length} cosa${d.faltas.length !== 1 ? 's' : ''} que se han acabado</strong>`,
+            d.faltas.slice(0, 5).map(n => `· ${esc(n.texto)}`).join('<br>')));
+    }
+    if (d.abiertos.length) {
+        at.push(tarjeta('rojo', 'log-out',
+            `<strong>${d.abiertos.length} turno${d.abiertos.length !== 1 ? 's' : ''} sin cerrar</strong>`,
+            d.abiertos.map(a => `· ${esc(a.nombre)} entró el ${esc(a.fecha)} a las ${esc(String(a.desde).slice(0, 5))} y no fichó salida`).join('<br>')
+            + '<br><em>Se arregla en ⋯ → Arreglar fichajes</em>'));
+    }
+    const rAyer = d.tareasAyer?.resumen;
+    if (rAyer && rAyer.bloqueantes_pendientes > 0) {
+        const n = rAyer.bloqueantes_pendientes;
+        at.push(tarjeta('rojo', 'clipboard-x',
+            `<strong>${n} tarea${n !== 1 ? 's' : ''} bloqueante${n !== 1 ? 's' : ''} sin hacer ayer</strong>`,
+            'Son las que no deberían quedarse nunca sin completar.'));
+    }
+    if (d.motivos.length) {
+        at.push(tarjeta('info', 'message-square',
+            `<strong>Salidas fuera de hora con explicación</strong>`,
+            d.motivos.map(m => `· <strong>${esc(m.empleado)}</strong> (${esc(m.fecha)}): ${esc(m.motivo)}`).join('<br>')));
+    }
+
+    // ── Semana ──
+    const suma = arr => arr.reduce((a, x) => a + x.minutos, 0);
+    const sumaPrev = arr => arr.reduce((a, x) => a + x.minPrev, 0);
+    const hSem = suma(d.dias), hAnt = suma(d.previos);
+    const pSem = sumaPrev(d.dias);
+    const tardeSem = d.dias.reduce((a, x) => a + x.tarde, 0);
+    const conPrev = d.dias.reduce((a, x) => a + x.conPrevisto, 0);
+    const puntual = conPrev ? Math.round((conPrev - tardeSem) / conPrev * 100) : null;
+
+    const tardeAnt = d.previos.reduce((a, x) => a + x.tarde, 0);
+    const conPrevAnt = d.previos.reduce((a, x) => a + x.conPrevisto, 0);
+    const puntualAnt = conPrevAnt ? Math.round((conPrevAnt - tardeAnt) / conPrevAnt * 100) : null;
+
+    const kpis = `
+        <div class="kpis">
+            ${kpi('Horas trabajadas', fmtH(horas(hSem)), delta(hSem, hAnt, 'h'))}
+            ${kpi('Frente al cuadrante', pSem ? fmtH(horas(pSem)) : '—',
+                  pSem ? deltaTxt(horas(hSem - pSem), 'h', hSem > pSem) : '<span class="flat">sin cuadrante</span>')}
+            ${kpi('Puntualidad', puntual === null ? '—' : `${puntual}%`,
+                  puntual === null || puntualAnt === null ? '<span class="flat">—</span>'
+                  : deltaTxt(puntual - puntualAnt, ' pts', puntual < puntualAnt))}
+            ${kpi('Incidencias abiertas', String(d.incidencias.length),
+                  d.faltas.length ? `<span class="flat">+ ${d.faltas.length} sin género</span>` : '<span class="flat">—</span>')}
+            ${kpi('Tareas de ayer', rAyer && rAyer.total ? `${rAyer.completadas}/${rAyer.total}` : '—',
+                  rAyer && rAyer.total
+                    ? (rAyer.completadas === rAyer.total
+                        ? '<span class="down">completadas</span>'
+                        : `<span class="up">${rAyer.total - rAyer.completadas} sin hacer</span>`)
+                    : '<span class="flat">sin tareas</span>')}
+        </div>`;
+
+    // ── Días ──
+    const maxMin = Math.max(1, ...d.dias.map(x => Math.max(x.minutos, x.minPrev)));
+    const filas = d.dias.slice().reverse().map(x => {
+        const nom = new Intl.DateTimeFormat('es-ES', { weekday: 'short', day: '2-digit', month: '2-digit' })
+            .format(new Date(x.ts));
+        const desvio = x.minPrev ? Math.round((x.minutos - x.minPrev) / x.minPrev * 100) : null;
+        const color = x.sinCerrar ? 'rojo'
+            : (x.conPrevisto && x.tarde / x.conPrevisto > 0.25) || (desvio !== null && Math.abs(desvio) > 15) ? 'ambar'
+            : x.personas ? 'verde' : '';
+
+        const tags = [];
+        if (x.personas) tags.push(`<span class="tag">${x.personas} persona${x.personas !== 1 ? 's' : ''}</span>`);
+        if (x.conPrevisto) tags.push(x.tarde
+            ? `<span class="tag ${x.tarde / x.conPrevisto > 0.25 ? 'mal' : 'ojo'}">${x.tarde} tarde</span>`
+            : `<span class="tag bien">todos puntuales</span>`);
+        if (desvio !== null && Math.abs(desvio) > 5)
+            tags.push(`<span class="tag ${Math.abs(desvio) > 15 ? 'ojo' : ''}">${desvio > 0 ? '+' : ''}${desvio}% vs cuadrante</span>`);
+        if (x.sinCerrar) tags.push(`<span class="tag mal">${x.sinCerrar} sin cerrar</span>`);
+        if (!x.personas) tags.push('<span class="tag">sin actividad</span>');
+
+        return `
+        <div class="dia ${color}">
+            <div class="dia-cab">
+                <span class="dia-nombre">${nom}${x.esHoy ? ' · hoy' : ''}</span>
+                <span class="dia-horas">${fmtH(horas(x.minutos))}</span>
+                ${x.minPrev ? `<span class="dia-prev">previsto ${fmtH(horas(x.minPrev))}</span>` : ''}
+            </div>
+            <div class="dia-tags">${tags.join('')}</div>
+            <div class="barra-h"><span style="width:${Math.round(x.minutos / maxMin * 100)}%"></span></div>
+        </div>`;
+    }).join('');
+
+    cont.innerHTML = `
+        <h2>Lo que necesita tu atención</h2>
+        <div class="aten">${at.length ? at.join('') : '<div class="todo-ok">✓ Nada pendiente. Todo en orden.</div>'}</div>
+
+        <h2>Los últimos 7 días</h2>
+        ${kpis}
+
+        <h2>Día a día</h2>
+        ${filas}
+
+        <p class="nota-pie">
+            La jornada va de 07:00 a 07:00, así que un turno de noche cuenta en el día que empezó.
+            Las horas salen de los fichajes reales, descontando descansos; un turno sin cerrar no suma
+            hasta que se corrige. La puntualidad solo se mide en quien tenía horario en el cuadrante.
+        </p>`;
+
+    if (typeof lucide !== 'undefined') lucide.createIcons();
+}
+
+function tarjeta(clase, icono, titulo, sub) {
+    return `<div class="card-at ${clase}">
+        <i data-lucide="${icono}" style="width:18px;height:18px"></i>
+        <div class="at-txt">${titulo}${sub ? `<div class="at-sub">${sub}</div>` : ''}</div>
+    </div>`;
+}
+function kpi(lbl, val, extra) {
+    return `<div class="kpi"><div class="kpi-lbl">${lbl}</div><div class="kpi-val">${val}</div><div class="kpi-delta">${extra}</div></div>`;
+}
+function deltaTxt(n, unidad, malo) {
+    if (!n) return '<span class="flat">igual que antes</span>';
+    const cls = malo ? 'up' : 'down';
+    const signo = n > 0 ? '+' : '';
+    return `<span class="${cls}">${signo}${String(n).replace('.', ',')}${unidad}</span>`;
+}
+function delta(actual, anterior, unidad) {
+    if (!anterior) return '<span class="flat">sin comparación</span>';
+    const dif = horas(actual - anterior);
+    if (!dif) return '<span class="flat">igual que la semana pasada</span>';
+    return `<span class="${dif > 0 ? 'up' : 'down'}">${dif > 0 ? '+' : ''}${String(dif).replace('.', ',')}${unidad} vs semana pasada</span>`;
+}
+
+document.addEventListener('DOMContentLoaded', async () => {
+    if (typeof lucide !== 'undefined') lucide.createIcons();
+    document.getElementById('btnRecargar').addEventListener('click', cargar);
+    document.getElementById('btnDetalle').addEventListener('click', () => { window.location.href = 'admin.html'; });
+    document.getElementById('selCentro').addEventListener('change', e => { centro = e.target.value; cargar(); });
+    await cargarCentros();
+    cargar();
+});
+</script>
+</body>
+</html>

@@ -2,7 +2,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // Si ya tiene sesión válida, redirige a admin
     const token = sessionStorage.getItem('adminToken');
     if (token) {
-        window.location.href = 'admin.html';
+        window.location.href = 'panel.html';
     }
 
     // Configurar form
@@ -58,7 +58,7 @@ async function intentarLogin() {
 
         mostrarMensaje('✓ Acceso correcto. Redirigiendo...', 'success');
         setTimeout(() => {
-            window.location.href = 'admin.html';
+            window.location.href = 'panel.html';
         }, 500);
         
     } catch (error) {

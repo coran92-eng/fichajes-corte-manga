@@ -712,6 +712,11 @@ function configurarBotones() {
         window.location.href = 'resumen-dia.html';
     });
 
+    document.getElementById('btnPanel')?.addEventListener('click', () => {
+        const centro = document.getElementById('filtroCentro')?.value || '';
+        window.location.href = 'panel.html' + (centro ? `?centro=${encodeURIComponent(centro)}` : '');
+    });
+
     document.getElementById('btnPedidos')?.addEventListener('click', () => {
         const centro = document.getElementById('filtroCentro')?.value || '';
         window.location.href = 'pedidos-admin.html' + (centro ? `?centro=${encodeURIComponent(centro)}` : '');
