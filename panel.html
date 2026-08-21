@@ -230,23 +230,15 @@ async function cargar() {
     const desde = iniHoy - 13 * DIA_MS;
     const ayer = fechaOperativaDe(iniHoy - DIA_MS);
 
-    // Sin filtros de servidor: la consulta con centro + rango de fechas se
-    // quedaba colgada, mientras que esta misma llamada sin filtros lleva meses
-    // funcionando en el panel de reportes. Se acota aquí, que para unos miles
-    // de filas no cuesta nada.
-    const rFich = await pedir(`/api/fichajes?limit=6000`);
-    if (rFich.datos) {
-        const mismoCentro = c => {
-            const v = String(c || '').trim().toLowerCase();
-            return v === '' || v === centro.trim().toLowerCase();
-        };
-        rFich.datos = rFich.datos.filter(f =>
-            mismoCentro(f.centro) && Number(f.timestamp) >= desde && Number(f.timestamp) <= ahora + 60000);
-    }
+    // Una sola llamada, ya cruzada con el cuadrante y agregada en el servidor.
+    // Antes se bajaban miles de filas para cruzarlas aquí, y eso es justo lo
+    // que no respondía: una fila tardaba 185 ms y varios miles no llegaban.
+    const rPanel = await pedir(
+        `/api/fichajes?resumen=panel&centro=${encodeURIComponent(centro)}&desde=${desde}&hasta=${ahora + 60000}`);
 
-    if (!rFich.datos) {
+    if (!rPanel.datos) {
         cont.innerHTML = `<div class="error">
-            <strong>No se han podido leer los fichajes</strong> (${esc(rFich.fallo)}, ${esc(ms(rFich))}).<br>
+            <strong>No se han podido leer los fichajes</strong> (${esc(rPanel.fallo)}, ${esc(ms(rPanel))}).<br>
             Sin ellos no hay horas que resumir.
             <div style="margin-top:10px"><button id="btnReint">Reintentar</button></div>
             <div id="sonda" style="margin-top:10px;font-weight:400;font-size:12.5px;opacity:.85">Comprobando el servidor…</div>
@@ -256,164 +248,76 @@ async function cargar() {
         return;
     }
 
-    const [rCuad, rNotas, rTareas] = await Promise.all([
-        pedir(`/api/horarios?centro=${encodeURIComponent(centro)}&limite=1500`),
+    const [rNotas, rTareas] = await Promise.all([
         pedir(`/api/turno-notas?centro=${encodeURIComponent(centro)}&dias=7`),
         pedir(`/api/tareas?centro=${encodeURIComponent(centro)}&fecha_operativa=${ayer}`),
     ]);
 
-    // Las demás fuentes no son imprescindibles: si una falla, el resto de la
-    // pantalla se pinta igual y se avisa de lo que falta.
-    if (rCuad.datos) {
-        const dDesde = iso(new Date(desde)), dHasta = iso(new Date(ahora));
-        rCuad.datos = rCuad.datos.filter(h => h.fecha >= dDesde && h.fecha <= dHasta);
-    }
-
     const avisos = [];
-    if (!rCuad.datos) avisos.push(`el cuadrante (${rCuad.fallo})`);
     if (!rNotas.datos) avisos.push(`las notas e incidencias (${rNotas.fallo})`);
     if (!rTareas.datos) avisos.push(`las tareas (${rTareas.fallo})`);
 
-    pintar(construir(rFich.datos, rCuad.datos || [], rNotas.datos, rTareas.datos, iniHoy), avisos, {
-        fichajes: ms(rFich), horarios: ms(rCuad), notas: ms(rNotas), tareas: ms(rTareas),
-        filas: rFich.datos.length,
+    pintar(construir(rPanel.datos, rNotas.datos, rTareas.datos, iniHoy), avisos, {
+        panel: ms(rPanel), notas: ms(rNotas), tareas: ms(rTareas),
+        filas: rPanel.datos.marcas_leidas,
     });
+
     document.getElementById('fechaTxt').textContent =
         `${centro} · jornada del ${new Intl.DateTimeFormat('es-ES', { weekday: 'long', day: 'numeric', month: 'long' }).format(new Date(iniHoy))}`;
 }
 
-function construir(fichajes, cuadrante, notas, tareasAyer, iniHoy) {
-    const clave = n => String(n || '').trim().toUpperCase();
+function construir(panel, notas, tareasAyer, iniHoy) {
+    const porFecha = {};
+    for (const d of (panel.dias || [])) porFecha[d.fecha] = d.personas || [];
+    const previsto = panel.previsto_dia || {};
 
-    // Previsto por día y persona, desde el cuadrante.
-    const prevDe = {};
-    for (const h of cuadrante) {
-        if (String(h.estado || '').toLowerCase() === 'rechazado') continue;
-        const ini = minutosDeHHMM(h.hora_entrada), fin = minutosDeHHMM(h.hora_salida);
-        if (ini === null || fin === null) continue;
-        prevDe[`${h.fecha}|${clave(h.empleado)}`] = {
-            entrada: h.hora_entrada, minutos: (fin <= ini ? fin + 1440 : fin) - ini,
+    const resumen = (fecha, ts, esHoy) => {
+        const gentes = porFecha[fecha] || [];
+        let minutos = 0, personas = 0, tarde = 0, conPrevisto = 0, sinCerrar = 0;
+        for (const g of gentes) {
+            if (g.abierto) sinCerrar++;
+            if (g.minutos <= 0 && !g.abierto && !g.entrada) continue;
+            personas++;
+            minutos += g.minutos;
+            if (g.difEnt !== null && g.difEnt !== undefined) {
+                conPrevisto++;
+                if (g.difEnt > MARGEN_TARDE) tarde++;
+            }
+        }
+        return {
+            fecha, ts, esHoy, personas, minutos,
+            minPrev: previsto[fecha] || 0,
+            tarde, conPrevisto, sinCerrar, gentes,
         };
-    }
+    };
 
-    // Fichajes agrupados por jornada y persona.
-    const porDia = {};
-    for (const f of fichajes) {
-        const fecha = fechaOperativaDe(Number(f.timestamp));
-        (porDia[fecha] ||= {});
-        (porDia[fecha][clave(f.empleado)] ||= { nombre: f.empleado, ev: [] }).ev.push(f);
-    }
-    for (const d of Object.values(porDia))
-        for (const p of Object.values(d)) p.ev.sort((a, b) => a.timestamp - b.timestamp);
-
-    const dias = [];
+    const dias = [], previos = [];
     for (let i = 6; i >= 0; i--) {
         const ts = iniHoy - i * DIA_MS;
-        dias.push(resumenDia(iso(new Date(ts)), ts, porDia, prevDe, i === 0));
+        dias.push(resumen(iso(new Date(ts)), ts, i === 0));
     }
-    const previos = [];
     for (let i = 13; i >= 7; i--) {
         const ts = iniHoy - i * DIA_MS;
-        previos.push(resumenDia(iso(new Date(ts)), ts, porDia, prevDe, false));
+        previos.push(resumen(iso(new Date(ts)), ts, false));
     }
 
+    // Turnos abiertos de días pasados: alguien que no fichó la salida.
+    const hoyFecha = iso(new Date(iniHoy));
     const abiertos = [];
-    for (const [fecha, gente] of Object.entries(porDia)) {
-        for (const p of Object.values(gente)) {
-            const { abierto } = minutosTrabajados(p.ev);
-            const ultimo = p.ev[p.ev.length - 1];
-            // Un turno abierto de hoy es alguien trabajando; de días atrás, un
-            // fichaje que nadie cerró.
-            if (abierto && Number(ultimo.timestamp) < iniHoy) {
-                abiertos.push({ nombre: p.nombre, fecha, desde: ultimo.hora });
-            }
+    for (const [fecha, gentes] of Object.entries(porFecha)) {
+        if (fecha >= hoyFecha) continue;
+        for (const g of gentes) {
+            if (g.abierto) abiertos.push({ nombre: g.nombre, fecha, desde: g.entrada || '—' });
         }
     }
 
-    // Salidas fuera de hora que traen explicación escrita: es lo que hay que leer.
-    const motivos = fichajes
-        .filter(f => f.tipo === 'salida' && String(f.motivo || '').trim()
-                     && Number(f.timestamp) >= iniHoy - 6 * DIA_MS)
-        .sort((a, b) => b.timestamp - a.timestamp)
-        .slice(0, 6);
-
     return {
-        dias, previos, abiertos, motivos,
+        dias, previos, abiertos,
+        motivos: (panel.motivos || []).map(m => ({ empleado: m.empleado, fecha: m.fecha, motivo: m.motivo })),
         incidencias: (notas?.incidencias || []).filter(n => n.estado === 'abierta' || n.estado === 'en_curso'),
         faltas: (notas?.faltas || []).filter(n => n.estado === 'abierta' || n.estado === 'en_curso'),
         tareasAyer,
     };
-}
-
-/**
- * Qué hizo cada persona ese día: a qué hora entró frente a la que le tocaba,
- * a qué hora salió frente a la suya, y si paró a descansar.
- */
-function detallePersona(p, prev) {
-    const entrada = p.ev.find(e => e.tipo === 'entrada');
-    let salida = null;
-    for (const e of p.ev) if (e.tipo === 'salida') salida = e;
-
-    const descansos = [];
-    let ini = null;
-    for (const e of p.ev) {
-        if (e.tipo === 'inicio_descanso') ini = e;
-        else if (e.tipo === 'fin_descanso' && ini) {
-            descansos.push({
-                ini: String(ini.hora).slice(0, 5), fin: String(e.hora).slice(0, 5),
-                min: Math.round((Number(e.timestamp) - Number(ini.timestamp)) / 60000),
-            });
-            ini = null;
-        }
-    }
-    const { minutos, abierto } = minutosTrabajados(p.ev);
-
-    const difEnt = entrada && prev ? difMin(minutosDeHHMM(entrada.hora), minutosDeHHMM(prev.entrada)) : null;
-    const difSal = salida && prev?.salida ? difMin(minutosDeHHMM(salida.hora), minutosDeHHMM(prev.salida)) : null;
-
-    return {
-        nombre: p.nombre, minutos, abierto,
-        entrada: entrada ? String(entrada.hora).slice(0, 5) : null,
-        salida: salida ? String(salida.hora).slice(0, 5) : null,
-        prevEntrada: prev?.entrada ? String(prev.entrada).slice(0, 5) : null,
-        prevSalida: prev?.salida ? String(prev.salida).slice(0, 5) : null,
-        difEnt, difSal, descansos,
-        descansoMin: descansos.reduce((a, d) => a + d.min, 0),
-        // Descanso "sin cerrar": empezó y nunca marcó la vuelta.
-        descansoAbierto: !!ini,
-    };
-}
-
-function resumenDia(fecha, ts, porDia, prevDe, esHoy) {
-    const gente = porDia[fecha] || {};
-    let minutos = 0, personas = 0, tarde = 0, conPrevisto = 0, minPrev = 0, sinCerrar = 0;
-
-    for (const [k, p] of Object.entries(gente)) {
-        const { minutos: m, abierto } = minutosTrabajados(p.ev);
-        if (abierto) sinCerrar++;
-        if (m <= 0 && !abierto) continue;
-        personas++;
-        minutos += m;
-
-        const prev = prevDe[`${fecha}|${k}`];
-        const entrada = p.ev.find(e => e.tipo === 'entrada');
-        if (prev && entrada) {
-            conPrevisto++;
-            const d = difMin(minutosDeHHMM(entrada.hora), minutosDeHHMM(prev.entrada));
-            if (d !== null && d > MARGEN_TARDE) tarde++;
-        }
-    }
-    // Previsto del día: todo el que estaba puesto en el cuadrante, fichara o no.
-    for (const [k, v] of Object.entries(prevDe)) {
-        if (k.startsWith(`${fecha}|`)) minPrev += v.minutos;
-    }
-
-    const gentes = Object.entries(gente)
-        .map(([k, p]) => detallePersona(p, prevDe[`${fecha}|${k}`]))
-        .filter(x => x.minutos > 0 || x.abierto || x.entrada)
-        .sort((a, b) => (a.entrada || '99').localeCompare(b.entrada || '99'));
-
-    return { fecha, ts, esHoy, personas, minutos, minPrev, tarde, conPrevisto, sinCerrar, gentes };
 }
 
 /**
@@ -426,13 +330,16 @@ async function sondear(desde, ahora) {
     if (!caja) return;
     const pruebas = [
         ['1 registro', `/api/fichajes?limit=1`],
-        ['500 registros', `/api/fichajes?limit=500`],
-        ['los 6000 que pide el panel', `/api/fichajes?limit=6000`],
+        ['resumen de 1 día', `/api/fichajes?resumen=panel&centro=${encodeURIComponent(centro)}&desde=${ahora - DIA_MS}&hasta=${ahora + 60000}`],
+        ['resumen de 14 días', `/api/fichajes?resumen=panel&centro=${encodeURIComponent(centro)}&desde=${desde}&hasta=${ahora + 60000}`],
     ];
     const lineas = [];
     for (const [nombre, url] of pruebas) {
         const r = await pedir(url, 25000);
-        lineas.push(`· ${nombre}: ${r.datos ? `${r.datos.length} filas en ${ms(r)}` : `falló (${r.fallo})`}`);
+        const cuantas = !r.datos ? null
+            : Array.isArray(r.datos) ? `${r.datos.length} filas`
+            : `${r.datos.marcas_leidas ?? '?'} marcas`;
+        lineas.push(`· ${nombre}: ${r.datos ? `${cuantas} en ${ms(r)}` : `falló (${r.fallo})`}`);
         caja.innerHTML = lineas.join('<br>');
     }
 }
@@ -619,7 +526,7 @@ function pintar(d, avisos = [], tiempos = null) {
         ${filas}
 
         ${tiempos ? `<p class="nota-pie" style="opacity:.7">
-            ${tiempos.filas} fichajes · fichajes ${tiempos.fichajes} · horario ${tiempos.horarios} ·
+            ${tiempos.filas} marcas leídas · resumen ${tiempos.panel} ·
             notas ${tiempos.notas} · tareas ${tiempos.tareas}
         </p>` : ''}
 
