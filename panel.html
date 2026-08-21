@@ -165,16 +165,24 @@ function minutosTrabajados(eventos) {
 async function pedir(url, ms = 20000) {
     const c = new AbortController();
     const t = setTimeout(() => c.abort(), ms);
+    const t0 = Date.now();
     try {
         const r = await fetch(url, { headers: H, signal: c.signal, cache: 'no-store' });
         clearTimeout(t);
-        if (!r.ok) return { datos: null, fallo: `HTTP ${r.status}` };
-        return { datos: await r.json(), fallo: '' };
+        const tardo = Date.now() - t0;
+        const servidor = r.headers.get('X-Ms-Total');
+        if (!r.ok) return { datos: null, fallo: `HTTP ${r.status}`, tardo, servidor };
+        return { datos: await r.json(), fallo: '', tardo, servidor };
     } catch (e) {
         clearTimeout(t);
-        return { datos: null, fallo: e?.name === 'AbortError' ? `sin respuesta en ${ms / 1000}s` : 'sin conexión' };
+        return {
+            datos: null, tardo: Date.now() - t0, servidor: null,
+            fallo: e?.name === 'AbortError' ? `sin respuesta en ${ms / 1000}s` : 'sin conexión',
+        };
     }
 }
+
+const ms = r => r ? `${(r.tardo / 1000).toFixed(1)}s${r.servidor ? ` (servidor ${r.servidor}ms)` : ''}` : '—';
 
 async function cargarCentros() {
     let centros = ['Corte de Manga'];
@@ -198,22 +206,28 @@ async function cargar() {
     const desde = iniHoy - 13 * DIA_MS;
     const ayer = fechaOperativaDe(iniHoy - DIA_MS);
 
-    const [rFich, rCuad, rNotas, rTareas] = await Promise.all([
-        pedir(`/api/fichajes?centro=${encodeURIComponent(centro)}&desde=${desde}&hasta=${ahora + 60000}`),
+    // Los fichajes van solos y primero: son lo único imprescindible, y
+    // lanzarlo todo a la vez hacía que compitieran entre ellas.
+    const rFich = await pedir(
+        `/api/fichajes?centro=${encodeURIComponent(centro)}&desde=${desde}&hasta=${ahora + 60000}`);
+
+    if (!rFich.datos) {
+        cont.innerHTML = `<div class="error">
+            <strong>No se han podido leer los fichajes</strong> (${esc(rFich.fallo)}, ${esc(ms(rFich))}).<br>
+            Sin ellos no hay horas que resumir.
+            <div style="margin-top:10px"><button id="btnReint">Reintentar</button></div>
+            <div id="sonda" style="margin-top:10px;font-weight:400;font-size:12.5px;opacity:.85">Comprobando el servidor…</div>
+        </div>`;
+        document.getElementById('btnReint').addEventListener('click', cargar);
+        sondear(desde, ahora);
+        return;
+    }
+
+    const [rCuad, rNotas, rTareas] = await Promise.all([
         pedir(`/api/horarios?centro=${encodeURIComponent(centro)}&fecha_desde=${iso(new Date(desde))}&fecha_hasta=${iso(new Date(ahora))}`),
         pedir(`/api/turno-notas?centro=${encodeURIComponent(centro)}&dias=7`),
         pedir(`/api/tareas?centro=${encodeURIComponent(centro)}&fecha_operativa=${ayer}`),
     ]);
-
-    if (!rFich.datos) {
-        cont.innerHTML = `<div class="error">
-            <strong>No se han podido leer los fichajes</strong> (${esc(rFich.fallo)}).<br>
-            Sin ellos no hay horas que resumir. Vuelve a intentarlo.
-            <div style="margin-top:10px"><button id="btnReint">Reintentar</button></div>
-        </div>`;
-        document.getElementById('btnReint').addEventListener('click', cargar);
-        return;
-    }
 
     // Las demás fuentes no son imprescindibles: si una falla, el resto de la
     // pantalla se pinta igual y se avisa de lo que falta.
@@ -222,7 +236,10 @@ async function cargar() {
     if (!rNotas.datos) avisos.push(`las notas e incidencias (${rNotas.fallo})`);
     if (!rTareas.datos) avisos.push(`las tareas (${rTareas.fallo})`);
 
-    pintar(construir(rFich.datos, rCuad.datos || [], rNotas.datos, rTareas.datos, iniHoy), avisos);
+    pintar(construir(rFich.datos, rCuad.datos || [], rNotas.datos, rTareas.datos, iniHoy), avisos, {
+        fichajes: ms(rFich), horarios: ms(rCuad), notas: ms(rNotas), tareas: ms(rTareas),
+        filas: rFich.datos.length,
+    });
     document.getElementById('fechaTxt').textContent =
         `${centro} · jornada del ${new Intl.DateTimeFormat('es-ES', { weekday: 'long', day: 'numeric', month: 'long' }).format(new Date(iniHoy))}`;
 }
@@ -317,7 +334,28 @@ function resumenDia(fecha, ts, porDia, prevDe, esHoy) {
     return { fecha, ts, esHoy, personas, minutos, minPrev, tarde, conPrevisto, sinCerrar };
 }
 
-function pintar(d, avisos = []) {
+/**
+ * Cuando los fichajes fallan, hay que saber si el endpoint está caído o si lo
+ * lento es esta consulta en concreto. Se prueba lo más pequeño posible y luego
+ * se va subiendo el rango.
+ */
+async function sondear(desde, ahora) {
+    const caja = document.getElementById('sonda');
+    if (!caja) return;
+    const pruebas = [
+        ['1 registro, sin filtros', `/api/fichajes?limit=1`],
+        ['último día de este centro', `/api/fichajes?centro=${encodeURIComponent(centro)}&desde=${ahora - DIA_MS}&hasta=${ahora + 60000}`],
+        ['los 14 días que pide el panel', `/api/fichajes?centro=${encodeURIComponent(centro)}&desde=${desde}&hasta=${ahora + 60000}`],
+    ];
+    const lineas = [];
+    for (const [nombre, url] of pruebas) {
+        const r = await pedir(url, 25000);
+        lineas.push(`· ${nombre}: ${r.datos ? `${r.datos.length} filas en ${ms(r)}` : `falló (${r.fallo})`}`);
+        caja.innerHTML = lineas.join('<br>');
+    }
+}
+
+function pintar(d, avisos = [], tiempos = null) {
     const cont = document.getElementById('contenido');
     const avisoFuentes = avisos.length
         ? `<div class="error" style="margin-bottom:12px">No se ha podido leer ${esc(avisos.join(' ni '))}.
@@ -428,6 +466,11 @@ function pintar(d, avisos = []) {
 
         <h2>Día a día</h2>
         ${filas}
+
+        ${tiempos ? `<p class="nota-pie" style="opacity:.7">
+            ${tiempos.filas} fichajes · fichajes ${tiempos.fichajes} · horario ${tiempos.horarios} ·
+            notas ${tiempos.notas} · tareas ${tiempos.tareas}
+        </p>` : ''}
 
         <p class="nota-pie">
             La jornada va de 07:00 a 07:00, así que un turno de noche cuenta en el día que empezó.
