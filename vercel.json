@@ -4,6 +4,12 @@
       "maxDuration": 30
     }
   },
+  "rewrites": [
+    {
+      "source": "/api/auth-encargado",
+      "destination": "/api/auth?rol=encargado"
+    }
+  ],
   "headers": [
     {
       "source": "/((?!api/).*)",

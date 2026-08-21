@@ -242,7 +242,7 @@
                 mostrarMensaje('Autenticando...', 'info');
 
                 try {
-                    const res = await fetch('/api/auth-encargado', {
+                    const res = await fetch('/api/auth?rol=encargado', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ usuario, password })

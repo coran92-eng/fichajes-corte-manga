@@ -2032,26 +2032,20 @@ async function controlarSalidaConHorario(empleado) {
     return { horaPrevista: horaSalida, motivo: '', nota: '' };
 }
 
-/** Acepta la contraseña de gerencia o la del encargado. */
+/**
+ * Acepta la contraseña de gerencia o la del encargado.
+ * Es una sola pregunta —"¿es esta la clave de alguien que puede autorizar?"—
+ * así que va en una sola llamada, no en dos encadenadas.
+ */
 async function validarResponsable(clave) {
     try {
-        const rAdmin = await fetch('/api/auth', {
+        const res = await fetch('/api/auth?rol=responsable', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ password: clave }),
         });
-        if (rAdmin.ok) return true;
-    } catch {}
-
-    try {
-        const usuario = sessionStorage.getItem('encargadoNombre') || 'Albert';
-        const rEnc = await fetch('/api/auth-encargado', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ usuario, password: clave }),
-        });
-        if (rEnc.ok) return true;
-    } catch {}
-
-    return false;
+        return res.ok;
+    } catch {
+        return false;
+    }
 }
