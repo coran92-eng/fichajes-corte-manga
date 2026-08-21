@@ -11,42 +11,52 @@ function claveResponsableValida(clave) {
   return clave === admin || clave === encargado;
 }
 
+// El esquema se prepara una vez por instancia, no en cada petición. Eran seis
+// viajes a la base de datos —cuatro de ellos ALTER que fallan y se capturan—
+// antes de tocar la consulta, y en la pantalla del panel eso bastaba para
+// pasarse del tiempo de espera. Mismo arreglo que se hizo en horarios.js.
+let esquemaListo = false;
+
+async function prepararEsquema(db) {
+  if (esquemaListo) return;
+
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS fichajes (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      empleado TEXT NOT NULL,
+      tipo TEXT NOT NULL,
+      fecha TEXT NOT NULL,
+      hora TEXT NOT NULL,
+      timestamp INTEGER NOT NULL,
+      centro TEXT NOT NULL DEFAULT ''
+    )
+  `);
+
+  try { await db.execute("ALTER TABLE fichajes ADD COLUMN centro TEXT NOT NULL DEFAULT ''"); } catch {}
+  try { await db.execute("ALTER TABLE fichajes ADD COLUMN corregido INTEGER NOT NULL DEFAULT 0"); } catch {}
+
+  // Hora prevista del fichaje: la que declara el empleado al entrar y la que
+  // marca el horario al salir. Permite comparar lo previsto con lo fichado.
+  try { await db.execute("ALTER TABLE fichajes ADD COLUMN hora_prevista TEXT NOT NULL DEFAULT ''"); } catch {}
+
+  // Explicación cuando el fichaje no cuadra con el horario: salida más tarde
+  // de la hora (la escribe el empleado) o salida anticipada autorizada.
+  try { await db.execute("ALTER TABLE fichajes ADD COLUMN motivo TEXT NOT NULL DEFAULT ''"); } catch {}
+
+  // Todas las pantallas leen por rango de fechas o por empleado; sin índice
+  // cada consulta recorría la tabla entera.
+  try { await db.execute("CREATE INDEX IF NOT EXISTS idx_fichajes_ts ON fichajes (timestamp)"); } catch {}
+  try { await db.execute("CREATE INDEX IF NOT EXISTS idx_fichajes_emp_ts ON fichajes (empleado, timestamp)"); } catch {}
+
+  esquemaListo = true;
+}
+
 export default async function handler(req, res) {
   try {
     const db = getDbClient();
-
-    // Crear tabla si no existe (normalmente esto se hace una vez por CLI, pero para facilitar el setup lo ponemos aquí)
-    await db.execute(`
-      CREATE TABLE IF NOT EXISTS fichajes (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        empleado TEXT NOT NULL,
-        tipo TEXT NOT NULL,
-        fecha TEXT NOT NULL,
-        hora TEXT NOT NULL,
-        timestamp INTEGER NOT NULL,
-        centro TEXT NOT NULL DEFAULT ''
-      )
-    `);
-
-    try {
-      await db.execute("ALTER TABLE fichajes ADD COLUMN centro TEXT NOT NULL DEFAULT ''");
-    } catch {}
-
-    try {
-      await db.execute("ALTER TABLE fichajes ADD COLUMN corregido INTEGER NOT NULL DEFAULT 0");
-    } catch {}
-
-    // Hora prevista del fichaje: la que declara el empleado al entrar y la que
-    // marca el horario al salir. Permite comparar lo previsto con lo fichado.
-    try {
-      await db.execute("ALTER TABLE fichajes ADD COLUMN hora_prevista TEXT NOT NULL DEFAULT ''");
-    } catch {}
-
-    // Explicación cuando el fichaje no cuadra con el horario: salida más tarde
-    // de la hora (la escribe el empleado) o salida anticipada autorizada.
-    try {
-      await db.execute("ALTER TABLE fichajes ADD COLUMN motivo TEXT NOT NULL DEFAULT ''");
-    } catch {}
+    const t0 = Date.now();
+    await prepararEsquema(db);
+    const msEsquema = Date.now() - t0;
 
     if (req.method === "GET") {
       const { empleado, limit, centro, desde, hasta } = req.query;
@@ -75,14 +85,17 @@ export default async function handler(req, res) {
       if (conditions.length) query += " WHERE " + conditions.join(" AND ");
       query += " ORDER BY timestamp DESC";
 
-      if (limit) {
-        query += " LIMIT ?";
-        args.push(parseInt(limit, 10));
-      }
+      // Techo siempre presente: sin él, una llamada sin filtros se traía la
+      // tabla entera y crecía con el uso hasta colgar la pantalla. Va inline
+      // porque ya es un entero acotado.
+      const tope = Math.min(20000, Math.max(1, parseInt(limit, 10) || 5000));
+      query += ` LIMIT ${tope}`;
 
       const result = await db.execute({ sql: query, args });
+      res.setHeader('X-Ms-Esquema', String(msEsquema));
+      res.setHeader('X-Ms-Total', String(Date.now() - t0));
       return res.status(200).json(result.rows);
-    } 
+    }
     else if (req.method === "POST") {
       const {
         empleado, tipo, fecha, hora, timestamp, centro = '', hora_prevista = '',

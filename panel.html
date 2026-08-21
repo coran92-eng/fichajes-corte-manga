@@ -158,15 +158,22 @@ function minutosTrabajados(eventos) {
     return { minutos: total, abierto };
 }
 
-async function pedir(url, ms = 12000) {
+/**
+ * Devuelve {datos, fallo}. Un mensaje de error que no dice qué ha fallado
+ * obliga a adivinar, y aquí ya hemos perdido demasiadas rondas adivinando.
+ */
+async function pedir(url, ms = 20000) {
     const c = new AbortController();
     const t = setTimeout(() => c.abort(), ms);
     try {
         const r = await fetch(url, { headers: H, signal: c.signal, cache: 'no-store' });
         clearTimeout(t);
-        if (!r.ok) return null;
-        return await r.json();
-    } catch { clearTimeout(t); return null; }
+        if (!r.ok) return { datos: null, fallo: `HTTP ${r.status}` };
+        return { datos: await r.json(), fallo: '' };
+    } catch (e) {
+        clearTimeout(t);
+        return { datos: null, fallo: e?.name === 'AbortError' ? `sin respuesta en ${ms / 1000}s` : 'sin conexión' };
+    }
 }
 
 async function cargarCentros() {
@@ -191,19 +198,31 @@ async function cargar() {
     const desde = iniHoy - 13 * DIA_MS;
     const ayer = fechaOperativaDe(iniHoy - DIA_MS);
 
-    const [fichajes, cuadrante, notas, tareasAyer] = await Promise.all([
+    const [rFich, rCuad, rNotas, rTareas] = await Promise.all([
         pedir(`/api/fichajes?centro=${encodeURIComponent(centro)}&desde=${desde}&hasta=${ahora + 60000}`),
         pedir(`/api/horarios?centro=${encodeURIComponent(centro)}&fecha_desde=${iso(new Date(desde))}&fecha_hasta=${iso(new Date(ahora))}`),
         pedir(`/api/turno-notas?centro=${encodeURIComponent(centro)}&dias=7`),
-        pedir(`/api/tareas?centro=${encodeURIComponent(centro)}&fecha_operativa=${ayer}`, 15000),
+        pedir(`/api/tareas?centro=${encodeURIComponent(centro)}&fecha_operativa=${ayer}`),
     ]);
 
-    if (!fichajes) {
-        cont.innerHTML = '<div class="error">No se han podido leer los fichajes. Recarga en un momento.</div>';
+    if (!rFich.datos) {
+        cont.innerHTML = `<div class="error">
+            <strong>No se han podido leer los fichajes</strong> (${esc(rFich.fallo)}).<br>
+            Sin ellos no hay horas que resumir. Vuelve a intentarlo.
+            <div style="margin-top:10px"><button id="btnReint">Reintentar</button></div>
+        </div>`;
+        document.getElementById('btnReint').addEventListener('click', cargar);
         return;
     }
 
-    pintar(construir(fichajes, cuadrante || [], notas, tareasAyer, iniHoy));
+    // Las demás fuentes no son imprescindibles: si una falla, el resto de la
+    // pantalla se pinta igual y se avisa de lo que falta.
+    const avisos = [];
+    if (!rCuad.datos) avisos.push(`el cuadrante (${rCuad.fallo})`);
+    if (!rNotas.datos) avisos.push(`las notas e incidencias (${rNotas.fallo})`);
+    if (!rTareas.datos) avisos.push(`las tareas (${rTareas.fallo})`);
+
+    pintar(construir(rFich.datos, rCuad.datos || [], rNotas.datos, rTareas.datos, iniHoy), avisos);
     document.getElementById('fechaTxt').textContent =
         `${centro} · jornada del ${new Intl.DateTimeFormat('es-ES', { weekday: 'long', day: 'numeric', month: 'long' }).format(new Date(iniHoy))}`;
 }
@@ -298,8 +317,12 @@ function resumenDia(fecha, ts, porDia, prevDe, esHoy) {
     return { fecha, ts, esHoy, personas, minutos, minPrev, tarde, conPrevisto, sinCerrar };
 }
 
-function pintar(d) {
+function pintar(d, avisos = []) {
     const cont = document.getElementById('contenido');
+    const avisoFuentes = avisos.length
+        ? `<div class="error" style="margin-bottom:12px">No se ha podido leer ${esc(avisos.join(' ni '))}.
+           Lo demás sí está actualizado.</div>`
+        : '';
 
     // ── Atención ──
     const at = [];
@@ -396,6 +419,7 @@ function pintar(d) {
     }).join('');
 
     cont.innerHTML = `
+        ${avisoFuentes}
         <h2>Lo que necesita tu atención</h2>
         <div class="aten">${at.length ? at.join('') : '<div class="todo-ok">✓ Nada pendiente. Todo en orden.</div>'}</div>
 
