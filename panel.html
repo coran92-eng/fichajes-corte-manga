@@ -313,7 +313,7 @@ function construir(panel, notas, tareasAyer, iniHoy) {
 
     return {
         dias, previos, abiertos,
-        motivos: (panel.motivos || []).map(m => ({ empleado: m.empleado, fecha: m.fecha, motivo: m.motivo })),
+        motivos: (panel.motivos || []).map(m => ({ empleado: m.empleado, fecha: m.fecha, tipo: m.tipo, motivo: m.motivo })),
         incidencias: (notas?.incidencias || []).filter(n => n.estado === 'abierta' || n.estado === 'en_curso'),
         faltas: (notas?.faltas || []).filter(n => n.estado === 'abierta' || n.estado === 'en_curso'),
         tareasAyer,
@@ -378,8 +378,9 @@ function pintar(d, avisos = [], tiempos = null) {
     }
     if (d.motivos.length) {
         at.push(tarjeta('info', 'message-square',
-            `<strong>Salidas fuera de hora con explicación</strong>`,
-            d.motivos.map(m => `· <strong>${esc(m.empleado)}</strong> (${esc(m.fecha)}): ${esc(m.motivo)}`).join('<br>')));
+            `<strong>Fichajes fuera de hora, con su explicación</strong>`,
+            d.motivos.map(m => `· <strong>${esc(m.empleado)}</strong> · ${m.tipo === 'entrada' ? 'entrada' : 'salida'} ${esc(m.fecha)}: ${esc(m.motivo)}`).join('<br>')
+            + '<br><em>Solo lo ves tú: esto no sale en el parte del turno.</em>'));
     }
 
     // ── Semana ──
