@@ -1,6 +1,7 @@
 import { getDbClient } from "./_db.js";
 import {
   initSchema, getCentroCfg, fechaOperativaDe, auditar, hashArchivo,
+  esEncargadoOSuperior,
 } from "./_tareas-lib.js";
 
 const MAX_FOTO_B64 = 700 * 1024;
@@ -33,6 +34,24 @@ async function initNotas(db) {
   `);
   await db.execute(`CREATE INDEX IF NOT EXISTS idx_notas_centro_fecha ON turno_notas (centro, fecha_operativa)`);
   await db.execute(`CREATE INDEX IF NOT EXISTS idx_notas_estado ON turno_notas (centro, tipo, estado)`);
+
+  // A quién va dirigida la nota. El parte del turno es para el relevo —"se ha
+  // acabado el vermut", "la nevera hace ruido"—, no para que toda la plantilla
+  // lea a qué hora entró o salió cada compañero.
+  try { await db.execute("ALTER TABLE turno_notas ADD COLUMN visibilidad TEXT NOT NULL DEFAULT 'equipo'"); } catch {}
+
+  // Las que ya se publicaron por error dejan de verse en el iPad. No se
+  // borran: el dato sigue estando, solo cambia quién lo ve.
+  try {
+    await db.execute(`
+      UPDATE turno_notas SET visibilidad = 'gerencia'
+      WHERE visibilidad <> 'gerencia' AND TRIM(autor) = 'Sistema' AND (
+            texto LIKE 'Salida anticipada autorizada%'
+         OR texto LIKE 'Entrada anticipada autorizada%'
+         OR texto LIKE 'Salida más tarde de la hora%'
+         OR texto LIKE 'Fichaje autorizado fuera del local%')
+    `);
+  } catch {}
 
   // Acuse de lectura: quién del turno siguiente lo ha visto.
   await db.execute(`
@@ -75,6 +94,10 @@ export default async function handler(req, res) {
       const fechaOperativa = req.query.fecha_operativa || fechaOperativaDe(Date.now(), cfg);
       const dias = Math.min(Number(req.query.dias || 2), 14);
 
+      // La pantalla de fichaje del local no lleva token: ve solo lo del
+      // equipo. Las de encargado y gerencia ven además lo suyo.
+      const verTodo = esEncargadoOSuperior(req) ? 1 : 0;
+
       // Notas: las de la jornada pedida y las de los días anteriores que se
       // indiquen, para que el turno entrante vea lo que dejó el saliente.
       const notas = await db.execute({
@@ -83,8 +106,9 @@ export default async function handler(req, res) {
                      CASE WHEN foto_b64 IS NULL THEN 0 ELSE 1 END AS tiene_foto
               FROM turno_notas
               WHERE centro = ? AND tipo = 'nota' AND fecha_operativa >= date(?, ?)
+                AND (COALESCE(visibilidad,'equipo') = 'equipo' OR ? = 1)
               ORDER BY creado_en DESC LIMIT 40`,
-        args: [centro, fechaOperativa, `-${dias} day`],
+        args: [centro, fechaOperativa, `-${dias} day`, verTodo],
       });
 
       // Averías y faltas: las abiertas siguen visibles aunque sean de días
@@ -97,10 +121,11 @@ export default async function handler(req, res) {
               FROM turno_notas
               WHERE centro = ? AND tipo IN ('incidencia','falta')
                 AND (estado IN ('abierta','en_curso') OR fecha_operativa = ?)
+                AND (COALESCE(visibilidad,'equipo') = 'equipo' OR ? = 1)
               ORDER BY CASE prioridad WHEN 'alta' THEN 0 WHEN 'normal' THEN 1 ELSE 2 END,
                        creado_en DESC
               LIMIT 60`,
-        args: [centro, fechaOperativa],
+        args: [centro, fechaOperativa, verTodo],
       });
       const incidencias = pendientes.rows.filter(r => r.tipo === 'incidencia');
       const faltas = pendientes.rows.filter(r => r.tipo === 'falta');

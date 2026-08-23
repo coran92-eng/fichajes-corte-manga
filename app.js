@@ -253,7 +253,7 @@ async function registrarFichaje(tipo, horaPrevista = '', passwordResponsable = '
         }
         if (!response.ok) throw new Error('Error en la respuesta del servidor');
 
-        const respuesta = await response.json().catch(() => ({}));
+        await response.json().catch(() => ({}));
 
         reproducirSonidoConfirmacion();
         if (navigator.vibrate) navigator.vibrate([100, 50, 100]);
@@ -287,20 +287,9 @@ async function registrarFichaje(tipo, horaPrevista = '', passwordResponsable = '
             }
         }
 
-        if (respuesta.fuera_de_red) {
-            const etiquetas = { entrada: 'entrada', salida: 'salida', inicio_descanso: 'inicio de descanso', fin_descanso: 'fin de descanso' };
-            fetch('/api/turno-notas', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    centro: centroActual,
-                    tipo: 'nota',
-                    autor: 'Sistema',
-                    texto: `Fichaje autorizado fuera del local: ${empleado} ha registrado su ${etiquetas[tipo] || tipo} a las ${fichaje.hora.slice(0, 5)} desde otra red.`,
-                    device_id: localStorage.getItem('device_id') || '',
-                }),
-            }).then(() => cargarNotas()).catch(() => {});
-        }
+        // Antes esto se publicaba en el parte del turno, que ve todo el equipo
+        // en el iPad. A qué hora entra o sale cada uno, y desde dónde, no es
+        // información de relevo: queda con el fichaje y sale en tu panel.
 
         actualizarEstadoBotones(tipo);
         mostrarUndoToast(tipo, fichaje);
@@ -1183,24 +1172,10 @@ async function confirmarSalida() {
         } catch {}
     }
 
+    // El motivo viaja con el fichaje y aparece en el panel de gerencia. No se
+    // publica en el parte del turno: el relevo necesita saber que se ha
+    // acabado el vermut, no a qué hora salió cada compañero.
     await registrarFichaje('salida', control.horaPrevista, '', control.motivo);
-
-    if (control.nota) {
-        try {
-            await fetch('/api/turno-notas', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    centro: centroActual,
-                    tipo: 'nota',
-                    autor: 'Sistema',
-                    texto: control.nota,
-                    device_id: localStorage.getItem('device_id') || '',
-                }),
-            });
-            cargarNotas();
-        } catch {}
-    }
 }
 
 // ── Panel de tareas en la pantalla de fichaje ─────────────────
@@ -1851,21 +1826,8 @@ async function confirmarEntrada() {
             return;
         }
         cerrarEntModal();
-        await registrarFichaje('entrada', horaPrevista);
-        try {
-            await fetch('/api/turno-notas', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    centro: centroActual,
-                    tipo: 'nota',
-                    autor: 'Sistema',
-                    texto: `Entrada anticipada autorizada: ${empleado} ha fichado ${formatoEspera(faltan)} antes de su hora (${horaPrevista}).`,
-                    device_id: localStorage.getItem('device_id') || '',
-                }),
-            });
-            cargarNotas();
-        } catch {}
+        await registrarFichaje('entrada', horaPrevista, '',
+            `Entrada anticipada autorizada por un responsable (${formatoEspera(faltan)} antes de las ${horaPrevista}).`);
     };
 }
 
@@ -2003,7 +1965,7 @@ function pedirMotivoSalida(horaSalida, deMas) {
  */
 async function controlarSalidaConHorario(empleado) {
     const turno = await turnoDeLaSalida(empleado);
-    if (!turno) return { horaPrevista: '', motivo: '', nota: '' };
+    if (!turno) return { horaPrevista: '', motivo: '' };
 
     const horaSalida = String(turno.hora_salida).slice(0, 5);
     const diff = Math.round((Date.now() - turno.finMs) / 60000);
@@ -2015,7 +1977,6 @@ async function controlarSalidaConHorario(empleado) {
         return {
             horaPrevista: horaSalida,
             motivo: `Salida anticipada autorizada por un responsable (${formatoEspera(faltan)} antes de las ${horaSalida}).`,
-            nota: `Salida anticipada autorizada: ${empleado} ha fichado la salida ${formatoEspera(faltan)} antes de su hora (${horaSalida}).`,
         };
     }
 
@@ -2025,11 +1986,10 @@ async function controlarSalidaConHorario(empleado) {
         return {
             horaPrevista: horaSalida,
             motivo,
-            nota: `Salida más tarde de la hora: ${empleado} ha salido ${formatoEspera(diff)} después de las ${horaSalida}. Motivo: ${motivo}`,
         };
     }
 
-    return { horaPrevista: horaSalida, motivo: '', nota: '' };
+    return { horaPrevista: horaSalida, motivo: '' };
 }
 
 /**

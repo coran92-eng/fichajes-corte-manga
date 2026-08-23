@@ -196,10 +196,12 @@ async function resumenPanel(db, { centro, desde, hasta }) {
     previstoDia[h.fecha] = (previstoDia[h.fecha] || 0) + ((fin <= ini ? fin + 1440 : fin) - ini);
   }
 
+  // Entradas y salidas con explicación: es lo que hay que leer, y ya no se
+  // publica en el parte del turno que ve todo el equipo.
   const motivos = marcas.rows
-    .filter(f => f.tipo === 'salida' && String(f.motivo || '').trim())
+    .filter(f => (f.tipo === 'salida' || f.tipo === 'entrada') && String(f.motivo || '').trim())
     .slice(-8).reverse()
-    .map(f => ({ empleado: f.empleado, fecha: f.fecha, motivo: String(f.motivo).slice(0, 300) }));
+    .map(f => ({ empleado: f.empleado, fecha: f.fecha, tipo: f.tipo, motivo: String(f.motivo).slice(0, 300) }));
 
   return { dias, previsto_dia: previstoDia, motivos, marcas_leidas: marcas.rows.length };
 }
