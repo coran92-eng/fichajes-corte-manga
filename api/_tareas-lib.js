@@ -36,6 +36,8 @@ export async function initSchema(db) {
   // Redes desde las que se permite fichar (separadas por comas). Vacío = sin
   // restricción, para que un centro recién creado no deje a nadie fuera.
   try { await db.execute("ALTER TABLE centros_cfg ADD COLUMN ips_autorizadas TEXT NOT NULL DEFAULT ''"); } catch {}
+  // Dispositivos exentos de leer el QR: el iPad del propio bar.
+  try { await db.execute("ALTER TABLE centros_cfg ADD COLUMN dispositivos_confianza TEXT NOT NULL DEFAULT ''"); } catch {}
 
   // Catálogo. Editar crea una versión nueva: nunca se modifica en caliente (§4.2).
   await db.execute(`
@@ -257,7 +259,7 @@ export function resolverVentana(fechaOperativa, horaInicio, horaFin, cfg) {
 /** Configuración del centro (crea la fila por defecto la primera vez). */
 export async function getCentroCfg(db, centro) {
   const r = await db.execute({
-    sql: "SELECT centro, inicio_jornada, zona_horaria, ips_autorizadas FROM centros_cfg WHERE LOWER(TRIM(centro)) = LOWER(TRIM(?))",
+    sql: "SELECT centro, inicio_jornada, zona_horaria, ips_autorizadas, dispositivos_confianza FROM centros_cfg WHERE LOWER(TRIM(centro)) = LOWER(TRIM(?))",
     args: [centro || ''],
   });
   if (r.rows.length) {
@@ -267,6 +269,7 @@ export async function getCentroCfg(db, centro) {
       inicio_jornada: row.inicio_jornada || INICIO_JORNADA_DEFAULT,
       zona_horaria: row.zona_horaria || TZ_DEFAULT,
       ips_autorizadas: row.ips_autorizadas || '',
+      dispositivos_confianza: row.dispositivos_confianza || '',
     };
   }
   try {
@@ -275,7 +278,10 @@ export async function getCentroCfg(db, centro) {
       args: [centro || '', INICIO_JORNADA_DEFAULT, TZ_DEFAULT],
     });
   } catch {}
-  return { centro: centro || '', inicio_jornada: INICIO_JORNADA_DEFAULT, zona_horaria: TZ_DEFAULT, ips_autorizadas: '' };
+  return {
+    centro: centro || '', inicio_jornada: INICIO_JORNADA_DEFAULT,
+    zona_horaria: TZ_DEFAULT, ips_autorizadas: '', dispositivos_confianza: '',
+  };
 }
 
 // ── Recurrencia ───────────────────────────────────────────────
@@ -331,6 +337,88 @@ export function esRedAutorizada(req, cfg) {
 
   const actual = huellaRed(ipDeReq(req));
   return { permitido: lista.includes(actual), sinConfigurar: false, red: actual };
+}
+
+// ── Código rotatorio del local (presencia sin geolocalización) ─
+//
+// El iPad del bar muestra un QR que cambia cada 25 s. Quien ficha desde su
+// móvil tiene que haberlo leído: eso prueba que estaba delante del iPad, que es
+// lo que la red por sí sola no puede demostrar (la wifi llega a la calle).
+//
+// El token va firmado, no guardado: se recalcula al validarlo, así que emitirlo
+// no cuesta ni una escritura en la base de datos.
+
+export const QR_VENTANA_MS = 25000;
+
+/** Ventana temporal a la que pertenece un instante. */
+export function ventanaQr(ts = Date.now()) {
+  return Math.floor(ts / QR_VENTANA_MS);
+}
+
+function firmaQr(secreto, centro, ventana) {
+  return crypto.createHmac('sha256', secreto)
+    .update(`${String(centro).trim().toLowerCase()}|${ventana}`)
+    .digest('base64url')
+    .slice(0, 10);
+}
+
+/** El secreto de firma. Sin él, el fichaje por QR no se habilita. */
+export function hayQrConfigurado() {
+  return !!process.env.QR_SECRET;
+}
+
+/** Token vigente para un centro, con lo que le queda de vida. */
+export function emitirTokenQr(centro) {
+  if (!hayQrConfigurado()) return null;
+  const ahora = Date.now();
+  const ventana = ventanaQr(ahora);
+  return {
+    token: firmaQr(process.env.QR_SECRET, centro, ventana),
+    ventana,
+    expira_en: (ventana + 1) * QR_VENTANA_MS - ahora,
+    ventana_ms: QR_VENTANA_MS,
+  };
+}
+
+/**
+ * ¿Es válido este token para este centro?
+ *
+ * Se acepta también la ventana anterior: entre que apuntan la cámara, tocan el
+ * aviso y carga la app pasan unos segundos, y no tiene sentido rechazar a
+ * alguien que está delante del iPad por medio segundo. En la práctica el código
+ * vale entre 25 y 50 s.
+ */
+export function validarTokenQr(centro, token) {
+  if (!hayQrConfigurado()) return { ok: false, motivo: 'sin_configurar' };
+  const limpio = String(token || '').trim();
+  if (!limpio) return { ok: false, motivo: 'falta' };
+
+  const actual = ventanaQr();
+  for (const ventana of [actual, actual - 1]) {
+    const esperado = firmaQr(process.env.QR_SECRET, centro, ventana);
+    // Comparación en tiempo constante: la longitud ya es fija.
+    if (limpio.length === esperado.length
+        && crypto.timingSafeEqual(Buffer.from(limpio), Buffer.from(esperado))) {
+      return { ok: true, ventana };
+    }
+  }
+  return { ok: false, motivo: 'caducado' };
+}
+
+// ── Dispositivos de confianza ─────────────────────────────────
+// El iPad del bar no debería tener que leer un QR que muestra él mismo. Se
+// registra una vez desde dentro del local y queda exento.
+
+export function idDispositivo(req) {
+  return String(req.headers['x-device-id'] || req.body?.device_id || '').trim().slice(0, 64);
+}
+
+export function esDispositivoConfianza(req, cfg) {
+  const id = idDispositivo(req);
+  if (!id) return false;
+  return String(cfg?.dispositivos_confianza || '')
+    .split(',').map(x => x.trim()).filter(Boolean)
+    .includes(id);
 }
 
 // ── Identidad y turno ─────────────────────────────────────────

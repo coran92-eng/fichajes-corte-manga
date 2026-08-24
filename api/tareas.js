@@ -3,6 +3,7 @@ import {
   initSchema, getCentroCfg, fechaOperativaDe, resolverVentana, tocaEnFecha,
   verificarPin, turnoAbierto, estaEnDescanso, auditar, esEncargadoOSuperior,
   hashArchivo, purgarFotosCaducadas, RAFAGA_N, RAFAGA_MIN, HASH_LOOKBACK,
+  validarTokenQr, hayQrConfigurado, esDispositivoConfianza,
 } from "./_tareas-lib.js";
 
 // Tope defensivo del tamaño de foto que aceptamos (el cliente reescala antes
@@ -292,10 +293,34 @@ export default async function handler(req, res) {
     const val = validarEvidencia(t.tipo_evidencia, t.evidencia_config, b);
     if (val.error) return res.status(422).json({ error: val.error });
 
+    // Las tareas con foto exigen haber leído el código del bar: es lo único que
+    // demuestra de verdad que la persona está allí. El navegador no puede
+    // impedir que una foto salga de la galería —`capture` es una sugerencia, no
+    // una obligación—, así que la prueba de presencia la da el código, no la
+    // imagen. El iPad del local está exento por ser dispositivo de confianza.
+    const llevaFoto = t.tipo_evidencia === 'FOTO' || t.tipo_evidencia === 'FOTO+NUMERO';
+    const cfgCentro = await getCentroCfg(db, centro);
+    const desdeElIpad = esDispositivoConfianza(req, cfgCentro);
+
+    let ventanaQrTarea = null;
+    if (llevaFoto && hayQrConfigurado() && !desdeElIpad) {
+      const v = validarTokenQr(centro, b.qr);
+      if (!v.ok) {
+        return res.status(403).json({
+          error: v.motivo === 'falta'
+            ? "Para hacer esta tarea desde el móvil, lee antes el código de la pantalla del bar"
+            : "Ese código ya ha caducado. Vuelve a leer el de la pantalla del bar",
+          motivo: "qr",
+        });
+      }
+      ventanaQrTarea = v.ventana;
+    }
+
     let evidenciaId = null;
     if (t.tipo_evidencia !== 'CHECK') {
       let hash = '';
       let sospechosa = 0;
+      let origen = '';
 
       if (b.foto_b64) {
         hash = hashArchivo(b.foto_b64);
@@ -316,8 +341,13 @@ export default async function handler(req, res) {
           return res.status(409).json({ error: "Esa foto ya se había subido antes para esta tarea. Haz una nueva." });
         }
 
-        // La cámara es obligatoria; si el cliente dice que viene de galería se marca (§8.4).
-        if (b.origen_captura !== 'camara') sospechosa = 1;
+        // El origen lo fija el servidor con lo que puede comprobar, no con lo
+        // que declare el móvil: `lastModified` es trivial de falsear. Lo que
+        // cuenta es si la foto llegó con un código del bar recién leído.
+        origen = ventanaQrTarea !== null ? 'camara_en_local'
+          : desdeElIpad ? 'ipad_local'
+          : 'sin_verificar';
+        if (origen === 'sin_verificar') sospechosa = 1;
       }
 
       const ev = await db.execute({
@@ -329,8 +359,8 @@ export default async function handler(req, res) {
                b.valor_numerico !== undefined && b.valor_numerico !== '' ? Number(b.valor_numerico) : null,
                (val.cfg && val.cfg.unidad) || '', String(b.texto || ''),
                b.foto_b64 || null, b.mime || 'image/jpeg', hash,
-               b.origen_captura || '', sospechosa, b.device_id || '', ahora,
-               JSON.stringify({ fuera_rango: !!val.fueraRango })],
+               origen, sospechosa, b.device_id || '', ahora,
+               JSON.stringify({ fuera_rango: !!val.fueraRango, qr_ventana: ventanaQrTarea })],
       });
       evidenciaId = ev.lastInsertRowid ? Number(ev.lastInsertRowid) : null;
     }

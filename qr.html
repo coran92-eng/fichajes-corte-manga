@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <meta name="theme-color" content="#0f172a">
+    <title>Código para fichar</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #0f172a; color: #e2e8f0;
+            min-height: 100dvh; display: flex; align-items: center; justify-content: center;
+            padding: 24px; overflow: hidden;
+            -webkit-user-select: none; user-select: none;
+        }
+        .wrap { text-align: center; width: 100%; max-width: 680px; }
+
+        h1 { font-size: 26px; color: #f8fafc; margin-bottom: 6px; }
+        .centro { font-size: 15px; color: #64748b; margin-bottom: 26px; }
+
+        .marco {
+            background: white; border-radius: 20px; padding: 22px;
+            display: inline-block; line-height: 0;
+            box-shadow: 0 20px 60px rgba(0,0,0,.45);
+        }
+        .marco svg { width: min(58vh, 78vw, 420px); height: auto; display: block; }
+
+        .cuenta {
+            margin: 24px auto 0; width: min(58vh, 78vw, 420px);
+            height: 6px; background: #1e293b; border-radius: 6px; overflow: hidden;
+        }
+        .cuenta span {
+            display: block; height: 100%; background: #38bdf8;
+            width: 100%; transition: width .25s linear;
+        }
+        .pie { margin-top: 14px; font-size: 15px; color: #94a3b8; line-height: 1.5; }
+        .pie strong { color: #e2e8f0; }
+
+        .aviso {
+            background: #1e293b; border-left: 3px solid #f59e0b; border-radius: 10px;
+            padding: 20px; text-align: left; font-size: 15px; line-height: 1.55; color: #fcd34d;
+        }
+        .aviso strong { display: block; color: #f8fafc; margin-bottom: 6px; font-size: 17px; }
+        .aviso code {
+            font-family: ui-monospace, monospace; background: #0f172a;
+            padding: 2px 6px; border-radius: 5px; color: #e2e8f0;
+        }
+        .salir {
+            position: fixed; top: 12px; right: 14px; font-size: 13px; color: #475569;
+            background: none; border: none; cursor: pointer; font-family: inherit; padding: 8px;
+        }
+        .salir:hover { color: #94a3b8; }
+    </style>
+</head>
+<body>
+    <button class="salir" id="btnSalir">Salir</button>
+    <div class="wrap" id="wrap">
+        <h1>Cargando…</h1>
+    </div>
+
+<script type="module">
+import qrcode from './vendor/qr.mjs';
+
+const params = new URLSearchParams(location.search);
+const centro = params.get('centro') || '';
+const TOKEN = sessionStorage.getItem('adminToken')
+           || sessionStorage.getItem('encargadoToken')
+           || localStorage.getItem('qrToken') || '';
+
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c =>
+    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+const wrap = document.getElementById('wrap');
+
+function aviso(titulo, cuerpo) {
+    wrap.innerHTML = `<div class="aviso"><strong>${esc(titulo)}</strong>${cuerpo}</div>`;
+}
+
+if (!centro) {
+    aviso('Falta el centro', 'Abre esta pantalla desde el panel, o añade <code>?centro=Corte de Manga</code> a la dirección.');
+    throw new Error('sin centro');
+}
+
+// La pantalla vive encendida durante todo el servicio: se pide al sistema que
+// no apague el iPad. Si el navegador no lo permite, no pasa nada.
+let bloqueo = null;
+async function mantenerEncendido() {
+    try {
+        if ('wakeLock' in navigator) bloqueo = await navigator.wakeLock.request('screen');
+    } catch {}
+}
+document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') { mantenerEncendido(); pedir(); }
+});
+
+let tokenActual = null;
+let expiraEn = 0;
+
+function pintar(token) {
+    const url = `${location.origin}/?centro=${encodeURIComponent(centro)}&qr=${encodeURIComponent(token)}`;
+    // Corrección de errores media: aguanta un reflejo o una huella en el cristal
+    // sin necesitar un código mucho más denso.
+    const qr = qrcode(0, 'M');
+    qr.addData(url);
+    qr.make();
+
+    wrap.innerHTML = `
+        <h1>Escanéalo para fichar</h1>
+        <div class="centro">${esc(centro)}</div>
+        <div class="marco">${qr.createSvgTag({ cellSize: 8, margin: 0, scalable: true })}</div>
+        <div class="cuenta"><span id="barra"></span></div>
+        <div class="pie">
+            Abre la <strong>cámara</strong> del móvil y apunta.<br>
+            El código cambia cada pocos segundos: hay que leerlo aquí, en el bar.
+        </div>`;
+}
+
+function tictac() {
+    const barra = document.getElementById('barra');
+    if (!barra) return;
+    const queda = Math.max(0, expiraEn - Date.now());
+    barra.style.width = `${Math.round(queda / 25000 * 100)}%`;
+    if (queda <= 0) pedir();
+}
+
+async function pedir() {
+    try {
+        const r = await fetch(
+            `/api/fichajes?recurso=qr&centro=${encodeURIComponent(centro)}`,
+            { headers: TOKEN ? { 'X-Auth-Token': TOKEN } : {}, cache: 'no-store' }
+        );
+
+        if (r.status === 503) {
+            aviso('El código del bar no está activado',
+                'Falta configurar <code>QR_SECRET</code> en Vercel. Mientras tanto se ficha desde el iPad como siempre.');
+            return;
+        }
+        if (r.status === 403) {
+            aviso('Esta pantalla solo funciona en el bar',
+                'El código solo se muestra desde la red del local o con sesión de encargado. ' +
+                'Entra como encargado en este iPad y vuelve a abrirla.');
+            return;
+        }
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+
+        const d = await r.json();
+        expiraEn = Date.now() + d.expira_en;
+        // Solo se repinta el QR cuando el código cambia de verdad: repintarlo
+        // cada segundo haría parpadear la pantalla sin motivo.
+        if (d.token !== tokenActual) { tokenActual = d.token; pintar(d.token); }
+        tictac();
+    } catch {
+        aviso('Sin conexión', 'No se ha podido pedir el código. Se reintenta solo en unos segundos.');
+        setTimeout(pedir, 5000);
+    }
+}
+
+document.getElementById('btnSalir').addEventListener('click', () => {
+    if (bloqueo) bloqueo.release().catch(() => {});
+    window.location.href = `/?centro=${encodeURIComponent(centro)}`;
+});
+
+mantenerEncendido();
+pedir();
+setInterval(tictac, 250);
+</script>
+</body>
+</html>

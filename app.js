@@ -6,6 +6,73 @@ const EMPLEADOS_DEFAULT = [
 const params = new URLSearchParams(window.location.search);
 const centroActual = params.get('centro');
 
+// ── Código del bar y dispositivo ──────────────────────────────
+// Quien ficha desde su móvil tiene que haber leído el QR del iPad: es lo que
+// demuestra que estaba allí. El código llega en la propia dirección al abrir la
+// app desde la cámara, dura unos segundos y no se guarda más allá de la sesión.
+// El servidor acepta la ventana actual y la anterior, así que un código vale
+// como mucho 50 s. Pero eso solo se cumple si se leyó recién generado: si ya
+// estaba a punto de cambiar, la validez real es la mitad. Se garantizan 25 s y
+// a partir de ahí se avisa, en vez de prometer un tiempo que puede no existir.
+const QR_VIDA_MS = 50000;
+const QR_SEGURO_MS = 25000;
+
+function guardarCodigoDeLaUrl() {
+    const qr = params.get('qr');
+    if (!qr) return;
+    try {
+        sessionStorage.setItem('qrCodigo', qr);
+        sessionStorage.setItem('qrLeidoEn', String(Date.now()));
+    } catch {}
+    // Se limpia de la barra de direcciones: si se queda ahí, recargar la página
+    // pasadas horas reintentaría con un código muerto y confundiría el aviso.
+    try {
+        const limpia = new URL(window.location.href);
+        limpia.searchParams.delete('qr');
+        window.history.replaceState({}, '', limpia);
+    } catch {}
+}
+
+/** El código vigente, o cadena vacía si no hay o ya ha caducado. */
+function codigoDelBar() {
+    try {
+        const qr = sessionStorage.getItem('qrCodigo') || '';
+        const leidoEn = Number(sessionStorage.getItem('qrLeidoEn') || 0);
+        if (!qr || Date.now() - leidoEn > QR_VIDA_MS) return '';
+        return qr;
+    } catch { return ''; }
+}
+
+/** Se descarta el código: o ya se usó, o el servidor lo ha rechazado. */
+function olvidarCodigo() {
+    try {
+        sessionStorage.removeItem('qrCodigo');
+        sessionStorage.removeItem('qrLeidoEn');
+    } catch {}
+    pintarAvisoCodigo();
+}
+
+function msDeCodigo() {
+    try {
+        const leidoEn = Number(sessionStorage.getItem('qrLeidoEn') || 0);
+        return Math.max(0, QR_VIDA_MS - (Date.now() - leidoEn));
+    } catch { return 0; }
+}
+
+/** Identificador del aparato. Sirve para reconocer al iPad del local. */
+function idDispositivo() {
+    try {
+        let id = localStorage.getItem('device_id');
+        if (!id) {
+            id = 'dev_' + Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
+            localStorage.setItem('device_id', id);
+        }
+        return id;
+    } catch { return ''; }
+}
+
+guardarCodigoDeLaUrl();
+
 document.addEventListener('DOMContentLoaded', async () => {
     if (!centroActual) {
         await mostrarSelectorCentro();
@@ -48,7 +115,45 @@ function inicializar() {
     configurarBotones();
 
     actualizarEstadoBotones(null);
+    pintarAvisoCodigo();
+    setInterval(pintarAvisoCodigo, 1000);
     if (centroActual) { iniciarPanelTurno(); configurarNotas(); }
+}
+
+/**
+ * Dice si hay código del bar vigente y cuánto le queda. En el iPad del local no
+ * se enseña nada: allí no hace falta leer ningún código.
+ */
+function pintarAvisoCodigo() {
+    const caja = document.getElementById('qrAviso');
+    const txt = document.getElementById('qrAvisoTxt');
+    const barra = document.getElementById('qrBarra');
+    if (!caja || !txt) return;
+
+    if (esIpadDelLocal()) { caja.style.display = 'none'; return; }
+
+    const queda = msDeCodigo();
+    if (codigoDelBar()) {
+        const seguro = Math.max(0, queda - (QR_VIDA_MS - QR_SEGURO_MS));
+        caja.style.display = 'block';
+        if (seguro > 0) {
+            caja.className = 'qr-aviso ok';
+            txt.innerHTML = `<strong>✓ Código del bar leído</strong>Puedes fichar. Te quedan ${Math.ceil(seguro / 1000)} s.`;
+            barra.style.display = 'block';
+            barra.firstElementChild.style.width = `${Math.round(seguro / QR_SEGURO_MS * 100)}%`;
+        } else {
+            caja.className = 'qr-aviso falta';
+            txt.innerHTML = '<strong>El código está a punto de caducar</strong>'
+                + 'Prueba a fichar; si te lo rechaza, vuelve a leerlo en la pantalla del bar.';
+            barra.style.display = 'none';
+        }
+    } else {
+        caja.style.display = 'block';
+        caja.className = 'qr-aviso falta';
+        txt.innerHTML = '<strong>Para fichar, lee el código del bar</strong>'
+            + 'Abre la cámara del móvil y apunta a la pantalla del iPad.';
+        barra.style.display = 'none';
+    }
 }
 
 async function cargarEmpleados() {
@@ -85,7 +190,25 @@ async function cargarEmpleados() {
         btn.textContent = nombre;
         btn.addEventListener('click', () => seleccionarEmpleado(nombre, btn));
         cont.appendChild(btn);
+        if (nombre === duenoDelMovil()) btn.dataset.dueno = '1';
     });
+
+    // En un móvil personal no tiene sentido volver a elegirse cada vez. En el
+    // iPad del bar sí: es una pantalla compartida y ahí no se recuerda a nadie.
+    const suyo = cont.querySelector('[data-dueno="1"]');
+    if (suyo) seleccionarEmpleado(suyo.textContent, suyo);
+    pintarAvisoCodigo();
+}
+
+/** A quién pertenece este móvil, si ya lo ha dicho alguna vez. */
+function duenoDelMovil() {
+    if (esIpadDelLocal()) return '';
+    try { return localStorage.getItem('empleadoHabitual') || ''; } catch { return ''; }
+}
+
+/** El iPad del bar se marca desde el panel; ahí no se recuerda a nadie. */
+function esIpadDelLocal() {
+    try { return localStorage.getItem('dispositivoDeConfianza') === '1'; } catch { return false; }
 }
 
 function seleccionarEmpleado(nombre, btn) {
@@ -93,6 +216,9 @@ function seleccionarEmpleado(nombre, btn) {
     if (cont) cont.querySelectorAll('.btn-emp').forEach(b => b.classList.remove('selected'));
     btn.classList.add('selected');
     document.getElementById('empleado').value = nombre;
+    if (!esIpadDelLocal()) {
+        try { localStorage.setItem('empleadoHabitual', nombre); } catch {}
+    }
     actualizarUltimaAccion();
     actualizarBadgeTareas();
 }
@@ -138,6 +264,9 @@ function configurarBotones() {
     document.getElementById('btnEntrada').addEventListener('click', () => confirmarEntrada());
     // La salida avisa de tareas pendientes pero nunca se bloquea (§6.3).
     document.getElementById('btnSalida').addEventListener('click', () => confirmarSalida());
+    document.getElementById('btnMostrarQr')?.addEventListener('click', () => {
+        window.location.href = `qr.html?centro=${encodeURIComponent(centroActual || '')}`;
+    });
     document.getElementById('btnDescansoIni').addEventListener('click', () => registrarFichaje('inicio_descanso'));
     document.getElementById('btnDescansoFin').addEventListener('click', () => registrarFichaje('fin_descanso'));
     document.getElementById('btnAdmin').addEventListener('click', () => {
@@ -222,20 +351,38 @@ async function registrarFichaje(tipo, horaPrevista = '', passwordResponsable = '
             centro: centroActual || '',
             hora_prevista: horaPrevista || '',
             password_responsable: passwordResponsable || '',
-            motivo: motivo || ''
+            motivo: motivo || '',
+            qr: codigoDelBar(),
+            device_id: idDispositivo()
         };
 
         const response = await fetch('/api/fichajes', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 'Content-Type': 'application/json', 'X-Device-Id': idDispositivo() },
             body: JSON.stringify(fichaje)
         });
 
         // Fichaje fuera de la red del local (§7): se ofrece la excepción con
         // contraseña de responsable, para que un trabajo real nunca se quede
         // sin registrar por un problema de conexión.
+        if (response.status === 409) {
+            const data = await response.json().catch(() => ({}));
+            mostrarMensaje(data.error || 'No se ha podido fichar', 'error');
+            if (data.motivo === 'qr_repetido') olvidarCodigo();
+            return;
+        }
         if (response.status === 403) {
             const data = await response.json().catch(() => ({}));
+
+            // Falta el código del bar, o ya ha caducado. No se ofrece salida
+            // por contraseña: la gracia del código es justamente que haya que
+            // estar delante del iPad.
+            if (data.motivo === 'qr') {
+                olvidarCodigo();
+                mostrarMensaje(data.error || 'Lee el código de la pantalla del bar', 'error');
+                return;
+            }
+
             if (data.motivo === 'red') {
                 btnElements.forEach(btn => btn.disabled = false);
                 const seguir = confirm(
@@ -1265,8 +1412,8 @@ async function renderTareasPanel(forzar = false) {
 
     lista.querySelectorAll('[data-guardar]').forEach(b =>
         b.addEventListener('click', () => guardarTarea(Number(b.dataset.guardar))));
-    lista.querySelectorAll('[data-tfoto]').forEach(inp =>
-        inp.addEventListener('change', ev => capturarFotoTarea(ev, Number(inp.dataset.tfoto))));
+    lista.querySelectorAll('[data-tfoto]').forEach(btn =>
+        btn.addEventListener('click', () => abrirCamaraTarea(Number(btn.dataset.tfoto))));
 }
 
 function filaTarea(t, ahora) {
@@ -1307,8 +1454,7 @@ function filaTarea(t, ahora) {
         extras += `<input type="text" class="tarea-txt" id="ttxt-${t.id}" placeholder="Anota...">`;
     }
     if (tipo === 'FOTO' || tipo === 'FOTO+NUMERO') {
-        extras += `<label class="tarea-foto-btn" id="tfotolbl-${t.id}">📷
-            <input type="file" accept="image/*" capture="environment" data-tfoto="${t.id}" style="display:none"></label>`;
+        extras += `<button type="button" class="tarea-foto-btn" id="tfotolbl-${t.id}" data-tfoto="${t.id}">📷</button>`;
     }
 
     return `<div class="tarea-row ${cls}"><span class="tarea-punto"></span>${nombre}
@@ -1319,31 +1465,89 @@ function filaTarea(t, ahora) {
     </div>`;
 }
 
-// Reescalado en el propio móvil: la foto viaja pequeña y no cuesta almacenamiento.
-function capturarFotoTarea(ev, id) {
-    const file = ev.target.files && ev.target.files[0];
-    if (!file) return;
-    const recien = (Date.now() - (file.lastModified || 0)) < 2 * 60 * 1000;
-    const reader = new FileReader();
-    reader.onload = () => {
-        const img = new Image();
-        img.onload = () => {
-            const MAX = 1024;
-            let { width: w, height: h } = img;
-            if (w > MAX || h > MAX) {
-                const f = Math.min(MAX / w, MAX / h);
-                w = Math.round(w * f); h = Math.round(h * f);
-            }
-            const c = document.createElement('canvas');
-            c.width = w; c.height = h;
-            c.getContext('2d').drawImage(img, 0, 0, w, h);
-            fotosTarea[id] = { b64: c.toDataURL('image/jpeg', 0.6), origen: recien ? 'camara' : 'galeria' };
-            const lbl = document.getElementById(`tfotolbl-${id}`);
-            if (lbl) { lbl.classList.add('lista'); lbl.childNodes[0].nodeValue = '✓ '; }
-        };
-        img.src = reader.result;
+/**
+ * Reescala una imagen a 1024 px y la devuelve en JPEG.
+ * Estaba escrito tres veces en el proyecto; ahora vive en un solo sitio.
+ */
+function aJpegPequeno(fuente, anchoNatural, altoNatural) {
+    const MAX = 1024;
+    let w = anchoNatural, h = altoNatural;
+    if (w > MAX || h > MAX) {
+        const f = Math.min(MAX / w, MAX / h);
+        w = Math.round(w * f); h = Math.round(h * f);
+    }
+    const c = document.createElement('canvas');
+    c.width = w; c.height = h;
+    c.getContext('2d').drawImage(fuente, 0, 0, w, h);
+    return c.toDataURL('image/jpeg', 0.6);
+}
+
+/**
+ * Cámara dentro de la propia app.
+ *
+ * Antes esto era un <input type="file">, y aunque llevara `capture` el iPhone
+ * seguía ofreciendo la fototeca: se podía "hacer" la tarea con una foto vieja.
+ * Abriendo la cámara aquí no hay galería que elegir. Aun así, la prueba de que
+ * la persona está en el bar no la da la foto, sino el código del iPad.
+ */
+async function abrirCamaraTarea(id) {
+    const marcarLista = () => {
+        const lbl = document.getElementById(`tfotolbl-${id}`);
+        if (lbl) { lbl.classList.add('lista'); lbl.textContent = '✓'; }
     };
-    reader.readAsDataURL(file);
+
+    let stream;
+    try {
+        stream = await navigator.mediaDevices.getUserMedia({
+            video: { facingMode: { ideal: 'environment' } }, audio: false,
+        });
+    } catch {
+        // Sin permiso de cámara no se deja a nadie tirado: se ofrece el
+        // selector de siempre, y esa evidencia queda marcada en el servidor.
+        return respaldoSelectorFoto(id, marcarLista);
+    }
+
+    const modal = document.getElementById('camModal');
+    const video = document.getElementById('camVideo');
+    video.srcObject = stream;
+    await video.play().catch(() => {});
+    modal.classList.add('visible');
+
+    const cerrar = () => {
+        stream.getTracks().forEach(t => t.stop());
+        video.srcObject = null;
+        modal.classList.remove('visible');
+    };
+
+    document.getElementById('camDisparar').onclick = () => {
+        fotosTarea[id] = { b64: aJpegPequeno(video, video.videoWidth, video.videoHeight), origen: 'camara' };
+        marcarLista();
+        cerrar();
+    };
+    document.getElementById('camCancelar').onclick = cerrar;
+}
+
+/** Último recurso si el móvil no da permiso de cámara. */
+function respaldoSelectorFoto(id, marcarLista) {
+    const inp = document.createElement('input');
+    inp.type = 'file';
+    inp.accept = 'image/*';
+    inp.capture = 'environment';
+    inp.onchange = ev => {
+        const file = ev.target.files && ev.target.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = () => {
+            const img = new Image();
+            img.onload = () => {
+                fotosTarea[id] = { b64: aJpegPequeno(img, img.width, img.height), origen: 'selector' };
+                marcarLista();
+            };
+            img.src = reader.result;
+        };
+        reader.readAsDataURL(file);
+    };
+    inp.click();
 }
 
 function errorEnFila(id, texto) {
@@ -1365,7 +1569,7 @@ async function guardarTarea(id) {
     const body = {
         instancia_id: id,
         empleado: quien,
-        device_id: localStorage.getItem('device_id') || '',
+        device_id: idDispositivo(),
         ts_cliente: Date.now(),
         origen_ui: 'inicio',
         idempotency_key: `${id}-${quien}-${Date.now()}`,
@@ -1374,7 +1578,12 @@ async function guardarTarea(id) {
     if (num && num.value !== '') body.valor_numerico = num.value;
     const txt = document.getElementById(`ttxt-${id}`);
     if (txt) body.texto = txt.value;
-    if (fotosTarea[id]) { body.foto_b64 = fotosTarea[id].b64; body.origen_captura = fotosTarea[id].origen; }
+    if (fotosTarea[id]) {
+        body.foto_b64 = fotosTarea[id].b64;
+        body.origen_captura = fotosTarea[id].origen;
+        // Las tareas con foto exigen estar en el bar: viaja el código leído.
+        body.qr = codigoDelBar();
+    }
 
     if (btn) { btn.disabled = true; btn.textContent = '...'; }
     try {
@@ -1383,6 +1592,7 @@ async function guardarTarea(id) {
             headers: {
                 'Content-Type': 'application/json',
                 'X-Auth-Token': sessionStorage.getItem('adminToken') || sessionStorage.getItem('encargadoToken') || '',
+                'X-Device-Id': idDispositivo(),
             },
             body: JSON.stringify(body),
         });

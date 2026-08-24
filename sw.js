@@ -1,9 +1,13 @@
-const CACHE_NAME = 'fichaje-v11';
+const CACHE_NAME = 'fichaje-v12';
 const urlsToCache = [
   '/',
   '/index.html',
   '/admin.html',
-  '/manifest.json'
+  '/manifest.json',
+  // La pantalla del código vive encendida en el bar: se guarda junto con su
+  // generador para que una caída de red no deje al equipo sin poder fichar.
+  '/qr.html',
+  '/vendor/qr.mjs'
 ];
 
 // Instalar service worker

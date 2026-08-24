@@ -203,6 +203,23 @@
             .pin-teclado button { background: #374151; color: #e5e7eb; }
             .btn-cancelar { background: #374151; color: #e5e7eb; }
         }
+        /* Cámara propia para las fotos de tarea */
+        .cam-modal {
+            display: none; position: fixed; inset: 0; background: #000; z-index: 90;
+            flex-direction: column;
+        }
+        .cam-modal.visible { display: flex; }
+        .cam-modal video { flex: 1; width: 100%; object-fit: cover; min-height: 0; }
+        .cam-acciones {
+            display: flex; gap: 12px; padding: 16px;
+            padding-bottom: max(16px, env(safe-area-inset-bottom)); background: #000;
+        }
+        .cam-acciones button {
+            flex: 1; padding: 16px; border-radius: 10px; font-size: 16px;
+            font-weight: 700; border: none; cursor: pointer;
+        }
+        .cam-disparar { background: #10b981; color: white; flex: 2; }
+        .cam-cancelar { background: #374151; color: #e5e7eb; }
     </style>
 </head>
 <body>
@@ -284,6 +301,27 @@
     const PIN_TTL = 90 * 1000;
     let pinCache = { valor: '', ts: 0, empleado: '' };
     let pinResolver = null;
+
+    // ── Código del bar ────────────────────────────────────────
+    // Lo deja la cámara del móvil en la dirección al abrir la app. Las tareas
+    // con foto lo exigen: es lo que demuestra que la persona está en el local.
+    const QR_VIDA_MS = 50000;
+    (function guardarCodigoDeLaUrl() {
+        const qr = new URLSearchParams(location.search).get('qr');
+        if (!qr) return;
+        try {
+            sessionStorage.setItem('qrCodigo', qr);
+            sessionStorage.setItem('qrLeidoEn', String(Date.now()));
+        } catch {}
+    })();
+
+    function codigoDelBar() {
+        try {
+            const qr = sessionStorage.getItem('qrCodigo') || '';
+            const leidoEn = Number(sessionStorage.getItem('qrLeidoEn') || 0);
+            return (!qr || Date.now() - leidoEn > QR_VIDA_MS) ? '' : qr;
+        } catch { return ''; }
+    }
 
     function obtenerDeviceId() {
         let id = localStorage.getItem('device_id');
@@ -437,8 +475,8 @@
 
         lista.querySelectorAll('[data-hacer]').forEach(b =>
             b.addEventListener('click', () => completar(Number(b.dataset.hacer))));
-        lista.querySelectorAll('[data-foto]').forEach(inp =>
-            inp.addEventListener('change', ev => onFoto(ev, Number(inp.dataset.foto))));
+        lista.querySelectorAll('[data-foto]').forEach(btn =>
+            btn.addEventListener('click', () => onFoto(Number(btn.dataset.foto))));
         lista.querySelectorAll('[data-noaplica]').forEach(b =>
             b.addEventListener('click', () => noAplica(Number(b.dataset.noaplica))));
         lista.querySelectorAll('[data-reabrir]').forEach(b =>
@@ -526,10 +564,9 @@
         }
         if (tipo === 'FOTO' || tipo === 'FOTO+NUMERO') {
             html += `<div class="foto-zona" id="fotozona-${t.id}">
-                <label class="foto-btn">
+                <button type="button" class="foto-btn" data-foto="${t.id}">
                     <i data-lucide="camera" style="width:16px;height:16px"></i> Hacer foto
-                    <input type="file" accept="image/*" capture="environment" data-foto="${t.id}" style="display:none">
-                </label>
+                </button>
                 <div id="fotoprev-${t.id}"></div>
             </div>`;
         }
@@ -544,37 +581,78 @@
     // ── Foto: reescalado en cliente + heurística de captura ────
     const fotos = {}; // id → { b64, origen }
 
-    function onFoto(ev, id) {
-        const file = ev.target.files && ev.target.files[0];
-        if (!file) return;
-        // Si el archivo se acaba de crear, viene de la cámara; si es antiguo, de galería.
-        const recien = (Date.now() - (file.lastModified || 0)) < 2 * 60 * 1000;
-        const origen = recien ? 'camara' : 'galeria';
+    function aJpegPequeno(fuente, w0, h0) {
+        const MAX = 1024;
+        let w = w0, h = h0;
+        if (w > MAX || h > MAX) {
+            const f = Math.min(MAX / w, MAX / h);
+            w = Math.round(w * f); h = Math.round(h * f);
+        }
+        const c = document.createElement('canvas');
+        c.width = w; c.height = h;
+        c.getContext('2d').drawImage(fuente, 0, 0, w, h);
+        return c.toDataURL('image/jpeg', 0.6);
+    }
 
-        const reader = new FileReader();
-        reader.onload = () => {
-            const img = new Image();
-            img.onload = () => {
-                const MAX = 1024;
-                let { width: w, height: h } = img;
-                if (w > MAX || h > MAX) {
-                    const f = Math.min(MAX / w, MAX / h);
-                    w = Math.round(w * f); h = Math.round(h * f);
-                }
-                const c = document.createElement('canvas');
-                c.width = w; c.height = h;
-                c.getContext('2d').drawImage(img, 0, 0, w, h);
-                const b64 = c.toDataURL('image/jpeg', 0.6);
-                fotos[id] = { b64, origen };
-                const prev = $(`fotoprev-${id}`);
-                if (prev) {
-                    prev.innerHTML = `<img src="${b64}" alt="Foto de la tarea">`
-                        + (origen === 'galeria' ? '<div class="rango-hint" style="color:#b91c1c">Se ha elegido de la galería: quedará marcada para revisión.</div>' : '');
-                }
-            };
-            img.src = reader.result;
+    function guardarFoto(id, b64, origen) {
+        fotos[id] = { b64, origen };
+        const prev = $(`fotoprev-${id}`);
+        if (prev) {
+            prev.innerHTML = `<img src="${b64}" alt="Foto de la tarea">`
+                + (origen !== 'camara'
+                    ? '<div class="rango-hint" style="color:#b91c1c">Foto elegida de archivo: quedará marcada para revisión.</div>'
+                    : '');
+        }
+    }
+
+    /**
+     * Cámara dentro de la app. Antes era un selector de archivos y, aunque
+     * llevara `capture`, el iPhone seguía ofreciendo la fototeca: se podía
+     * "hacer" la tarea con una foto vieja. Aquí no hay galería que elegir.
+     */
+    async function onFoto(id) {
+        let stream;
+        try {
+            stream = await navigator.mediaDevices.getUserMedia({
+                video: { facingMode: { ideal: 'environment' } }, audio: false,
+            });
+        } catch {
+            return respaldoSelector(id);   // sin permiso, no se deja a nadie tirado
+        }
+
+        const modal = $('camModal');
+        const video = $('camVideo');
+        video.srcObject = stream;
+        await video.play().catch(() => {});
+        modal.classList.add('visible');
+
+        const cerrar = () => {
+            stream.getTracks().forEach(t => t.stop());
+            video.srcObject = null;
+            modal.classList.remove('visible');
         };
-        reader.readAsDataURL(file);
+        $('camDisparar').onclick = () => {
+            guardarFoto(id, aJpegPequeno(video, video.videoWidth, video.videoHeight), 'camara');
+            cerrar();
+        };
+        $('camCancelar').onclick = cerrar;
+    }
+
+    function respaldoSelector(id) {
+        const inp = document.createElement('input');
+        inp.type = 'file'; inp.accept = 'image/*'; inp.capture = 'environment';
+        inp.onchange = ev => {
+            const file = ev.target.files && ev.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = () => {
+                const img = new Image();
+                img.onload = () => guardarFoto(id, aJpegPequeno(img, img.width, img.height), 'selector');
+                img.src = reader.result;
+            };
+            reader.readAsDataURL(file);
+        };
+        inp.click();
     }
 
     // ── Acciones ──────────────────────────────────────────────
@@ -599,12 +677,21 @@
         if (num && num.value !== '') body.valor_numerico = num.value;
         const txt = $(`txt-${id}`);
         if (txt) body.texto = txt.value;
-        if (fotos[id]) { body.foto_b64 = fotos[id].b64; body.origen_captura = fotos[id].origen; }
+        if (fotos[id]) {
+            body.foto_b64 = fotos[id].b64;
+            body.origen_captura = fotos[id].origen;
+            // Las tareas con foto exigen estar en el bar: viaja el código leído.
+            body.qr = codigoDelBar();
+        }
 
         try {
             const r = await fetch('/api/tareas?accion=completar', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'X-Auth-Token': authToken },
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-Auth-Token': authToken,
+                    'X-Device-Id': deviceId,
+                },
                 body: JSON.stringify(body),
             });
             const data = await r.json().catch(() => ({}));
@@ -635,7 +722,11 @@
         try {
             const r = await fetch(`/api/tareas?accion=${accion}`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'X-Auth-Token': authToken },
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-Auth-Token': authToken,
+                    'X-Device-Id': deviceId,
+                },
                 body: JSON.stringify({ instancia_id: id, empleado: empleadoSel, motivo, device_id: deviceId }),
             });
             const data = await r.json().catch(() => ({}));
@@ -676,5 +767,13 @@
     });
 })();
 </script>
+    <!-- Cámara propia: sin selector, no hay galería que elegir -->
+    <div class="cam-modal" id="camModal" role="dialog" aria-modal="true" aria-label="Hacer foto">
+        <video id="camVideo" playsinline muted autoplay></video>
+        <div class="cam-acciones">
+            <button type="button" class="cam-cancelar" id="camCancelar">Cancelar</button>
+            <button type="button" class="cam-disparar" id="camDisparar">Hacer foto</button>
+        </div>
+    </div>
 </body>
 </html>

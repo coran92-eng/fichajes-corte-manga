@@ -1,6 +1,8 @@
 import { getDbClient } from "./_db.js";
 import {
   initSchema, getCentroCfg, esRedAutorizada, ipDeReq, huellaRed, auditar,
+  emitirTokenQr, validarTokenQr, hayQrConfigurado, esDispositivoConfianza,
+  idDispositivo, esEncargadoOSuperior,
 } from "./_tareas-lib.js";
 
 /** Contraseña de gerencia o de encargado, para autorizar excepciones. */
@@ -42,6 +44,11 @@ async function prepararEsquema(db) {
   // Explicación cuando el fichaje no cuadra con el horario: salida más tarde
   // de la hora (la escribe el empleado) o salida anticipada autorizada.
   try { await db.execute("ALTER TABLE fichajes ADD COLUMN motivo TEXT NOT NULL DEFAULT ''"); } catch {}
+
+  // Ventana del código del bar con el que se fichó. Sirve para impedir que un
+  // mismo código valga dos veces a la misma persona.
+  try { await db.execute("ALTER TABLE fichajes ADD COLUMN qr_ventana INTEGER"); } catch {}
+  try { await db.execute("CREATE INDEX IF NOT EXISTS idx_fichajes_qr ON fichajes (empleado, qr_ventana)"); } catch {}
 
   // Todas las pantallas leen por rango de fechas o por empleado; sin índice
   // cada consulta recorría la tabla entera.
@@ -217,6 +224,27 @@ export default async function handler(req, res) {
     // varios miles de filas para que las cruzara allí: una fila responde en
     // 185 ms y varios miles no responden. Aquí se leen las columnas justas, se
     // cruza con el cuadrante y se devuelven unos pocos KB ya masticados.
+    // Código rotatorio que muestra el iPad del bar. Solo se entrega desde la
+    // red del local o con sesión de encargado: si cualquiera pudiera pedirlo
+    // desde casa, el código no probaría nada.
+    if (req.method === "GET" && req.query.recurso === "qr") {
+      const centro = req.query.centro || "";
+      if (!centro) return res.status(400).json({ error: "Centro requerido" });
+      if (!hayQrConfigurado()) {
+        return res.status(503).json({ error: "El código del local no está configurado", motivo: "sin_qr" });
+      }
+
+      await initSchema(db);
+      const cfg = await getCentroCfg(db, centro);
+      const red = esRedAutorizada(req, cfg);
+      if (!red.permitido && !esEncargadoOSuperior(req)) {
+        return res.status(403).json({ error: "Este código solo se puede mostrar desde el local" });
+      }
+
+      res.setHeader('Cache-Control', 'no-store');
+      return res.status(200).json(emitirTokenQr(centro));
+    }
+
     if (req.method === "GET" && req.query.resumen === "panel") {
       const centro = req.query.centro || "";
       const desde = parseInt(req.query.desde, 10) || 0;
@@ -269,7 +297,7 @@ export default async function handler(req, res) {
     else if (req.method === "POST") {
       const {
         empleado, tipo, fecha, hora, timestamp, centro = '', hora_prevista = '',
-        password_responsable = '', motivo = '',
+        password_responsable = '', motivo = '', qr = '',
       } = req.body;
 
       if (!empleado || !tipo || !fecha || !hora || !timestamp) {
@@ -279,11 +307,50 @@ export default async function handler(req, res) {
       // Solo se ficha desde la red del local (§7). Si el centro no tiene
       // ninguna red autorizada todavía, no se restringe nada: así configurarlo
       // es una decisión, no un requisito para que la app funcione.
+      // Un fichaje sin centro no es válido: no se sabría a qué local pertenece,
+      // y además se saltaría el código del bar, que va firmado por centro.
+      if (!centro && hayQrConfigurado()) {
+        return res.status(400).json({ error: "Falta el centro del fichaje" });
+      }
+
       let fueraDeRed = false;
+      let ventanaQrUsada = null;
+
       if (centro) {
         await initSchema(db);
         const cfg = await getCentroCfg(db, centro);
         const red = esRedAutorizada(req, cfg);
+        const deConfianza = esDispositivoConfianza(req, cfg);
+
+        // Desde un móvil hay que haber leído el código del iPad. El iPad del
+        // propio bar está registrado como dispositivo de confianza y ficha
+        // como siempre: no tiene sentido pedirle que lea su propia pantalla.
+        if (hayQrConfigurado() && !deConfianza) {
+          const v = validarTokenQr(centro, qr);
+          if (!v.ok) {
+            return res.status(403).json({
+              error: v.motivo === 'falta'
+                ? "Para fichar desde el móvil, lee antes el código de la pantalla del bar"
+                : "Ese código ya ha caducado. Vuelve a leer el de la pantalla del bar",
+              motivo: "qr",
+            });
+          }
+
+          // Un mismo código sirve a varias personas —entran juntas al cambio de
+          // turno— pero no dos veces a la misma: así cada acción exige que
+          // alguien esté delante del iPad en ese momento.
+          const repe = await db.execute({
+            sql: "SELECT 1 FROM fichajes WHERE empleado = ? AND qr_ventana = ? LIMIT 1",
+            args: [empleado, v.ventana],
+          });
+          if (repe.rows.length) {
+            return res.status(409).json({
+              error: "Ya has usado este código. Pide uno nuevo en la pantalla del bar",
+              motivo: "qr_repetido",
+            });
+          }
+          ventanaQrUsada = v.ventana;
+        }
 
         if (!red.permitido) {
           // Excepción con contraseña de responsable: si alguien tiene que
@@ -300,8 +367,8 @@ export default async function handler(req, res) {
       }
 
       const result = await db.execute({
-        sql: "INSERT INTO fichajes (empleado, tipo, fecha, hora, timestamp, centro, hora_prevista, motivo) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-        args: [empleado, tipo, fecha, hora, timestamp, centro, hora_prevista, String(motivo || '').slice(0, 500)],
+        sql: "INSERT INTO fichajes (empleado, tipo, fecha, hora, timestamp, centro, hora_prevista, motivo, qr_ventana) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        args: [empleado, tipo, fecha, hora, timestamp, centro, hora_prevista, String(motivo || '').slice(0, 500), ventanaQrUsada],
       });
 
       if (fueraDeRed) {
@@ -313,10 +380,20 @@ export default async function handler(req, res) {
         });
       }
 
+      if (ventanaQrUsada !== null) {
+        await auditar(db, req, {
+          tipo_evento: 'FICHAJE_POR_QR', entidad: 'fichajes',
+          entidad_id: result.lastInsertRowid?.toString(),
+          empleado, centro, device_id: idDispositivo(req),
+          payload: { tipo, hora, ventana: ventanaQrUsada },
+        }).catch(() => {});
+      }
+
       return res.status(201).json({
         success: true,
         id: result.lastInsertRowid.toString(),
         fuera_de_red: fueraDeRed,
+        por_qr: ventanaQrUsada !== null,
       });
     } 
     else if (req.method === "DELETE") {

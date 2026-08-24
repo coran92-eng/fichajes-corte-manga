@@ -193,6 +193,18 @@ window.abrirRedLocal = function() {
     window.cargarEstadoRed();
 };
 
+/** Identificador de este aparato, el mismo que usa la pantalla de fichaje. */
+function idDispositivoAdmin() {
+    try {
+        let id = localStorage.getItem('device_id');
+        if (!id) {
+            id = 'dev_' + Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
+            localStorage.setItem('device_id', id);
+        }
+        return id;
+    } catch { return ''; }
+}
+
 window.cargarEstadoRed = async function() {
     const centro = document.getElementById('redCentro').value;
     const estado = document.getElementById('redEstado');
@@ -201,8 +213,14 @@ window.cargarEstadoRed = async function() {
     lista.innerHTML = '';
 
     try {
-        const res = await fetch(`/api/red-local?centro=${encodeURIComponent(centro)}`, { cache: 'no-store' });
+        const res = await fetch(`/api/red-local?centro=${encodeURIComponent(centro)}`, {
+            cache: 'no-store', headers: { 'X-Device-Id': idDispositivoAdmin() },
+        });
         const d = await res.json();
+
+        // Que la pantalla de fichaje de ESTE aparato sepa si es el iPad del bar:
+        // así no pide código ni recuerda a ningún dueño.
+        try { localStorage.setItem('dispositivoDeConfianza', d.es_de_confianza ? '1' : '0'); } catch {}
 
         if (d.sin_configurar) {
             estado.innerHTML = `<span style="color:#b45309">⚠ Sin configurar: ahora mismo se puede fichar desde cualquier sitio.</span>`;
@@ -222,9 +240,80 @@ window.cargarEstadoRed = async function() {
                             style="border:1px solid #fca5a5;background:none;color:#b91c1c;border-radius:6px;padding:3px 8px;font-size:11px;cursor:pointer;font-weight:600">Quitar</button>
                 </div>`).join('')
             : '<div style="font-size:13px;color:#9ca3af">Ninguna red autorizada todavía.</div>';
+
+        // ── El código del bar y este aparato ──
+        const qrTxt = !d.qr_configurado
+            ? '<span style="color:#b45309">⚠ El código del bar no está activado (falta <code>QR_SECRET</code>). Desde el móvil no se puede fichar todavía.</span>'
+            : d.es_de_confianza
+                ? '<span style="color:#059669">✓ Este aparato es el del local: ficha sin leer ningún código.</span>'
+                : '<span style="color:#6b7280">Este aparato tendrá que leer el código del bar para fichar.</span>';
+
+        lista.innerHTML += `
+            <div style="margin-top:16px;padding-top:14px;border-top:1px solid #e5e7eb">
+                <div style="font-size:12px;font-weight:700;color:#6b7280;margin-bottom:5px">CÓDIGO DEL BAR</div>
+                <div style="font-size:13px;line-height:1.5;margin-bottom:10px">${qrTxt}</div>
+                <div style="display:flex;gap:8px;flex-wrap:wrap">
+                    ${d.es_de_confianza
+                        ? `<button type="button" onclick="window.quitarConfianza()" style="border:1px solid #fca5a5;background:none;color:#b91c1c;border-radius:6px;padding:6px 12px;font-size:12px;cursor:pointer;font-weight:600">Quitar la confianza a este aparato</button>`
+                        : `<button type="button" onclick="window.marcarConfianza()" style="border:none;background:#10b981;color:white;border-radius:6px;padding:6px 12px;font-size:12px;cursor:pointer;font-weight:600">Este es el iPad del local</button>`}
+                    ${d.qr_configurado
+                        ? `<button type="button" onclick="window.abrirPantallaQr()" style="border:none;background:#2563eb;color:white;border-radius:6px;padding:6px 12px;font-size:12px;cursor:pointer;font-weight:600">Mostrar el código a pantalla completa</button>`
+                        : ''}
+                </div>
+                ${d.dispositivos.length > 1
+                    ? `<div style="font-size:12px;color:#9ca3af;margin-top:8px">${d.dispositivos.length} aparatos de confianza en este centro.</div>` : ''}
+            </div>`;
     } catch {
         estado.textContent = 'No se pudo comprobar la red';
     }
+};
+
+window.marcarConfianza = async function() {
+    const centro = document.getElementById('redCentro').value;
+    if (!confirm(
+        `¿Marcar ESTE aparato como el del local para "${centro}"?\n\n` +
+        `Desde él se podrá fichar sin leer el código. Hazlo solo con el iPad del bar, y estando dentro.`
+    )) return;
+    try {
+        const res = await fetch(`/api/red-local?recurso=dispositivo&centro=${encodeURIComponent(centro)}`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-Auth-Token': sessionStorage.getItem('adminToken') || '',
+                'X-Device-Id': idDispositivoAdmin(),
+            },
+            body: JSON.stringify({ centro, device_id: idDispositivoAdmin() }),
+        });
+        const d = await res.json();
+        if (!res.ok) throw new Error(d.error || '');
+        mostrarMensaje(d.ya_estaba ? 'Ya estaba marcado' : '✓ Aparato marcado como el del local', 'success');
+        window.cargarEstadoRed();
+    } catch (e) {
+        mostrarMensaje(`✗ ${e.message || 'No se ha podido marcar'}`, 'error');
+    }
+};
+
+window.quitarConfianza = async function() {
+    const centro = document.getElementById('redCentro').value;
+    if (!confirm('¿Quitar la confianza a este aparato? Pasará a necesitar el código del bar para fichar.')) return;
+    try {
+        await fetch(`/api/red-local?recurso=dispositivo&centro=${encodeURIComponent(centro)}&id=${encodeURIComponent(idDispositivoAdmin())}`, {
+            method: 'DELETE',
+            headers: {
+                'X-Auth-Token': sessionStorage.getItem('adminToken') || '',
+                'X-Device-Id': idDispositivoAdmin(),
+            },
+        });
+        mostrarMensaje('Confianza retirada', 'success');
+        window.cargarEstadoRed();
+    } catch {
+        mostrarMensaje('✗ Error al quitar la confianza', 'error');
+    }
+};
+
+window.abrirPantallaQr = function() {
+    const centro = document.getElementById('redCentro').value;
+    window.open(`qr.html?centro=${encodeURIComponent(centro)}`, '_blank');
 };
 
 window.autorizarRed = async function() {
@@ -236,6 +325,7 @@ window.autorizarRed = async function() {
             headers: {
                 'Content-Type': 'application/json',
                 'X-Auth-Token': sessionStorage.getItem('adminToken') || '',
+                'X-Device-Id': idDispositivoAdmin(),
             },
             body: JSON.stringify({ centro }),
         });
