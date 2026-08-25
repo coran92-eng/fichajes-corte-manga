@@ -2,7 +2,7 @@ import { getDbClient } from "./_db.js";
 import {
   initSchema, getCentroCfg, esRedAutorizada, ipDeReq, huellaRed, auditar,
   emitirTokenQr, validarTokenQr, hayQrConfigurado, exigirQr,
-  idDispositivo, esEncargadoOSuperior,
+  idDispositivo, esEncargadoOSuperior, verificarPin,
 } from "./_tareas-lib.js";
 
 /** Contraseña de gerencia o de encargado, para autorizar excepciones. */
@@ -297,7 +297,7 @@ export default async function handler(req, res) {
     else if (req.method === "POST") {
       const {
         empleado, tipo, fecha, hora, timestamp, centro = '', hora_prevista = '',
-        password_responsable = '', motivo = '', qr = '',
+        password_responsable = '', motivo = '', qr = '', pin = '',
       } = req.body;
 
       if (!empleado || !tipo || !fecha || !hora || !timestamp) {
@@ -314,12 +314,33 @@ export default async function handler(req, res) {
       }
 
       let fueraDeRed = false;
+      let sinPinAutorizado = false;
       let ventanaQrUsada = null;
 
       if (centro) {
         await initSchema(db);
         const cfg = await getCentroCfg(db, centro);
         const red = esRedAutorizada(req, cfg);
+
+        // Quién ficha: en el móvil lo dice la sesión del PIN, sin que haga
+        // falta volver a teclearlo en cada fichaje. El iPad del bar no tiene
+        // sesión propia —es una pantalla compartida—, así que sin PIN hace
+        // falta que lo autorice un encargado: es lo que impide que un
+        // compañero te fiche la entrada o la salida desde ahí. Un empleado
+        // que todavía no tiene PIN asignado sigue sin bloquearse (§ modo
+        // simple), igual que ya pasa al completar tareas.
+        const sesionToken = req.body.sesion || req.headers['x-sesion'] || '';
+        const identidad = await verificarPin(db, empleado, pin, sesionToken);
+        if (!identidad.ok) {
+          if (!claveResponsableValida(password_responsable)) {
+            return res.status(403).json({
+              error: "Ficha desde tu móvil. Si no lo tienes a mano, pide que te lo autorice un encargado.",
+              motivo: "identidad",
+            });
+          }
+          sinPinAutorizado = true;
+        }
+
         // Desde un móvil hay que haber leído el código del iPad. El iPad del
         // propio bar está registrado como dispositivo de confianza y ficha
         // como siempre: no tiene sentido pedirle que lea su propia pantalla.
@@ -380,6 +401,15 @@ export default async function handler(req, res) {
         });
       }
 
+      if (sinPinAutorizado) {
+        await auditar(db, req, {
+          tipo_evento: 'FICHAJE_SIN_PIN_AUTORIZADO', entidad: 'fichajes',
+          entidad_id: result.lastInsertRowid?.toString(),
+          empleado, centro, device_id: idDispositivo(req),
+          payload: { tipo, hora },
+        }).catch(() => {});
+      }
+
       if (ventanaQrUsada !== null) {
         await auditar(db, req, {
           tipo_evento: 'FICHAJE_POR_QR', entidad: 'fichajes',
@@ -393,6 +423,7 @@ export default async function handler(req, res) {
         success: true,
         id: result.lastInsertRowid.toString(),
         fuera_de_red: fueraDeRed,
+        sin_pin_autorizado: sinPinAutorizado,
         por_qr: ventanaQrUsada !== null,
       });
     } 
