@@ -1,4 +1,4 @@
-const CACHE_NAME = 'fichaje-v14';
+const CACHE_NAME = 'fichaje-v15';
 const urlsToCache = [
   '/',
   '/index.html',

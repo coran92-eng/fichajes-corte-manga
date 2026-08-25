@@ -676,10 +676,22 @@
         .pin-tecla:active { background: #e5e7eb; transform: scale(.96); }
         .pin-borrar { font-size: 20px; background: none; color: #6b7280; }
 
+        .pin-pie {
+            margin-top: 20px; padding-top: 16px; border-top: 1px solid #e5e7eb;
+            display: flex; flex-direction: column; align-items: center; gap: 10px;
+        }
+        /* La entrada del dueño: se usa a diario, así que es un botón de verdad
+           y no un enlace pequeño perdido al pie. */
+        .pin-koran {
+            background: #f3f4f6; color: #374151; border: 1px solid #e5e7eb;
+            border-radius: 10px; padding: 12px 28px; font-size: 15px;
+            font-weight: 700; cursor: pointer; text-transform: none; letter-spacing: 0;
+        }
+        .pin-koran:active { background: #e5e7eb; }
         .pin-ipad {
             background: none; border: none; color: #9ca3af; font-size: 12px;
-            text-decoration: underline; cursor: pointer; margin-top: 20px;
-            font-weight: 600; text-transform: none; letter-spacing: 0; padding: 8px;
+            text-decoration: underline; cursor: pointer;
+            font-weight: 600; text-transform: none; letter-spacing: 0; padding: 6px;
         }
         @media (prefers-color-scheme: dark) {
             #pantallaPin { background: linear-gradient(135deg, #1e1b4b 0%, #312e81 100%); }
@@ -689,6 +701,8 @@
             .pin-tecla:active { background: #4b5563; }
             .pin-borrar { background: none; color: #9ca3af; }
             .pin-punto { border-color: #4b5563; }
+            .pin-pie { border-top-color: #374151; }
+            .pin-koran { background: #374151; color: #e5e7eb; border-color: #4b5563; }
         }
 
         /* Cámara propia para las fotos de tarea */
@@ -1292,7 +1306,10 @@
                 <button type="button" class="pin-tecla pin-borrar" id="pinBorrar" aria-label="Borrar">←</button>
             </div>
 
-            <button type="button" class="pin-ipad" id="pinEsElIpad">Este es el iPad del bar</button>
+            <div class="pin-pie">
+                <button type="button" class="pin-koran" id="pinKoran">Koran</button>
+                <button type="button" class="pin-ipad" id="pinEsElIpad">Este es el iPad del bar</button>
+            </div>
         </div>
     </div>
 
@@ -1388,7 +1405,7 @@
         <button id="btnUndo" class="undo-btn" type="button">Deshacer</button>
     </div>
 
-    <script type="module" src="app.js?v=20"></script>
+    <script type="module" src="app.js?v=21"></script>
     <script>
         document.addEventListener('DOMContentLoaded', () => {
             if (typeof lucide !== 'undefined') lucide.createIcons();
