@@ -57,6 +57,11 @@
             border-radius: 10px; padding: 12px 8px; font-size: 15px;
         }
         .btn-emp.selected { background: #2563eb; color: white; border-color: #2563eb; }
+        .btn-nosoyyo {
+            background: none; border: none; color: #9ca3af; font-size: 12px;
+            text-decoration: underline; cursor: pointer; margin: -6px 0 14px; padding: 4px 0;
+            font-weight: 600; display: block;
+        }
 
         .barra-estado {
             display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
@@ -315,20 +320,22 @@
         } catch {}
     })();
 
-    /** Testigo de la sesión del empleado en este móvil, si la hay. */
-    function testigoSesion() {
+    /** La sesión guardada en este móvil al entrar con el PIN, si la hay. */
+    function sesionActual() {
         try {
             const s = JSON.parse(localStorage.getItem('sesionEmpleado') || 'null');
-            return s && s.sesion ? s.sesion : '';
-        } catch { return ''; }
+            return s && s.sesion && s.nombre ? s : null;
+        } catch { return null; }
+    }
+
+    /** Testigo de la sesión del empleado en este móvil, si la hay. */
+    function testigoSesion() {
+        return sesionActual()?.sesion || '';
     }
 
     /** ¿La sesión de este móvil es de esta persona? */
     function sesionEsDe(nombre) {
-        try {
-            const s = JSON.parse(localStorage.getItem('sesionEmpleado') || 'null');
-            return !!(s && s.sesion && s.nombre === nombre);
-        } catch { return false; }
+        return sesionActual()?.nombre === nombre;
     }
 
     function codigoDelBar() {
@@ -410,8 +417,15 @@
 
         const cont = $('empGrid');
         if (!empleados.length) { cont.innerHTML = '<span style="color:#9ca3af;font-size:13px">Sin empleados</span>'; return; }
+
+        // Con sesión iniciada en este móvil no hace falta elegir: ya se sabe
+        // quién es. Se deja solo su nombre y un botón para salir de esa sesión.
+        const sesion = sesionActual();
+        const propio = sesion ? empleados.find(e => e.nombre === sesion.nombre) : null;
+        const visibles = propio ? [propio] : empleados;
+
         cont.innerHTML = '';
-        empleados.forEach(e => {
+        visibles.forEach(e => {
             const b = document.createElement('button');
             b.className = 'btn-emp';
             b.type = 'button';
@@ -419,6 +433,25 @@
             b.addEventListener('click', () => seleccionar(e, b));
             cont.appendChild(b);
         });
+
+        document.getElementById('btnCerrarSesion')?.remove();
+        if (propio) {
+            seleccionar(propio, cont.querySelector('.btn-emp'));
+            const salir = document.createElement('button');
+            salir.type = 'button';
+            salir.id = 'btnCerrarSesion';
+            salir.className = 'btn-nosoyyo';
+            salir.textContent = 'Cerrar sesión';
+            salir.addEventListener('click', () => {
+                if (!confirm('Se cerrará tu sesión en este móvil. ¿Seguro?')) return;
+                try {
+                    localStorage.removeItem('sesionEmpleado');
+                    localStorage.removeItem('empleadoHabitual');
+                } catch {}
+                window.location.href = '/';
+            });
+            cont.insertAdjacentElement('afterend', salir);
+        }
     }
 
     function seleccionar(e, btn) {
@@ -529,13 +562,18 @@
         } else {
             if (t.instrucciones) cuerpo += `<div class="instrucciones">${esc(t.instrucciones)}</div>`;
             cuerpo += camposEvidencia(t);
-            const puede = !vencida || esEncargado;
+            const necesitaFoto = t.tipo_evidencia === 'FOTO' || t.tipo_evidencia === 'FOTO+NUMERO';
+            const faltaFoto = necesitaFoto && !fotos[t.id];
+            const puede = (!vencida || esEncargado) && !faltaFoto;
             cuerpo += `<div class="tarea-acciones">
                 <button class="btn-hacer" data-hacer="${t.id}" ${puede ? '' : 'disabled'}>
                     ${vencida ? 'Completar (tardía)' : 'Completar'}
                 </button>
                 ${esEncargado ? `<button class="btn-sec" data-noaplica="${t.id}">No aplica</button>` : ''}
             </div>`;
+            if (faltaFoto) {
+                cuerpo += `<div class="tarea-meta" id="avisofoto-${t.id}" style="color:#b91c1c">Haz la foto para poder completarla.</div>`;
+            }
             if (vencida && !esEncargado) {
                 cuerpo += `<div class="tarea-meta" style="color:#b91c1c">Ha vencido: solo el encargado puede cerrarla.</div>`;
             }
@@ -619,6 +657,11 @@
                     ? '<div class="rango-hint" style="color:#b91c1c">Foto elegida de archivo: quedará marcada para revisión.</div>'
                     : '');
         }
+        // Se habilita aquí en vez de volver a pintar la tarjeta entera: un
+        // repintado borraría la nota o el número que ya hubiera escrito.
+        const boton = document.querySelector(`.btn-hacer[data-hacer="${id}"]`);
+        if (boton) boton.disabled = false;
+        document.getElementById(`avisofoto-${id}`)?.remove();
     }
 
     /**
