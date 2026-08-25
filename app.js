@@ -209,6 +209,12 @@ function mostrarTecladoPin() {
         pintar();
     });
 
+    // La entrada del dueño: con su correo y su contraseña, como siempre. El PIN
+    // de gerencia es un atajo, no un reemplazo, y esta puerta sigue abierta.
+    document.getElementById('pinKoran').addEventListener('click', () => {
+        window.location.href = 'login.html';
+    });
+
     // Salida para montar el iPad la primera vez, y para que un PIN que falle no
     // deje a nadie sin fichar. Va detrás de contraseña a propósito: si fuera un
     // enlace suelto, el PIN sería decorativo.
