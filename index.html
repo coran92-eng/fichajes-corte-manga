@@ -682,12 +682,12 @@
         }
         /* La entrada del dueño: se usa a diario, así que es un botón de verdad
            y no un enlace pequeño perdido al pie. */
-        .pin-koran {
+        .pin-coran {
             background: #f3f4f6; color: #374151; border: 1px solid #e5e7eb;
             border-radius: 10px; padding: 12px 28px; font-size: 15px;
             font-weight: 700; cursor: pointer; text-transform: none; letter-spacing: 0;
         }
-        .pin-koran:active { background: #e5e7eb; }
+        .pin-coran:active { background: #e5e7eb; }
         .pin-ipad {
             background: none; border: none; color: #9ca3af; font-size: 12px;
             text-decoration: underline; cursor: pointer;
@@ -702,7 +702,7 @@
             .pin-borrar { background: none; color: #9ca3af; }
             .pin-punto { border-color: #4b5563; }
             .pin-pie { border-top-color: #374151; }
-            .pin-koran { background: #374151; color: #e5e7eb; border-color: #4b5563; }
+            .pin-coran { background: #374151; color: #e5e7eb; border-color: #4b5563; }
         }
 
         /* Cámara propia para las fotos de tarea */
@@ -1307,7 +1307,7 @@
             </div>
 
             <div class="pin-pie">
-                <button type="button" class="pin-koran" id="pinKoran">Koran</button>
+                <button type="button" class="pin-coran" id="pinCoran">Coran</button>
                 <button type="button" class="pin-ipad" id="pinEsElIpad">Este es el iPad del bar</button>
             </div>
         </div>
@@ -1405,7 +1405,7 @@
         <button id="btnUndo" class="undo-btn" type="button">Deshacer</button>
     </div>
 
-    <script type="module" src="app.js?v=21"></script>
+    <script type="module" src="app.js?v=22"></script>
     <script>
         document.addEventListener('DOMContentLoaded', () => {
             if (typeof lucide !== 'undefined') lucide.createIcons();
