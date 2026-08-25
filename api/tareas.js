@@ -135,6 +135,35 @@ export default async function handler(req, res) {
       return res.status(200).send(buf);
     }
 
+    // ── Lista de evidencias con foto, para revisarlas desde el panel ──
+    // Solo metadatos: la imagen se pide aparte, una a una, con el mismo
+    // recurso de arriba. Bajar todas las fotos en una lista sería repetir el
+    // error que ya nos costó caro con los fichajes.
+    if (req.method === "GET" && req.query.recurso === 'evidencias') {
+      if (!esEncargadoOSuperior(req)) {
+        return res.status(403).json({ error: "No autorizado" });
+      }
+      const { centro: centroLista, desde, hasta } = req.query;
+      if (!centroLista || !desde) {
+        return res.status(400).json({ error: "Centro y fecha desde son requeridos" });
+      }
+
+      const r = await db.execute({
+        sql: `SELECT e.id, e.origen_captura, e.sospechosa, e.ts_servidor,
+                     i.fecha_operativa, i.completada_por AS empleado,
+                     p.nombre AS tarea
+              FROM evidencias e
+              JOIN tarea_instancias i ON i.id = e.tarea_instancia_id
+              JOIN tarea_plantillas p ON p.id = i.plantilla_version_id
+              WHERE i.centro = ? AND i.fecha_operativa BETWEEN ? AND ?
+                AND e.archivo_b64 IS NOT NULL
+              ORDER BY e.ts_servidor DESC
+              LIMIT 300`,
+        args: [centroLista, desde, hasta || desde],
+      });
+      return res.status(200).json({ evidencias: r.rows });
+    }
+
     // ── Lista de tareas del día ───────────────────────────────
     if (req.method === "GET") {
       res.setHeader('Cache-Control', 'no-store');
