@@ -12,6 +12,12 @@
  * reutilizable. Está anotado también en _tareas-lib.js.
  */
 
+import { getDbClient } from "./_db.js";
+import {
+  initSchema, identificarPorPin, emitirSesionEmpleado,
+  fallosDePinRecientes, auditar, huellaRed, ipDeReq, idDispositivo,
+} from "./_tareas-lib.js";
+
 const TOKEN_ADMIN = "auth-token-fichaje-admin";
 const TOKEN_ENCARGADO = "auth-token-fichaje-encargado";
 
@@ -19,13 +25,64 @@ const claveAdmin = () => process.env.ADMIN_PASSWORD || "123456";
 const claveEncargado = () => process.env.ENCARGADO_PASSWORD || "123456";
 const usuarioEncargado = () => process.env.ENCARGADO_USER || "Albert";
 
-export default function handler(req, res) {
+export default async function handler(req, res) {
   if (req.method !== "POST") {
     return res.status(405).json({ error: "Method not allowed" });
   }
 
-  const { usuario, password, rol } = req.body || {};
+  const { usuario, password, rol, pin } = req.body || {};
   const quiere = String(rol || req.query?.rol || "").toLowerCase();
+
+  // ── El empleado entra en su móvil con su PIN ──
+  // El PIN dice quién es. Dónde está lo dice el código del bar, que se sigue
+  // pidiendo al fichar: son dos controles distintos y hacen falta los dos.
+  if (quiere === "empleado") {
+    const db = getDbClient();
+    await initSchema(db);
+
+    // Seis dígitos son un millón de combinaciones, pero sin tope de intentos
+    // eso se prueba entero en unas horas. Con tope, deja de ser un camino.
+    const fallos = await fallosDePinRecientes(db, req);
+    if (fallos.bloqueado) {
+      return res.status(429).json({
+        error: `Demasiados intentos fallidos. Espera unos minutos y vuelve a probar.`,
+        motivo: "bloqueado",
+      });
+    }
+
+    const empleado = await identificarPorPin(db, pin);
+    if (!empleado) {
+      // No se dice de quién NO era: eso confirmaría PIN ajenos por descarte.
+      await auditar(db, req, {
+        tipo_evento: 'PIN_FALLIDO', entidad: 'empleados',
+        device_id: idDispositivo(req),
+        ip: huellaRed(ipDeReq(req)),   // por red, no por IP: en IPv6 cada móvil tiene la suya
+        payload: { intentos_previos: fallos.n },
+      }).catch(() => {});
+      return res.status(401).json({ error: "PIN incorrecto", motivo: "pin" });
+    }
+
+    const sesion = emitirSesionEmpleado(empleado.nombre, empleado.pin_hash);
+    if (!sesion) {
+      return res.status(503).json({
+        error: "Falta configurar el servidor para poder entrar con PIN",
+        motivo: "sin_secreto",
+      });
+    }
+
+    await auditar(db, req, {
+      tipo_evento: 'EMPLEADO_ENTRO', entidad: 'empleados',
+      empleado: empleado.nombre, centro: empleado.centro || '',
+      device_id: idDispositivo(req),
+    }).catch(() => {});
+
+    return res.status(200).json({
+      success: true, nivel: "empleado", sesion,
+      nombre: empleado.nombre,
+      centro: empleado.centro || '',
+      rol: empleado.rol || '',
+    });
+  }
 
   if (quiere === "encargado") {
     if (usuario === usuarioEncargado() && password === claveEncargado()) {

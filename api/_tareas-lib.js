@@ -140,6 +140,11 @@ export async function initSchema(db) {
     )
   `);
 
+  // El tope de intentos de PIN es la primera consulta que lee esta tabla. Sin
+  // índice sería un recorrido completo de algo que solo crece.
+  try { await db.execute("CREATE INDEX IF NOT EXISTS idx_auditoria_ip ON evento_auditoria (tipo_evento, ip, ts_servidor)"); } catch {}
+  try { await db.execute("CREATE INDEX IF NOT EXISTS idx_auditoria_dev ON evento_auditoria (tipo_evento, device_id, ts_servidor)"); } catch {}
+
   // PIN por empleado para autorizar acciones en tablet compartida (§7).
   try { await db.execute("ALTER TABLE empleados ADD COLUMN pin_hash TEXT NOT NULL DEFAULT ''"); } catch {}
 
@@ -440,10 +445,19 @@ export function hashArchivo(base64) {
  * permite registrar la tarea sin él (modo simple, un toque desde la pantalla
  * de fichaje) y queda anotado en la auditoría como `sin_pin`. En cuanto se le
  * asigna un PIN pasa a modo estricto y se exige siempre.
+ * Si el móvil ya tiene sesión iniciada vale el testigo en lugar del número:
+ * así la pantalla de tareas deja de pedir el PIN cada minuto y medio.
  * Devuelve {ok, motivo, sinPin}.
  */
-export async function verificarPin(db, nombre, pin) {
+export async function verificarPin(db, nombre, pin, sesion = '') {
   if (!nombre) return { ok: false, motivo: 'Falta el empleado' };
+
+  if (sesion) {
+    const e = await validarSesionEmpleado(db, sesion);
+    if (e && String(e.nombre).trim().toLowerCase() === String(nombre).trim().toLowerCase()) {
+      return { ok: true, sinPin: false, porSesion: true };
+    }
+  }
 
   const r = await db.execute({
     sql: "SELECT nombre, pin_hash FROM empleados WHERE LOWER(TRIM(nombre)) = LOWER(TRIM(?))",
@@ -455,8 +469,140 @@ export async function verificarPin(db, nombre, pin) {
   if (!hash) return { ok: true, sinPin: true };
 
   if (!pin) return { ok: false, motivo: 'Falta el PIN' };
-  if (hash !== hashPin(r.rows[0].nombre, pin)) return { ok: false, motivo: 'PIN incorrecto' };
+  if (!igualSeguro(hash, hashPin(r.rows[0].nombre, pin))) return { ok: false, motivo: 'PIN incorrecto' };
   return { ok: true, sinPin: false };
+}
+
+// ── Entrar con el PIN ─────────────────────────────────────────
+//
+// El PIN dice QUIÉN eres; el código del bar dice DÓNDE estás. Son dos cosas
+// distintas y hacen falta las dos: con PIN pero sin código se ficharía desde
+// casa, y con código pero sin PIN se ficharía por un compañero.
+
+export const PIN_DIGITOS = 6;
+const FALLOS_VENTANA_MS = 10 * 60 * 1000;
+// Por aparato se es estricto. Por red hay que ser mucho más laxo: en el bar
+// todos salen por la misma línea, así que un tope bajo por red convertiría los
+// dedos torpes de uno en un bloqueo para toda la plantilla. Treinta fallos en
+// diez minutos siguen matando un ataque por fuerza bruta —que necesita miles—
+// sin dejar a nadie fuera por equivocarse.
+const FALLOS_MAX_APARATO = 5;
+const FALLOS_MAX_RED = 30;
+
+/** Comparación en tiempo constante de dos cadenas hexadecimales. */
+function igualSeguro(a, b) {
+  const x = Buffer.from(String(a || ''));
+  const y = Buffer.from(String(b || ''));
+  return x.length === y.length && crypto.timingSafeEqual(x, y);
+}
+
+/**
+ * ¿De quién es este PIN?
+ *
+ * No se puede buscar el hash directamente: `hashPin` mezcla el nombre con el
+ * número, así que hay que probarlo contra cada empleado. Con una decena de
+ * personas es instantáneo, y a cambio el hash de cada uno es distinto aunque
+ * dos compartan número.
+ *
+ * OJO: esto NO es `verificarPin`. Aquella devuelve "correcto" cuando el
+ * empleado no tiene PIN —su modo permisivo para tareas— y como puerta de
+ * entrada eso sería un agujero: bastaría el nombre de alguien sin PIN. Aquí
+ * solo se miran los que SÍ tienen PIN.
+ */
+export async function identificarPorPin(db, pin) {
+  const limpio = String(pin || '').trim();
+  if (!/^\d{4,8}$/.test(limpio)) return null;
+
+  const r = await db.execute(
+    "SELECT nombre, centro, rol, pin_hash FROM empleados WHERE COALESCE(pin_hash,'') <> ''"
+  );
+
+  let encontrado = null;
+  for (const e of r.rows) {
+    // Se recorre la lista entera aunque ya haya coincidencia, para que el
+    // tiempo de respuesta no delate en qué posición estaba el acierto.
+    if (igualSeguro(e.pin_hash, hashPin(e.nombre, limpio))) encontrado = e;
+  }
+  return encontrado;
+}
+
+/** ¿Hay algún empleado (distinto de `salvo`) con este PIN? */
+export async function pinYaEnUso(db, pin, salvo = '') {
+  const e = await identificarPorPin(db, pin);
+  if (!e) return false;
+  return String(e.nombre).trim().toLowerCase() !== String(salvo).trim().toLowerCase();
+}
+
+// ── Sesión del empleado en su móvil ───────────────────────────
+// Se firma igual que el código del bar. El PIN no se queda guardado en el
+// móvil: solo este testigo. Y como el hash del PIN entra en la firma,
+// regenerar el PIN cierra automáticamente todas sus sesiones — que es la vía
+// para cuando alguien pierde el móvil o deja el trabajo.
+
+function firmaSesion(nombre, pinHash, emitido) {
+  return crypto.createHmac('sha256', process.env.QR_SECRET || '')
+    .update(`emp|${String(nombre).trim().toLowerCase()}|${pinHash}|${emitido}`)
+    .digest('base64url')
+    .slice(0, 24);
+}
+
+export function emitirSesionEmpleado(nombre, pinHash) {
+  if (!hayQrConfigurado()) return '';
+  const emitido = Date.now();
+  return `${Buffer.from(String(nombre)).toString('base64url')}.${emitido}.${firmaSesion(nombre, pinHash, emitido)}`;
+}
+
+/** Devuelve el empleado del testigo, o null. */
+export async function validarSesionEmpleado(db, testigo) {
+  if (!hayQrConfigurado()) return null;
+  const partes = String(testigo || '').split('.');
+  if (partes.length !== 3) return null;
+
+  let nombre;
+  try { nombre = Buffer.from(partes[0], 'base64url').toString(); } catch { return null; }
+  const emitido = Number(partes[1]);
+  if (!nombre || !Number.isFinite(emitido)) return null;
+
+  const r = await db.execute({
+    sql: "SELECT nombre, centro, rol, pin_hash FROM empleados WHERE LOWER(TRIM(nombre)) = LOWER(TRIM(?))",
+    args: [nombre],
+  });
+  if (!r.rows.length) return null;
+
+  const e = r.rows[0];
+  if (!e.pin_hash) return null;   // le han quitado el PIN: fuera
+  if (!igualSeguro(partes[2], firmaSesion(e.nombre, e.pin_hash, emitido))) return null;
+  return e;
+}
+
+/**
+ * Fallos de PIN recientes desde esta red o este aparato.
+ *
+ * Se cuenta por huella de red, no por IP exacta: en IPv6 cada móvil tiene su
+ * propia dirección y limitar por IP no limitaría nada. El aparato se cuenta
+ * también, pero como señal: el identificador lo genera el cliente.
+ */
+export async function fallosDePinRecientes(db, req) {
+  const desde = Date.now() - FALLOS_VENTANA_MS;
+  const red = huellaRed(ipDeReq(req));
+  const aparato = idDispositivo(req);
+
+  const r = await db.execute({
+    sql: `SELECT
+            SUM(CASE WHEN ? <> '' AND device_id = ? THEN 1 ELSE 0 END) AS aparato,
+            SUM(CASE WHEN ? <> '' AND ip = ?        THEN 1 ELSE 0 END) AS red
+          FROM evento_auditoria
+          WHERE tipo_evento = 'PIN_FALLIDO' AND ts_servidor >= ?`,
+    args: [aparato, aparato, red, red, desde],
+  });
+
+  const nAparato = Number(r.rows[0]?.aparato || 0);
+  const nRed = Number(r.rows[0]?.red || 0);
+  return {
+    n: nAparato,
+    bloqueado: nAparato >= FALLOS_MAX_APARATO || nRed >= FALLOS_MAX_RED,
+    esperaMs: FALLOS_VENTANA_MS,
+  };
 }
 
 /**
@@ -489,7 +635,9 @@ export async function estaEnDescanso(db, empleado, centro) {
 
 // ── Auditoría ─────────────────────────────────────────────────
 export async function auditar(db, req, datos) {
-  const ip = (req.headers['x-forwarded-for'] || '').toString().split(',')[0].trim();
+  // Normalmente se guarda la IP tal cual. Quien necesite agrupar por red —el
+  // tope de intentos de PIN— pasa ya la huella, para poder contarla luego.
+  const ip = datos.ip ?? (req.headers['x-forwarded-for'] || '').toString().split(',')[0].trim();
   await db.execute({
     sql: `INSERT INTO evento_auditoria
           (tipo_evento, entidad, entidad_id, empleado, centro, ts_servidor, ip, device_id, payload)

@@ -315,6 +315,22 @@
         } catch {}
     })();
 
+    /** Testigo de la sesión del empleado en este móvil, si la hay. */
+    function testigoSesion() {
+        try {
+            const s = JSON.parse(localStorage.getItem('sesionEmpleado') || 'null');
+            return s && s.sesion ? s.sesion : '';
+        } catch { return ''; }
+    }
+
+    /** ¿La sesión de este móvil es de esta persona? */
+    function sesionEsDe(nombre) {
+        try {
+            const s = JSON.parse(localStorage.getItem('sesionEmpleado') || 'null');
+            return !!(s && s.sesion && s.nombre === nombre);
+        } catch { return false; }
+    }
+
     function codigoDelBar() {
         try {
             const qr = sessionStorage.getItem('qrCodigo') || '';
@@ -661,13 +677,19 @@
         const t = ((datos && datos.tareas) || []).find(x => Number(x.id) === id);
         if (!t) return;
 
-        const pin = await pedirPin(`Confirma la tarea "${t.nombre}" con tu PIN.`);
-        if (!pin) return;
+        // En su propio móvil ya entró con el PIN: no tiene sentido pedírselo otra
+        // vez cada minuto y medio. En la tablet compartida sí se sigue pidiendo.
+        let pin = '';
+        if (!sesionEsDe(empleadoSel)) {
+            pin = await pedirPin(`Confirma la tarea "${t.nombre}" con tu PIN.`);
+            if (!pin) return;
+        }
 
         const body = {
             instancia_id: id,
             empleado: empleadoSel,
             pin,
+            sesion: testigoSesion(),
             device_id: deviceId,
             ts_cliente: Date.now(),
             idempotency_key: `${id}-${empleadoSel}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,

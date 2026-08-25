@@ -250,7 +250,9 @@ export default async function handler(req, res) {
       return res.status(200).json({ success: true, estado: t.estado, repetido: true });
     }
 
-    const pin = await verificarPin(db, empleado, b.pin);
+    // Con sesión iniciada en el móvil no hace falta teclear el PIN otra vez:
+    // el testigo ya dice quién es, y lo firmó el servidor.
+    const pin = await verificarPin(db, empleado, b.pin, b.sesion || req.headers['x-sesion'] || '');
     if (!pin.ok) return res.status(403).json({ error: pin.motivo });
 
     // §6.6 — con PIN asignado (modo estricto) hay que tener turno abierto: es lo
