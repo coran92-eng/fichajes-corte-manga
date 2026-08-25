@@ -491,6 +491,34 @@ window.gestionarPin = async function(nombre, tienePin) {
     }
 };
 
+// ── Mi PIN de gerencia ────────────────────────────────────────
+// El mismo teclado con el que entra el equipo sirve para entrar al panel:
+// el número decide el destino.
+window.gestionarPinAdmin = async function() {
+    let configurado = false;
+    try {
+        const r = await fetch('/api/empleados?recurso=pin-admin', { headers: { 'X-Auth-Token': tokenAdmin() } });
+        configurado = (await r.json()).configurado;
+    } catch {}
+
+    const seguir = confirm(configurado
+        ? 'Ya tienes PIN de acceso.\n\nAceptar = generar uno nuevo (el anterior deja de valer)\nCancelar = no tocar nada'
+        : 'Se generará tu PIN para entrar al panel desde el móvil, sin escribir usuario ni contraseña.\n\n¿Seguimos?');
+    if (!seguir) return;
+
+    try {
+        const r = await fetch('/api/empleados?recurso=pin-admin', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-Auth-Token': tokenAdmin() },
+        });
+        const d = await r.json();
+        if (!r.ok) throw new Error(d.error || '');
+        mostrarPinNuevo('Gerencia', d.pin);
+    } catch (e) {
+        mostrarMensaje(`✗ ${e.message || 'Error al generar el PIN'}`, 'error');
+    }
+};
+
 window.quitarPin = async function(nombre) {
     if (!confirm(`¿Quitarle el PIN a "${nombre}"? No podrá entrar en su móvil hasta que se le genere otro.`)) return;
     try {
@@ -862,6 +890,8 @@ function configurarBotones() {
     document.getElementById('btnResumenDia')?.addEventListener('click', () => {
         window.location.href = 'resumen-dia.html';
     });
+
+    document.getElementById('btnPinAdmin')?.addEventListener('click', window.gestionarPinAdmin);
 
     document.getElementById('btnPanel')?.addEventListener('click', () => {
         const centro = document.getElementById('filtroCentro')?.value || '';
