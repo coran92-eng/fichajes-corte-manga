@@ -247,10 +247,12 @@ window.cargarEstadoRed = async function() {
 
         // ── El código del bar y este aparato ──
         const qrTxt = !d.qr_configurado
-            ? '<span style="color:#b45309">⚠ El código del bar no está activado (falta <code>QR_SECRET</code>). Desde el móvil no se puede fichar todavía.</span>'
-            : d.es_de_confianza
-                ? '<span style="color:#059669">✓ Este aparato es el del local: ficha sin leer ningún código.</span>'
-                : '<span style="color:#6b7280">Este aparato tendrá que leer el código del bar para fichar.</span>';
+            ? '<span style="color:#b45309">⚠ El código del bar no está activado (falta <code>QR_SECRET</code> en el servidor). De momento se ficha sin él.</span>'
+            : !d.qr_en_uso
+                ? '<span style="color:#b45309">⚠ Falta marcar el iPad del bar. Hasta entonces se ficha sin código: nadie lo está mostrando. Márcalo desde el propio iPad, estando dentro del local.</span>'
+                : d.es_de_confianza
+                    ? '<span style="color:#059669">✓ Este aparato es el del local: ficha sin leer ningún código.</span>'
+                    : '<span style="color:#6b7280">Este aparato tendrá que leer el código del bar para fichar.</span>';
 
         lista.innerHTML += `
             <div style="margin-top:16px;padding-top:14px;border-top:1px solid #e5e7eb">

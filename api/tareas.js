@@ -3,7 +3,7 @@ import {
   initSchema, getCentroCfg, fechaOperativaDe, resolverVentana, tocaEnFecha,
   verificarPin, turnoAbierto, estaEnDescanso, auditar, esEncargadoOSuperior,
   hashArchivo, purgarFotosCaducadas, RAFAGA_N, RAFAGA_MIN, HASH_LOOKBACK,
-  validarTokenQr, hayQrConfigurado, esDispositivoConfianza,
+  validarTokenQr, esDispositivoConfianza, exigirQr,
 } from "./_tareas-lib.js";
 
 // Tope defensivo del tamaño de foto que aceptamos (el cliente reescala antes
@@ -305,7 +305,7 @@ export default async function handler(req, res) {
     const desdeElIpad = esDispositivoConfianza(req, cfgCentro);
 
     let ventanaQrTarea = null;
-    if (llevaFoto && hayQrConfigurado() && !desdeElIpad) {
+    if (llevaFoto && exigirQr(req, cfgCentro)) {
       const v = validarTokenQr(centro, b.qr);
       if (!v.ok) {
         return res.status(403).json({
