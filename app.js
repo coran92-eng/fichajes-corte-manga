@@ -211,7 +211,7 @@ function mostrarTecladoPin() {
 
     // La entrada del dueño: con su correo y su contraseña, como siempre. El PIN
     // de gerencia es un atajo, no un reemplazo, y esta puerta sigue abierta.
-    document.getElementById('pinKoran').addEventListener('click', () => {
+    document.getElementById('pinCoran').addEventListener('click', () => {
         window.location.href = 'login.html';
     });
 
