@@ -1,7 +1,7 @@
 import { getDbClient } from "./_db.js";
 import {
   initSchema, getCentroCfg, esRedAutorizada, ipDeReq, huellaRed, auditar,
-  emitirTokenQr, validarTokenQr, hayQrConfigurado, esDispositivoConfianza,
+  emitirTokenQr, validarTokenQr, hayQrConfigurado, exigirQr,
   idDispositivo, esEncargadoOSuperior,
 } from "./_tareas-lib.js";
 
@@ -320,12 +320,12 @@ export default async function handler(req, res) {
         await initSchema(db);
         const cfg = await getCentroCfg(db, centro);
         const red = esRedAutorizada(req, cfg);
-        const deConfianza = esDispositivoConfianza(req, cfg);
-
         // Desde un móvil hay que haber leído el código del iPad. El iPad del
         // propio bar está registrado como dispositivo de confianza y ficha
         // como siempre: no tiene sentido pedirle que lea su propia pantalla.
-        if (hayQrConfigurado() && !deConfianza) {
+        // Y mientras no haya ningún aparato de confianza, no se exige nada:
+        // nadie está enseñando el código todavía (ver `exigirQr`).
+        if (exigirQr(req, cfg)) {
           const v = validarTokenQr(centro, qr);
           if (!v.ok) {
             return res.status(403).json({

@@ -2,6 +2,7 @@ import { getDbClient } from "./_db.js";
 import {
   initSchema, getCentroCfg, ipDeReq, huellaRed, esRedAutorizada,
   auditar, esEncargadoOSuperior, idDispositivo, esDispositivoConfianza,
+  exigirQr, hayDispositivosDeConfianza,
   hayQrConfigurado,
 } from "./_tareas-lib.js";
 
@@ -43,6 +44,11 @@ export default async function handler(req, res) {
         dispositivos: lista(cfg.dispositivos_confianza),
         este_dispositivo: idDispositivo(req),
         es_de_confianza: esDispositivoConfianza(req, cfg),
+        // El código no se exige hasta que hay un aparato enseñándolo: tener el
+        // secreto puesto no basta. Sin esto el panel diría que hace falta leer
+        // un código que nadie está mostrando.
+        qr_en_uso: hayQrConfigurado() && hayDispositivosDeConfianza(cfg),
+        qr_exigible: exigirQr(req, cfg),
       });
     }
 

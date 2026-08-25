@@ -429,6 +429,35 @@ export function esDispositivoConfianza(req, cfg) {
     .includes(id);
 }
 
+/**
+ * ¿Hay algún aparato registrado como de confianza en este centro?
+ *
+ * Sirve de señal de que el iPad ya está montado, porque registrarlo solo se
+ * puede hacer desde dentro del local y quitarlo exige encargado o gerencia.
+ */
+export function hayDispositivosDeConfianza(cfg) {
+  return String(cfg?.dispositivos_confianza || '')
+    .split(',').map(x => x.trim()).filter(Boolean).length > 0;
+}
+
+/**
+ * ¿Hay que exigir el código del bar en esta petición?
+ *
+ * No basta con que exista el secreto de firma. Mientras no haya ni un aparato
+ * de confianza en el centro, nadie está enseñando el código: el iPad todavía no
+ * está montado, o se ha dado de baja. Exigirlo entonces no protegería nada y
+ * dejaría al bar entero sin poder fichar, así que se abre.
+ *
+ * Es el mismo criterio que ya se sigue con la red autorizada: configurarlo es
+ * una decisión, no un requisito para que la app funcione. En cuanto el iPad
+ * queda registrado, el código pasa a ser obligatorio para los demás móviles.
+ */
+export function exigirQr(req, cfg) {
+  if (!hayQrConfigurado()) return false;
+  if (!hayDispositivosDeConfianza(cfg)) return false;
+  return !esDispositivoConfianza(req, cfg);
+}
+
 // ── Identidad y turno ─────────────────────────────────────────
 export function hashPin(nombre, pin) {
   return crypto.createHash('sha256')
