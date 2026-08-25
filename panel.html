@@ -109,6 +109,38 @@
         .nota-pie { color: #64748b; font-size: 12px; line-height: 1.6; margin-top: 26px; }
         .cargando { color: #64748b; padding: 40px 0; text-align: center; font-size: 14px; }
         .error { background: #450a0a; color: #fca5a5; padding: 13px; border-radius: 9px; font-size: 13.5px; }
+
+        /* ── Fotos de las tareas ── */
+        .fotos-filtro { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+        .fotos-filtro input[type="date"] {
+            font-family: inherit; font-size: 13px; border-radius: 8px; border: 1px solid #334155;
+            background: #1e293b; color: #e2e8f0; padding: 7px 10px;
+        }
+        .fotos-filtro span { color: #64748b; font-size: 13px; }
+        .fotos-grid {
+            display: grid; grid-template-columns: repeat(auto-fill, minmax(84px, 1fr));
+            gap: 8px;
+        }
+        .foto-tile {
+            aspect-ratio: 1; border-radius: 8px; border: none; padding: 0; cursor: pointer;
+            background: #1e293b center/cover no-repeat; position: relative;
+        }
+        .foto-tile.sospechosa { box-shadow: inset 0 0 0 2px #f59e0b; }
+        .foto-flag {
+            position: absolute; top: 4px; right: 4px; background: #451a03; color: #fcd34d;
+            font-size: 11px; border-radius: 6px; padding: 1px 5px;
+        }
+        .foto-modal {
+            display: none; position: fixed; inset: 0; background: rgba(2, 6, 23, .92);
+            z-index: 50; padding: 20px; overflow-y: auto;
+        }
+        .foto-modal.abierto { display: flex; flex-direction: column; align-items: center; gap: 12px; }
+        .foto-modal img { max-width: min(560px, 100%); max-height: 65dvh; border-radius: 10px; }
+        .foto-modal-meta { color: #e2e8f0; font-size: 14px; line-height: 1.7; text-align: center; }
+        .foto-modal-cerrar {
+            align-self: flex-end; background: #1e293b; border: 1px solid #334155;
+            color: #e2e8f0; border-radius: 8px; padding: 6px 12px; font-size: 13px; cursor: pointer;
+        }
     </style>
 </head>
 <body>
@@ -122,6 +154,21 @@
     <div class="fecha-txt" id="fechaTxt"></div>
 
     <div id="contenido"><div class="cargando">Cargando los últimos 7 días…</div></div>
+
+    <h2>Fotos de las tareas</h2>
+    <div class="fotos-filtro">
+        <input type="date" id="fotoDesde">
+        <span>a</span>
+        <input type="date" id="fotoHasta">
+        <button id="btnFotos">Ver</button>
+    </div>
+    <div id="fotosCont"><div class="cargando">Cargando fotos…</div></div>
+</div>
+
+<div class="foto-modal" id="fotoModal">
+    <button type="button" class="foto-modal-cerrar" id="fotoModalCerrar">Cerrar ✕</button>
+    <img alt="Foto de la tarea">
+    <div class="foto-modal-meta"></div>
 </div>
 
 <script>
@@ -582,13 +629,94 @@ function delta(actual, anterior, unidad) {
     return `<span class="${dif > 0 ? 'up' : 'down'}">${dif > 0 ? '+' : ''}${String(dif).replace('.', ',')}${unidad} vs semana pasada</span>`;
 }
 
+// ── Fotos de las tareas ────────────────────────────────────────
+// La lista trae solo metadatos; cada imagen se pide aparte y solo cuando la
+// miniatura entra en pantalla, para no bajar de golpe todas las fotos del rango.
+const cacheFotos = new Map(); // id de evidencia → URL de objeto ya descargada
+
+async function urlDeFoto(id) {
+    if (cacheFotos.has(id)) return cacheFotos.get(id);
+    const r = await fetch(`/api/tareas?recurso=evidencia&id=${id}`, { headers: H, cache: 'no-store' });
+    if (!r.ok) return null;
+    const url = URL.createObjectURL(await r.blob());
+    cacheFotos.set(id, url);
+    return url;
+}
+
+const observadorFotos = new IntersectionObserver((entradas, obs) => {
+    for (const entrada of entradas) {
+        if (!entrada.isIntersecting) continue;
+        obs.unobserve(entrada.target);
+        urlDeFoto(Number(entrada.target.dataset.id))
+            .then(url => { if (url) entrada.target.style.backgroundImage = `url(${url})`; });
+    }
+}, { rootMargin: '200px' });
+
+async function abrirFoto(f) {
+    const modal = document.getElementById('fotoModal');
+    const verificada = f.origen_captura === 'camara_en_local' || f.origen_captura === 'ipad_local';
+    modal.querySelector('.foto-modal-meta').innerHTML = `
+        <strong>${esc(f.tarea)}</strong><br>
+        ${esc(f.empleado || '—')} · ${esc(f.fecha_operativa)}
+        · ${new Date(f.ts_servidor).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}<br>
+        ${verificada
+            ? '<span class="tag bien">hecha en el bar</span>'
+            : '<span class="tag ojo">sin verificar con el código</span>'}`;
+    modal.querySelector('img').src = '';
+    modal.classList.add('abierto');
+    const url = await urlDeFoto(f.id);
+    if (url) modal.querySelector('img').src = url;
+}
+
+async function cargarFotos() {
+    const cont = document.getElementById('fotosCont');
+    const desde = document.getElementById('fotoDesde').value;
+    const hasta = document.getElementById('fotoHasta').value;
+    if (!desde) return;
+    cont.innerHTML = '<div class="cargando">Cargando fotos…</div>';
+
+    const r = await pedir(`/api/tareas?recurso=evidencias&centro=${encodeURIComponent(centro)}&desde=${desde}&hasta=${hasta || desde}`);
+    if (!r.datos) {
+        cont.innerHTML = `<div class="error">No se han podido leer las fotos (${esc(r.fallo)}).</div>`;
+        return;
+    }
+    const fotos = r.datos.evidencias || [];
+    if (!fotos.length) {
+        cont.innerHTML = '<div class="todo-ok" style="background:#1e293b;color:#94a3b8;border-left-color:#334155">Ninguna foto en ese rango.</div>';
+        return;
+    }
+
+    cont.innerHTML = `<div class="fotos-grid">${fotos.map(f => `
+        <button type="button" class="foto-tile${f.sospechosa ? ' sospechosa' : ''}" data-id="${f.id}"
+                title="${esc(f.tarea)} · ${esc(f.empleado || '—')} · ${esc(f.fecha_operativa)}">
+            ${f.sospechosa ? '<span class="foto-flag">sin verificar</span>' : ''}
+        </button>`).join('')}</div>`;
+
+    cont.querySelectorAll('.foto-tile').forEach(tile => {
+        observadorFotos.observe(tile);
+        const f = fotos.find(x => x.id === Number(tile.dataset.id));
+        tile.addEventListener('click', () => abrirFoto(f));
+    });
+}
+
 document.addEventListener('DOMContentLoaded', async () => {
     if (typeof lucide !== 'undefined') lucide.createIcons();
-    document.getElementById('btnRecargar').addEventListener('click', cargar);
+    document.getElementById('btnRecargar').addEventListener('click', () => { cargar(); cargarFotos(); });
     document.getElementById('btnDetalle').addEventListener('click', () => { window.location.href = 'admin.html'; });
-    document.getElementById('selCentro').addEventListener('change', e => { centro = e.target.value; cargar(); });
+    document.getElementById('selCentro').addEventListener('change', e => { centro = e.target.value; cargar(); cargarFotos(); });
+    document.getElementById('btnFotos').addEventListener('click', cargarFotos);
+    document.getElementById('fotoModalCerrar').addEventListener('click', () => {
+        document.getElementById('fotoModal').classList.remove('abierto');
+    });
+
     await cargarCentros();
+
+    const hoy = inicioJornadaDe(Date.now());
+    document.getElementById('fotoDesde').value = iso(new Date(hoy - 6 * DIA_MS));
+    document.getElementById('fotoHasta').value = iso(new Date(hoy));
+
     cargar();
+    cargarFotos();
 });
 </script>
 </body>

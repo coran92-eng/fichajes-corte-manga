@@ -123,6 +123,8 @@ export async function initSchema(db) {
     )
   `);
   await db.execute(`CREATE INDEX IF NOT EXISTS idx_evidencia_hash ON evidencias (familia_id, hash_sha256)`);
+  // Para listar las fotos de un centro sin recorrer toda la tabla (§ panel).
+  await db.execute(`CREATE INDEX IF NOT EXISTS idx_evidencia_instancia ON evidencias (tarea_instancia_id)`);
 
   // Append-only: sin UPDATE ni DELETE desde la aplicación (§4.7).
   await db.execute(`
