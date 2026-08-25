@@ -4,7 +4,8 @@ const EMPLEADOS_DEFAULT = [
 ];
 
 const params = new URLSearchParams(window.location.search);
-const centroActual = params.get('centro');
+// Deja de ser fijo: con sesión iniciada, el centro lo trae el propio empleado.
+let centroActual = params.get('centro');
 
 // ── Código del bar y dispositivo ──────────────────────────────
 // Quien ficha desde su móvil tiene que haber leído el QR del iPad: es lo que
@@ -16,6 +17,36 @@ const centroActual = params.get('centro');
 // a partir de ahí se avisa, en vez de prometer un tiempo que puede no existir.
 const QR_VIDA_MS = 50000;
 const QR_SEGURO_MS = 25000;
+
+// ── Sesión del empleado ───────────────────────────────────────
+// En su móvil entra una vez con su PIN y ya. El PIN no se guarda aquí: solo un
+// testigo firmado por el servidor, que además caduca solo si se le regenera el
+// PIN. En el iPad del bar no hay sesión: es una pantalla compartida.
+
+function sesionEmpleado() {
+    if (esIpadDelLocal()) return null;
+    try {
+        const s = JSON.parse(localStorage.getItem('sesionEmpleado') || 'null');
+        return s && s.sesion && s.nombre ? s : null;
+    } catch { return null; }
+}
+
+function guardarSesionEmpleado(datos) {
+    try { localStorage.setItem('sesionEmpleado', JSON.stringify(datos)); } catch {}
+}
+
+function cerrarSesionEmpleado() {
+    try {
+        localStorage.removeItem('sesionEmpleado');
+        localStorage.removeItem('empleadoHabitual');
+    } catch {}
+    window.location.href = '/';
+}
+
+/** El testigo, para mandarlo con cada petición que necesite saber quién es. */
+function testigoSesion() {
+    return sesionEmpleado()?.sesion || '';
+}
 
 function guardarCodigoDeLaUrl() {
     const qr = params.get('qr');
@@ -74,18 +105,119 @@ function idDispositivo() {
 guardarCodigoDeLaUrl();
 
 document.addEventListener('DOMContentLoaded', async () => {
+    // El iPad del bar es una pantalla compartida: sigue con centro y lista de
+    // nombres, sin PIN. En un móvil personal, la primera pantalla es el teclado.
+    if (!esIpadDelLocal()) {
+        const sesion = sesionEmpleado();
+        if (!sesion) { mostrarTecladoPin(); return; }
+        centroActual = sesion.centro || centroActual;
+    }
+
     if (!centroActual) {
         await mostrarSelectorCentro();
         return;
     }
+    arrancar();
+});
 
+function arrancar() {
     document.getElementById('centroBadge').textContent = centroActual;
     document.getElementById('centroBadge').style.display = 'inline-block';
 
     inicializar();
     actualizarReloj();
     setInterval(actualizarReloj, 1000);
-});
+}
+
+// ── Teclado del PIN ───────────────────────────────────────────
+function mostrarTecladoPin() {
+    const pantalla = document.getElementById('pantallaPin');
+    const puntos = document.getElementById('pinPuntos');
+    const errorEl = document.getElementById('pinError');
+    if (!pantalla) { mostrarSelectorCentro(); return; }
+
+    const LARGO = 6;
+    let marcado = '';
+    let enviando = false;
+    pantalla.classList.add('visible');
+
+    const pintar = () => {
+        puntos.innerHTML = Array.from({ length: LARGO }, (_, i) =>
+            `<span class="pin-punto${i < marcado.length ? ' lleno' : ''}"></span>`).join('');
+    };
+
+    const fallar = texto => {
+        errorEl.textContent = texto;
+        marcado = '';
+        pintar();
+        const caja = pantalla.querySelector('.pin-caja');
+        caja.classList.add('temblor');
+        setTimeout(() => caja.classList.remove('temblor'), 320);
+        if (navigator.vibrate) navigator.vibrate(180);
+    };
+
+    const entrar = async () => {
+        enviando = true;
+        errorEl.textContent = '';
+        document.getElementById('pinAyuda').textContent = 'Comprobando…';
+        try {
+            const r = await fetch('/api/auth?rol=empleado', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'X-Device-Id': idDispositivo() },
+                body: JSON.stringify({ pin: marcado, device_id: idDispositivo() }),
+            });
+            const d = await r.json().catch(() => ({}));
+
+            if (r.ok && d.sesion) {
+                guardarSesionEmpleado({ sesion: d.sesion, nombre: d.nombre, centro: d.centro, rol: d.rol });
+                try { localStorage.setItem('empleadoHabitual', d.nombre); } catch {}
+                centroActual = d.centro || centroActual;
+                pantalla.classList.remove('visible');
+                if (!centroActual) { await mostrarSelectorCentro(); return; }
+                arrancar();
+                return;
+            }
+            // No se dice de quién no era: eso confirmaría PIN ajenos por descarte.
+            fallar(d.error || 'PIN incorrecto');
+        } catch {
+            fallar('Sin conexión. Inténtalo otra vez.');
+        } finally {
+            enviando = false;
+            document.getElementById('pinAyuda').textContent = 'Teclea tu PIN para entrar';
+        }
+    };
+
+    pantalla.querySelectorAll('[data-d]').forEach(b => b.addEventListener('click', () => {
+        if (enviando || marcado.length >= LARGO) return;
+        marcado += b.dataset.d;
+        errorEl.textContent = '';
+        pintar();
+        if (marcado.length === LARGO) entrar();
+    }));
+
+    document.getElementById('pinBorrar').addEventListener('click', () => {
+        if (enviando) return;
+        marcado = marcado.slice(0, -1);
+        pintar();
+    });
+
+    // Salida para montar el iPad la primera vez, y para que un PIN que falle no
+    // deje a nadie sin fichar. Va detrás de contraseña a propósito: si fuera un
+    // enlace suelto, el PIN sería decorativo.
+    document.getElementById('pinEsElIpad').addEventListener('click', async () => {
+        const clave = prompt('Contraseña de encargado o gerencia:');
+        if (!clave) return;
+        if (!(await validarResponsable(clave))) {
+            fallar('Contraseña incorrecta');
+            return;
+        }
+        try { localStorage.setItem('dispositivoDeConfianza', '1'); } catch {}
+        pantalla.classList.remove('visible');
+        if (centroActual) arrancar(); else mostrarSelectorCentro();
+    });
+
+    pintar();
+}
 
 async function mostrarSelectorCentro() {
     let centros = ['Centro 1', 'Centro 2', 'Centro 3'];
@@ -193,15 +325,36 @@ async function cargarEmpleados() {
         if (nombre === duenoDelMovil()) btn.dataset.dueno = '1';
     });
 
-    // En un móvil personal no tiene sentido volver a elegirse cada vez. En el
-    // iPad del bar sí: es una pantalla compartida y ahí no se recuerda a nadie.
-    const suyo = cont.querySelector('[data-dueno="1"]');
-    if (suyo) seleccionarEmpleado(suyo.textContent, suyo);
+    // Con sesión iniciada la lista sobra: la app ya sabe de quién es el móvil.
+    // En el iPad del bar se deja entera, que es una pantalla compartida.
+    const sesion = sesionEmpleado();
+    if (sesion) {
+        const suyo = [...cont.querySelectorAll('.btn-emp')]
+            .find(b => b.textContent === sesion.nombre);
+        if (suyo) {
+            cont.innerHTML = '';
+            cont.appendChild(suyo);
+            seleccionarEmpleado(sesion.nombre, suyo);
+            const salir = document.createElement('button');
+            salir.type = 'button';
+            salir.className = 'btn-nosoyyo';
+            salir.textContent = 'No soy yo';
+            salir.addEventListener('click', () => {
+                if (confirm('Se cerrará la sesión en este móvil. ¿Seguro?')) cerrarSesionEmpleado();
+            });
+            cont.parentElement.appendChild(salir);
+        }
+    } else {
+        const suyo = cont.querySelector('[data-dueno="1"]');
+        if (suyo) seleccionarEmpleado(suyo.textContent, suyo);
+    }
     pintarAvisoCodigo();
 }
 
 /** A quién pertenece este móvil, si ya lo ha dicho alguna vez. */
 function duenoDelMovil() {
+    const s = sesionEmpleado();
+    if (s) return s.nombre;
     if (esIpadDelLocal()) return '';
     try { return localStorage.getItem('empleadoHabitual') || ''; } catch { return ''; }
 }
@@ -358,7 +511,11 @@ async function registrarFichaje(tipo, horaPrevista = '', passwordResponsable = '
 
         const response = await fetch('/api/fichajes', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'X-Device-Id': idDispositivo() },
+            headers: {
+                'Content-Type': 'application/json',
+                'X-Device-Id': idDispositivo(),
+                'X-Sesion': testigoSesion(),
+            },
             body: JSON.stringify(fichaje)
         });
 
@@ -1570,6 +1727,7 @@ async function guardarTarea(id) {
         instancia_id: id,
         empleado: quien,
         device_id: idDispositivo(),
+        sesion: testigoSesion(),   // con sesión iniciada no hace falta teclear el PIN
         ts_cliente: Date.now(),
         origen_ui: 'inicio',
         idempotency_key: `${id}-${quien}-${Date.now()}`,

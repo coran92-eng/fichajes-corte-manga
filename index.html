@@ -631,6 +631,66 @@
             .ent-texto { background: #374151; color: #e5e7eb; border-color: #4b5563; }
         }
 
+        .btn-nosoyyo {
+            background: none; border: none; color: #9ca3af; font-size: 12px;
+            text-decoration: underline; cursor: pointer; margin-top: 8px;
+            font-weight: 600; text-transform: none; letter-spacing: 0; padding: 4px;
+        }
+
+        /* Entrar con el PIN */
+        #pantallaPin {
+            display: none; position: fixed; inset: 0; z-index: 100;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            align-items: center; justify-content: center; padding: 20px;
+        }
+        #pantallaPin.visible { display: flex; }
+        .pin-caja {
+            background: white; border-radius: 14px; padding: 28px 24px;
+            width: 100%; max-width: 340px; text-align: center;
+        }
+        .pin-caja h2 { font-size: 21px; color: #1f2937; margin-bottom: 4px; }
+        .pin-caja p { font-size: 14px; color: #6b7280; margin-bottom: 22px; }
+
+        .pin-puntos { display: flex; gap: 12px; justify-content: center; margin-bottom: 10px; }
+        .pin-punto {
+            width: 14px; height: 14px; border-radius: 50%;
+            border: 2px solid #d1d5db; transition: all .15s;
+        }
+        .pin-punto.lleno { background: #2563eb; border-color: #2563eb; transform: scale(1.1); }
+
+        .pin-error { min-height: 20px; font-size: 13px; color: #b91c1c; font-weight: 600; margin-bottom: 14px; }
+        .pin-caja.temblor { animation: temblar .3s; }
+        @keyframes temblar {
+            0%, 100% { transform: translateX(0); }
+            25% { transform: translateX(-8px); }
+            75% { transform: translateX(8px); }
+        }
+
+        .pin-teclas { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+        .pin-tecla {
+            padding: 18px 0; font-size: 24px; font-weight: 600;
+            background: #f3f4f6; color: #1f2937; border: none; border-radius: 12px;
+            cursor: pointer; text-transform: none; letter-spacing: 0;
+            font-family: ui-monospace, 'SF Mono', monospace;
+        }
+        .pin-tecla:active { background: #e5e7eb; transform: scale(.96); }
+        .pin-borrar { font-size: 20px; background: none; color: #6b7280; }
+
+        .pin-ipad {
+            background: none; border: none; color: #9ca3af; font-size: 12px;
+            text-decoration: underline; cursor: pointer; margin-top: 20px;
+            font-weight: 600; text-transform: none; letter-spacing: 0; padding: 8px;
+        }
+        @media (prefers-color-scheme: dark) {
+            #pantallaPin { background: linear-gradient(135deg, #1e1b4b 0%, #312e81 100%); }
+            .pin-caja { background: #1f2937; }
+            .pin-caja h2 { color: #e5e7eb; }
+            .pin-tecla { background: #374151; color: #e5e7eb; }
+            .pin-tecla:active { background: #4b5563; }
+            .pin-borrar { background: none; color: #9ca3af; }
+            .pin-punto { border-color: #4b5563; }
+        }
+
         /* Cámara propia para las fotos de tarea */
         .cam-modal {
             display: none; position: fixed; inset: 0; background: #000;
@@ -1060,7 +1120,7 @@
         </div>
 
         <div class="form-group">
-            <label>Toca tu nombre</label>
+            <label id="etiquetaNombre">Toca tu nombre</label>
             <div class="emp-grid" id="empleadosBotones">
                 <span style="color:#9ca3af;font-size:13px;grid-column:1/-1">Cargando...</span>
             </div>
@@ -1208,6 +1268,34 @@
         </div>
     </div>
 
+    <!-- Entrar con el PIN: primera pantalla en un móvil personal -->
+    <div id="pantallaPin">
+        <div class="pin-caja">
+            <h2>Tu PIN</h2>
+            <p id="pinAyuda">Teclea tu PIN para entrar</p>
+
+            <div class="pin-puntos" id="pinPuntos" aria-hidden="true"></div>
+            <div class="pin-error" id="pinError"></div>
+
+            <div class="pin-teclas">
+                <button type="button" class="pin-tecla" data-d="1">1</button>
+                <button type="button" class="pin-tecla" data-d="2">2</button>
+                <button type="button" class="pin-tecla" data-d="3">3</button>
+                <button type="button" class="pin-tecla" data-d="4">4</button>
+                <button type="button" class="pin-tecla" data-d="5">5</button>
+                <button type="button" class="pin-tecla" data-d="6">6</button>
+                <button type="button" class="pin-tecla" data-d="7">7</button>
+                <button type="button" class="pin-tecla" data-d="8">8</button>
+                <button type="button" class="pin-tecla" data-d="9">9</button>
+                <span></span>
+                <button type="button" class="pin-tecla" data-d="0">0</button>
+                <button type="button" class="pin-tecla pin-borrar" id="pinBorrar" aria-label="Borrar">←</button>
+            </div>
+
+            <button type="button" class="pin-ipad" id="pinEsElIpad">Este es el iPad del bar</button>
+        </div>
+    </div>
+
     <!-- Cámara para las fotos de tarea: sin selector, no hay galería que elegir -->
     <div class="cam-modal" id="camModal" role="dialog" aria-modal="true" aria-label="Hacer foto">
         <div class="cam-caja">
@@ -1300,7 +1388,7 @@
         <button id="btnUndo" class="undo-btn" type="button">Deshacer</button>
     </div>
 
-    <script type="module" src="app.js?v=18"></script>
+    <script type="module" src="app.js?v=19"></script>
     <script>
         document.addEventListener('DOMContentLoaded', () => {
             if (typeof lucide !== 'undefined') lucide.createIcons();

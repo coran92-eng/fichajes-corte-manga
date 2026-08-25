@@ -65,8 +65,7 @@ import qrcode from './vendor/qr.mjs';
 const params = new URLSearchParams(location.search);
 const centro = params.get('centro') || '';
 const TOKEN = sessionStorage.getItem('adminToken')
-           || sessionStorage.getItem('encargadoToken')
-           || localStorage.getItem('qrToken') || '';
+           || sessionStorage.getItem('encargadoToken') || '';
 
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c =>
     ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));

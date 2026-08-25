@@ -157,10 +157,12 @@ async function renderEmpleados(intento = 0) {
                     ${horario_habitual ? 'Horario ✓' : 'Horario'}
                 </button>
                 <button type="button" class="btn-pin ${tiene_pin ? 'con-pin' : 'sin-pin'}"
-                        title="PIN de ${nombre} (tareas)"
+                        title="${tiene_pin ? `Generar un PIN nuevo a ${nombre}` : `Generar el PIN de ${nombre}`}"
                         onclick="window.gestionarPin('${nJs}', ${tiene_pin ? 'true' : 'false'})">
-                    ${tiene_pin ? 'PIN ✓' : 'Sin PIN'}
-                </button>
+                    ${tiene_pin ? 'PIN ✓' : 'Generar PIN'}
+                </button>${tiene_pin ? `
+                <button type="button" class="btn-pin sin-pin" title="Quitarle el PIN a ${nombre}"
+                        onclick="window.quitarPin('${nJs}')">✕ PIN</button>` : ''}
                 <button type="button" title="Eliminar ${nombre}" onclick="window.confirmarEliminarEmpleado('${nJs}')">✕</button>
             </div>`;
         }).join('');
@@ -192,6 +194,8 @@ window.abrirRedLocal = function() {
     document.getElementById('modalRed').style.display = 'flex';
     window.cargarEstadoRed();
 };
+
+const tokenAdmin = () => sessionStorage.getItem('adminToken') || '';
 
 /** Identificador de este aparato, el mismo que usa la pantalla de fichaje. */
 function idDispositivoAdmin() {
@@ -279,7 +283,7 @@ window.marcarConfianza = async function() {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
-                'X-Auth-Token': sessionStorage.getItem('adminToken') || '',
+                'X-Auth-Token': tokenAdmin(),
                 'X-Device-Id': idDispositivoAdmin(),
             },
             body: JSON.stringify({ centro, device_id: idDispositivoAdmin() }),
@@ -300,7 +304,7 @@ window.quitarConfianza = async function() {
         await fetch(`/api/red-local?recurso=dispositivo&centro=${encodeURIComponent(centro)}&id=${encodeURIComponent(idDispositivoAdmin())}`, {
             method: 'DELETE',
             headers: {
-                'X-Auth-Token': sessionStorage.getItem('adminToken') || '',
+                'X-Auth-Token': tokenAdmin(),
                 'X-Device-Id': idDispositivoAdmin(),
             },
         });
@@ -324,7 +328,7 @@ window.autorizarRed = async function() {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
-                'X-Auth-Token': sessionStorage.getItem('adminToken') || '',
+                'X-Auth-Token': tokenAdmin(),
                 'X-Device-Id': idDispositivoAdmin(),
             },
             body: JSON.stringify({ centro }),
@@ -400,7 +404,7 @@ window.guardarHorarioHabitual = async function() {
             method: 'PUT',
             headers: {
                 'Content-Type': 'application/json',
-                'X-Auth-Token': sessionStorage.getItem('adminToken') || '',
+                'X-Auth-Token': tokenAdmin(),
             },
             body: JSON.stringify({
                 nombre: habEmpleadoActual,
@@ -425,7 +429,7 @@ window.confirmarEliminarEmpleado = function(nombre) {
             try {
                 const response = await fetch('/api/empleados', {
                     method: 'DELETE',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: { 'Content-Type': 'application/json', 'X-Auth-Token': tokenAdmin() },
                     body: JSON.stringify({ nombre })
                 });
                 if (!response.ok) throw new Error();
@@ -442,7 +446,7 @@ window.asignarCentroEmpleado = async function(nombre, centro) {
     try {
         const response = await fetch('/api/empleados', {
             method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 'Content-Type': 'application/json', 'X-Auth-Token': tokenAdmin() },
             body: JSON.stringify({ nombre, centro })
         });
         if (!response.ok) throw new Error();
@@ -453,43 +457,100 @@ window.asignarCentroEmpleado = async function(nombre, centro) {
     }
 };
 
-// PIN del empleado para el módulo de tareas (tablet compartida).
+/**
+ * PIN del empleado: es con lo que entra en su móvil.
+ *
+ * Lo genera el servidor y se enseña UNA sola vez. Como se guarda hasheado, no
+ * hay forma de recuperarlo después: solo de generar otro. Y generar otro cierra
+ * las sesiones que tuviera abiertas, que es la vía para un móvil perdido.
+ */
 window.gestionarPin = async function(nombre, tienePin) {
-    const texto = tienePin
-        ? `Nuevo PIN para "${nombre}" (4-6 dígitos).\nDéjalo vacío para quitarle el PIN:`
-        : `PIN para "${nombre}" (4-6 dígitos):`;
-    const pin = prompt(texto);
-    if (pin === null) return;
-
-    const limpio = pin.trim();
-    if (limpio !== '' && !/^\d{4,6}$/.test(limpio)) {
-        mostrarMensaje('✗ El PIN debe tener entre 4 y 6 dígitos', 'error');
-        return;
-    }
+    const accion = tienePin
+        ? confirm(
+            `"${nombre}" ya tiene PIN.\n\n` +
+            `Aceptar = generar uno nuevo (el anterior deja de valer y se cierran sus sesiones)\n` +
+            `Cancelar = no tocar nada`)
+        : confirm(`Generar el PIN de "${nombre}" para que pueda entrar en su móvil?`);
+    if (!accion) return;
 
     try {
         const response = await fetch('/api/empleados', {
             method: 'PUT',
             headers: {
                 'Content-Type': 'application/json',
-                'X-Auth-Token': sessionStorage.getItem('adminToken') || '',
+                'X-Auth-Token': tokenAdmin(),
             },
-            body: JSON.stringify({ nombre, pin: limpio })
+            body: JSON.stringify({ nombre, pin: 'generar' })
         });
         const data = await response.json().catch(() => ({}));
         if (!response.ok) throw new Error(data.error || '');
-        mostrarMensaje(limpio ? `✓ PIN actualizado para "${nombre}"` : `✓ PIN eliminado a "${nombre}"`, 'success');
+        mostrarPinNuevo(nombre, data.pin);
         renderEmpleados();
     } catch (e) {
-        mostrarMensaje(`✗ ${e.message || 'Error al guardar el PIN'}`, 'error');
+        mostrarMensaje(`✗ ${e.message || 'Error al generar el PIN'}`, 'error');
     }
 };
+
+window.quitarPin = async function(nombre) {
+    if (!confirm(`¿Quitarle el PIN a "${nombre}"? No podrá entrar en su móvil hasta que se le genere otro.`)) return;
+    try {
+        const r = await fetch('/api/empleados', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json', 'X-Auth-Token': tokenAdmin() },
+            body: JSON.stringify({ nombre, pin: '' })
+        });
+        if (!r.ok) throw new Error();
+        mostrarMensaje(`✓ PIN retirado a "${nombre}"`, 'success');
+        renderEmpleados();
+    } catch {
+        mostrarMensaje('✗ Error al quitar el PIN', 'error');
+    }
+};
+
+/** Enseña el PIN recién generado. Es la única vez que se puede ver. */
+function mostrarPinNuevo(nombre, pin) {
+    const fondo = document.createElement('div');
+    fondo.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:200;'
+        + 'display:flex;align-items:center;justify-content:center;padding:20px';
+    fondo.innerHTML = `
+        <div style="background:white;border-radius:14px;padding:26px;max-width:380px;width:100%;text-align:center;color:#1f2937">
+            <div style="font-size:15px;color:#6b7280;margin-bottom:4px">PIN de</div>
+            <div style="font-size:19px;font-weight:800;margin-bottom:18px">${nombre}</div>
+            <div id="pinNuevoVal" style="font-family:ui-monospace,monospace;font-size:40px;font-weight:800;
+                 letter-spacing:6px;background:#f3f4f6;border-radius:12px;padding:16px;margin-bottom:16px">${pin}</div>
+            <div style="background:#fef3c7;color:#92400e;border-radius:9px;padding:12px;font-size:13px;
+                 line-height:1.5;margin-bottom:18px;text-align:left">
+                <strong>Apúntalo ahora.</strong> No se puede volver a ver: si se pierde, hay que generar otro.
+            </div>
+            <div style="display:flex;gap:8px">
+                <button id="pinCopiar" style="flex:1;background:#f3f4f6;color:#374151;border:none;
+                        border-radius:9px;padding:13px;font-weight:700;cursor:pointer">Copiar</button>
+                <button id="pinCerrar" style="flex:1;background:#10b981;color:white;border:none;
+                        border-radius:9px;padding:13px;font-weight:700;cursor:pointer">Ya lo tengo</button>
+            </div>
+        </div>`;
+    document.body.appendChild(fondo);
+
+    fondo.querySelector('#pinCopiar').addEventListener('click', async () => {
+        try {
+            await navigator.clipboard.writeText(pin);
+            fondo.querySelector('#pinCopiar').textContent = '✓ Copiado';
+        } catch {
+            // Sin permiso de portapapeles se selecciona para copiar a mano.
+            const r = document.createRange();
+            r.selectNodeContents(fondo.querySelector('#pinNuevoVal'));
+            const sel = window.getSelection();
+            sel.removeAllRanges(); sel.addRange(r);
+        }
+    });
+    fondo.querySelector('#pinCerrar').addEventListener('click', () => fondo.remove());
+}
 
 window.asignarRolEmpleado = async function(nombre, rol) {
     try {
         const response = await fetch('/api/empleados', {
             method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 'Content-Type': 'application/json', 'X-Auth-Token': tokenAdmin() },
             body: JSON.stringify({ nombre, rol })
         });
         if (!response.ok) throw new Error();
@@ -513,7 +574,7 @@ function configurarFormEmpleados() {
         try {
             const response = await fetch('/api/empleados', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: { 'Content-Type': 'application/json', 'X-Auth-Token': tokenAdmin() },
                 body: JSON.stringify({ nombre, centro })
             });
             if (!response.ok) {
@@ -1101,7 +1162,7 @@ window.validarHorario = async function(semana, centro, estado) {
     try {
         const res = await fetch('/api/horarios', {
             method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 'Content-Type': 'application/json', 'X-Auth-Token': tokenAdmin() },
             body: JSON.stringify({ semana, centro, estado })
         });
         if (!res.ok) throw new Error();
@@ -1188,7 +1249,7 @@ window.resolverSolicitud = function(id, estado) {
         try {
             const res = await fetch('/api/solicitudes', {
                 method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
+                headers: { 'Content-Type': 'application/json', 'X-Auth-Token': tokenAdmin() },
                 body: JSON.stringify({ id, estado, nota_admin })
             });
             if (!res.ok) throw new Error();

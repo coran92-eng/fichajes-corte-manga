@@ -1,39 +1,63 @@
 import { getDbClient } from "./_db.js";
-import { hashPin, esEncargadoOSuperior } from "./_tareas-lib.js";
+import {
+  hashPin, esEncargadoOSuperior, pinYaEnUso, auditar, PIN_DIGITOS,
+} from "./_tareas-lib.js";
+import crypto from "node:crypto";
 
 const DEFAULTS = ['Albert','Maikel','Carlos','Jecko','Pol','Sonia','Nacho','Claudia'];
+
+// El esquema se prepara una vez por instancia, no en cada petición: eran seis
+// viajes a la base antes de cada consulta, y es justo lo que dejó colgadas las
+// pantallas del panel y de los horarios.
+let esquemaListo = false;
+
+async function prepararEsquema(db) {
+  if (esquemaListo) return;
+
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS empleados (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      nombre TEXT NOT NULL,
+      centro TEXT NOT NULL DEFAULT ''
+    )
+  `);
+
+  try { await db.execute("ALTER TABLE empleados ADD COLUMN centro TEXT NOT NULL DEFAULT ''"); } catch {}
+  try { await db.execute("ALTER TABLE empleados ADD COLUMN rol TEXT NOT NULL DEFAULT ''"); } catch {}
+  // PIN para autorizar acciones en la tablet compartida (módulo de tareas).
+  try { await db.execute("ALTER TABLE empleados ADD COLUMN pin_hash TEXT NOT NULL DEFAULT ''"); } catch {}
+  // Horario habitual (JSON por día de la semana, 1=lunes ... 7=domingo).
+  try { await db.execute("ALTER TABLE empleados ADD COLUMN horario_habitual TEXT NOT NULL DEFAULT ''"); } catch {}
+
+  // El nombre es la identidad: con él se busca el PIN, se firman las sesiones
+  // y se une el historial de fichajes. Sin esta restricción se podían crear
+  // dos «Albert», y entonces "INSERT OR IGNORE" no ignoraba nada, la búsqueda
+  // se quedaba con el primero y los UPDATE tocaban a los dos.
+  // Si ya hay duplicados el índice falla; se resuelven uniendo nombres desde
+  // la pantalla "Arreglar fichajes", que se escribió justo para esto.
+  try {
+    await db.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_empleados_nombre ON empleados (LOWER(TRIM(nombre)))");
+  } catch {}
+
+  esquemaListo = true;
+}
+
+/** Un PIN de seis dígitos que no tenga ya otro empleado. */
+async function generarPin(db, paraQuien) {
+  for (let intento = 0; intento < 20; intento++) {
+    const n = crypto.randomInt(0, 10 ** PIN_DIGITOS);
+    const pin = String(n).padStart(PIN_DIGITOS, '0');
+    // Si dos personas comparten número, el PIN deja de identificar a una sola
+    // —que es justo lo que se le está pidiendo—, así que se descarta.
+    if (!(await pinYaEnUso(db, pin, paraQuien))) return pin;
+  }
+  return null;
+}
 
 export default async function handler(req, res) {
   try {
     const db = getDbClient();
-
-    await db.execute(`
-      CREATE TABLE IF NOT EXISTS empleados (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        nombre TEXT NOT NULL,
-        centro TEXT NOT NULL DEFAULT ''
-      )
-    `);
-
-    try {
-      await db.execute("ALTER TABLE empleados ADD COLUMN centro TEXT NOT NULL DEFAULT ''");
-    } catch {}
-
-    try {
-      await db.execute("ALTER TABLE empleados ADD COLUMN rol TEXT NOT NULL DEFAULT ''");
-    } catch {}
-
-    // PIN para autorizar acciones en la tablet compartida (módulo de tareas).
-    try {
-      await db.execute("ALTER TABLE empleados ADD COLUMN pin_hash TEXT NOT NULL DEFAULT ''");
-    } catch {}
-
-    // Horario habitual (JSON por día de la semana, 1=lunes ... 7=domingo).
-    // Se configura una vez y sirve de referencia cuando no hay horario semanal
-    // validado, para no depender de que alguien lo suba cada semana.
-    try {
-      await db.execute("ALTER TABLE empleados ADD COLUMN horario_habitual TEXT NOT NULL DEFAULT ''");
-    } catch {}
+    await prepararEsquema(db);
 
     if (req.method === "GET") {
       res.setHeader('Cache-Control', 'no-store');
@@ -76,6 +100,11 @@ export default async function handler(req, res) {
       })));
     }
     else if (req.method === "POST") {
+      // Dar de alta estaba abierto a cualquiera. Como la identidad de la gente
+      // vive en esta tabla, no puede seguir así.
+      if (!esEncargadoOSuperior(req)) {
+        return res.status(403).json({ error: "No autorizado" });
+      }
       const { nombre, centro = '', rol = '' } = req.body;
       if (!nombre || !nombre.trim()) {
         return res.status(400).json({ error: "Nombre requerido" });
@@ -87,6 +116,9 @@ export default async function handler(req, res) {
       return res.status(201).json({ success: true });
     }
     else if (req.method === "PUT") {
+      if (!esEncargadoOSuperior(req)) {
+        return res.status(403).json({ error: "No autorizado" });
+      }
       const { nombre, centro, rol, pin, horario_habitual } = req.body;
       if (!nombre || !nombre.trim()) {
         return res.status(400).json({ error: "Nombre requerido" });
@@ -97,17 +129,28 @@ export default async function handler(req, res) {
       if (typeof centro === 'string') { sets.push("centro = ?"); args.push(centro); }
       if (typeof rol === 'string')    { sets.push("rol = ?");    args.push(rol); }
 
-      // El PIN solo lo puede fijar/borrar el encargado o gerencia.
+      // El PIN lo genera el servidor y se enseña UNA vez: como se guarda
+      // hasheado, después ya no hay forma de recuperarlo, solo de generar otro.
+      let pinGenerado = null;
       if (pin !== undefined) {
-        if (!esEncargadoOSuperior(req)) {
-          return res.status(403).json({ error: "Solo el encargado puede asignar el PIN" });
-        }
         const limpio = String(pin).trim();
+
         if (limpio === '') {
+          // Quitar el PIN cierra además todas sus sesiones, porque el hash
+          // entra en la firma del testigo.
           sets.push("pin_hash = ?");
           args.push('');
-        } else if (!/^\d{4,6}$/.test(limpio)) {
-          return res.status(422).json({ error: "El PIN debe tener entre 4 y 6 dígitos" });
+        } else if (limpio === 'generar') {
+          pinGenerado = await generarPin(db, nombre.trim());
+          if (!pinGenerado) {
+            return res.status(500).json({ error: "No se ha podido generar un PIN libre" });
+          }
+          sets.push("pin_hash = ?");
+          args.push(hashPin(nombre.trim(), pinGenerado));
+        } else if (!/^\d{4,8}$/.test(limpio)) {
+          return res.status(422).json({ error: `El PIN debe tener ${PIN_DIGITOS} dígitos` });
+        } else if (await pinYaEnUso(db, limpio, nombre.trim())) {
+          return res.status(409).json({ error: "Ese PIN ya lo tiene otra persona. Prueba con otro." });
         } else {
           sets.push("pin_hash = ?");
           args.push(hashPin(nombre.trim(), limpio));
@@ -132,9 +175,22 @@ export default async function handler(req, res) {
         sql: `UPDATE empleados SET ${sets.join(', ')} WHERE nombre = ?`,
         args
       });
-      return res.status(200).json({ success: true });
+
+      if (pin !== undefined) {
+        await auditar(db, req, {
+          tipo_evento: pinGenerado ? 'PIN_GENERADO' : 'PIN_CAMBIADO',
+          entidad: 'empleados', entidad_id: nombre.trim(), empleado: nombre.trim(),
+        }).catch(() => {});
+      }
+
+      // El PIN viaja en la respuesta una sola vez, para poder enseñárselo.
+      return res.status(200).json({ success: true, pin: pinGenerado || undefined });
     }
     else if (req.method === "DELETE") {
+      // Igual que el alta: borrar un empleado estaba al alcance de cualquiera.
+      if (!esEncargadoOSuperior(req)) {
+        return res.status(403).json({ error: "No autorizado" });
+      }
       const { nombre } = req.body;
       if (!nombre) {
         return res.status(400).json({ error: "Nombre requerido" });
