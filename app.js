@@ -123,10 +123,28 @@ document.addEventListener('DOMContentLoaded', async () => {
 function arrancar() {
     document.getElementById('centroBadge').textContent = centroActual;
     document.getElementById('centroBadge').style.display = 'inline-block';
+    personalizarCabecera();
 
     inicializar();
     actualizarReloj();
     setInterval(actualizarReloj, 1000);
+}
+
+/**
+ * En el iPad del bar la pantalla es compartida y sigue siendo genérica: "elige
+ * tu nombre". En el móvil de cada uno ya se sabe quién es —entró con su PIN—,
+ * así que el saludo pasa a decir quién es en vez de pedir que se seleccione.
+ */
+function personalizarCabecera() {
+    const sesion = sesionEmpleado();
+    if (!sesion) return; // iPad del bar: se deja el texto genérico
+
+    const titulo = document.getElementById('tituloHeader');
+    const subtitulo = document.getElementById('subtituloHeader');
+    const etiqueta = document.getElementById('etiquetaNombre');
+    if (titulo) titulo.textContent = `Hola, ${sesion.nombre}`;
+    if (subtitulo) subtitulo.textContent = 'Registra tu entrada y tu salida';
+    if (etiqueta) etiqueta.textContent = 'Fichando como';
 }
 
 // ── Teclado del PIN ───────────────────────────────────────────

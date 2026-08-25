@@ -1117,11 +1117,11 @@
     <div class="container">
         <div class="header">
             <div class="nfc-icon"><i data-lucide="smartphone" aria-hidden="true"></i></div>
-            <h1>Sistema de Fichaje</h1>
+            <h1 id="tituloHeader">Sistema de Fichaje</h1>
             <span class="centro-badge" id="centroBadge"></span>
             <div class="estado-badge" id="estadoBadge" style="display:none"></div>
             <div class="horario-badge" id="horarioBadge" style="display:none"></div>
-            <p>Selecciona tu nombre y registra tu entrada/salida</p>
+            <p id="subtituloHeader">Selecciona tu nombre y registra tu entrada/salida</p>
         </div>
 
         <div id="nfcStatus" class="nfc-status"></div>
@@ -1405,7 +1405,7 @@
         <button id="btnUndo" class="undo-btn" type="button">Deshacer</button>
     </div>
 
-    <script type="module" src="app.js?v=22"></script>
+    <script type="module" src="app.js?v=23"></script>
     <script>
         document.addEventListener('DOMContentLoaded', () => {
             if (typeof lucide !== 'undefined') lucide.createIcons();
