@@ -658,6 +658,7 @@ async function registrarFichaje(tipo, horaPrevista = '', passwordResponsable = '
         actualizarEstadoBotones(tipo);
         mostrarUndoToast(tipo, fichaje);
         if (centroActual) { cargarTurnoActual(); cargarResumenPrevios(); renderTareasPanel(true); }
+        if (tipo === 'entrada') avisarTareasTrasEntrada(empleado);
 
     } catch (error) {
         console.error('Error al registrar:', error);

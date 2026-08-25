@@ -50,6 +50,12 @@ async function prepararEsquema(db) {
   try { await db.execute("ALTER TABLE fichajes ADD COLUMN qr_ventana INTEGER"); } catch {}
   try { await db.execute("CREATE INDEX IF NOT EXISTS idx_fichajes_qr ON fichajes (empleado, qr_ventana)"); } catch {}
 
+  // Aparato con el que se fichó (§ dispositivo compartido): si el mismo
+  // aparato ficha como dos personas distintas, probablemente alguien le dejó
+  // el móvil a un compañero. No identifica a nadie por sí solo —lo pone el
+  // propio cliente—, pero sirve para que salte un aviso.
+  try { await db.execute("ALTER TABLE fichajes ADD COLUMN device_id TEXT NOT NULL DEFAULT ''"); } catch {}
+
   // Todas las pantallas leen por rango de fechas o por empleado; sin índice
   // cada consulta recorría la tabla entera.
   try { await db.execute("CREATE INDEX IF NOT EXISTS idx_fichajes_ts ON fichajes (timestamp)"); } catch {}
@@ -156,7 +162,7 @@ async function resumenPanel(db, { centro, desde, hasta }) {
   // Solo las columnas que se usan: 'motivo' puede traer texto largo y no hace
   // falta más que en las salidas.
   const marcas = await db.execute({
-    sql: `SELECT empleado, tipo, hora, fecha, timestamp, motivo
+    sql: `SELECT empleado, tipo, hora, fecha, timestamp, motivo, device_id
           FROM fichajes WHERE ${cond.join(' AND ')}
           ORDER BY timestamp ASC LIMIT 8000`,
     args,
@@ -210,7 +216,32 @@ async function resumenPanel(db, { centro, desde, hasta }) {
     .slice(-8).reverse()
     .map(f => ({ empleado: f.empleado, fecha: f.fecha, tipo: f.tipo, motivo: String(f.motivo).slice(0, 300) }));
 
-  return { dias, previsto_dia: previstoDia, motivos, marcas_leidas: marcas.rows.length };
+  // Un mismo aparato fichando como dos personas: lo más probable es que
+  // alguien le haya dejado el móvil a un compañero, o le haya pedido que
+  // cerrara su sesión para fichar él. El iPad del bar queda fuera a
+  // propósito: a ese sí lo usa todo el mundo, y no dice nada raro.
+  let confiados = [];
+  if (centro) {
+    try {
+      const cfg = await getCentroCfg(db, centro);
+      confiados = String(cfg.dispositivos_confianza || '').split(',').map(x => x.trim()).filter(Boolean);
+    } catch {}
+  }
+  const porDispositivo = {};
+  for (const f of marcas.rows) {
+    const dev = String(f.device_id || '').trim();
+    if (!dev || confiados.includes(dev)) continue;
+    const grupo = (porDispositivo[dev] ||= new Map());
+    grupo.set(clave(f.empleado), f.empleado);
+  }
+  const dispositivosCompartidos = Object.entries(porDispositivo)
+    .filter(([, personas]) => personas.size > 1)
+    .map(([dispositivo, personas]) => ({ dispositivo, personas: [...personas.values()] }));
+
+  return {
+    dias, previsto_dia: previstoDia, motivos, marcas_leidas: marcas.rows.length,
+    dispositivos_compartidos: dispositivosCompartidos,
+  };
 }
 
 export default async function handler(req, res) {
@@ -388,8 +419,8 @@ export default async function handler(req, res) {
       }
 
       const result = await db.execute({
-        sql: "INSERT INTO fichajes (empleado, tipo, fecha, hora, timestamp, centro, hora_prevista, motivo, qr_ventana) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        args: [empleado, tipo, fecha, hora, timestamp, centro, hora_prevista, String(motivo || '').slice(0, 500), ventanaQrUsada],
+        sql: "INSERT INTO fichajes (empleado, tipo, fecha, hora, timestamp, centro, hora_prevista, motivo, qr_ventana, device_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        args: [empleado, tipo, fecha, hora, timestamp, centro, hora_prevista, String(motivo || '').slice(0, 500), ventanaQrUsada, idDispositivo(req)],
       });
 
       if (fueraDeRed) {
