@@ -1,6 +1,7 @@
 import { getDbClient } from "./_db.js";
 import {
   hashPin, esEncargadoOSuperior, pinYaEnUso, auditar, PIN_DIGITOS,
+  guardarPinAdmin, hayPinAdmin, esPinAdmin, nivelDesdeReq,
 } from "./_tareas-lib.js";
 import crypto from "node:crypto";
 
@@ -58,6 +59,42 @@ export default async function handler(req, res) {
   try {
     const db = getDbClient();
     await prepararEsquema(db);
+
+    // ── PIN de gerencia ──
+    // Vive aquí porque es gestión de PIN, aunque no sea de ningún empleado.
+    if (req.query.recurso === 'pin-admin') {
+      if (nivelDesdeReq(req) !== 'ADMIN') {
+        return res.status(403).json({ error: "Solo gerencia" });
+      }
+
+      if (req.method === "GET") {
+        res.setHeader('Cache-Control', 'no-store');
+        return res.status(200).json({ configurado: await hayPinAdmin(db) });
+      }
+
+      if (req.method === "POST") {
+        // Se genera aquí y se enseña una vez: igual que el de los empleados,
+        // se guarda hasheado y después ya no hay forma de recuperarlo.
+        let pin = null;
+        for (let i = 0; i < 20 && !pin; i++) {
+          const cand = String(crypto.randomInt(0, 10 ** PIN_DIGITOS)).padStart(PIN_DIGITOS, '0');
+          // No puede chocar con el de nadie: si coincidiera, el mismo número
+          // llevaría a dos sitios distintos.
+          if (!(await pinYaEnUso(db, cand)) && !(await esPinAdmin(db, cand))) pin = cand;
+        }
+        if (!pin) return res.status(500).json({ error: "No se ha podido generar un PIN libre" });
+
+        await guardarPinAdmin(db, pin);
+        await auditar(db, req, { tipo_evento: 'PIN_GERENCIA_GENERADO', entidad: 'mantenimiento' }).catch(() => {});
+        return res.status(200).json({ success: true, pin });
+      }
+
+      if (req.method === "DELETE") {
+        await guardarPinAdmin(db, '');
+        await auditar(db, req, { tipo_evento: 'PIN_GERENCIA_RETIRADO', entidad: 'mantenimiento' }).catch(() => {});
+        return res.status(200).json({ success: true });
+      }
+    }
 
     if (req.method === "GET") {
       res.setHeader('Cache-Control', 'no-store');

@@ -154,6 +154,9 @@ export async function initSchema(db) {
       ts INTEGER NOT NULL
     )
   `);
+  // Pasa a guardar también un valor: hoy solo el PIN de gerencia, que no
+  // pertenece a ningún centro ni a la lista de empleados.
+  try { await db.execute("ALTER TABLE mantenimiento ADD COLUMN valor TEXT NOT NULL DEFAULT ''"); } catch {}
 
   schemaListo = true;
 }
@@ -531,6 +534,47 @@ export async function pinYaEnUso(db, pin, salvo = '') {
   const e = await identificarPorPin(db, pin);
   if (!e) return false;
   return String(e.nombre).trim().toLowerCase() !== String(salvo).trim().toLowerCase();
+}
+
+// ── PIN de gerencia ───────────────────────────────────────────
+// El mismo teclado que usa el equipo sirve para entrar al panel: según de
+// quién sea el PIN, se acaba en la pantalla de fichaje o en la de gerencia.
+// No vive en `empleados` porque el dueño no es un empleado más, y ensuciar
+// esa lista rompería el cuadrante y los informes.
+
+const CLAVE_PIN_ADMIN = 'pin_admin';
+
+/** El nombre fijo hace de sal, igual que con los empleados. */
+export function hashPinAdmin(pin) {
+  return hashPin('\u0000gerencia', pin);
+}
+
+export async function guardarPinAdmin(db, pin) {
+  await db.execute({
+    sql: `INSERT INTO mantenimiento (clave, ts, valor) VALUES (?, ?, ?)
+          ON CONFLICT(clave) DO UPDATE SET ts = excluded.ts, valor = excluded.valor`,
+    args: [CLAVE_PIN_ADMIN, Date.now(), pin ? hashPinAdmin(pin) : ''],
+  });
+}
+
+export async function esPinAdmin(db, pin) {
+  const limpio = String(pin || '').trim();
+  if (!/^\d{4,8}$/.test(limpio)) return false;
+  const r = await db.execute({
+    sql: "SELECT valor FROM mantenimiento WHERE clave = ?",
+    args: [CLAVE_PIN_ADMIN],
+  });
+  const guardado = r.rows[0]?.valor || '';
+  if (!guardado) return false;
+  return igualSeguro(guardado, hashPinAdmin(limpio));
+}
+
+export async function hayPinAdmin(db) {
+  const r = await db.execute({
+    sql: "SELECT valor FROM mantenimiento WHERE clave = ?",
+    args: [CLAVE_PIN_ADMIN],
+  });
+  return !!(r.rows[0]?.valor);
 }
 
 // ── Sesión del empleado en su móvil ───────────────────────────

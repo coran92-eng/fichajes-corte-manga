@@ -168,6 +168,14 @@ function mostrarTecladoPin() {
             });
             const d = await r.json().catch(() => ({}));
 
+            // El PIN de gerencia lleva al panel; el de un empleado, a su pantalla
+            // de fichaje. Mismo teclado, dos destinos.
+            if (r.ok && d.nivel === 'admin' && d.token) {
+                try { sessionStorage.setItem('adminToken', d.token); } catch {}
+                window.location.href = d.destino || 'panel.html';
+                return;
+            }
+
             if (r.ok && d.sesion) {
                 guardarSesionEmpleado({ sesion: d.sesion, nombre: d.nombre, centro: d.centro, rol: d.rol });
                 try { localStorage.setItem('empleadoHabitual', d.nombre); } catch {}

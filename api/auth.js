@@ -16,6 +16,7 @@ import { getDbClient } from "./_db.js";
 import {
   initSchema, identificarPorPin, emitirSesionEmpleado,
   fallosDePinRecientes, auditar, huellaRed, ipDeReq, idDispositivo,
+  esPinAdmin,
 } from "./_tareas-lib.js";
 
 const TOKEN_ADMIN = "auth-token-fichaje-admin";
@@ -47,6 +48,18 @@ export default async function handler(req, res) {
       return res.status(429).json({
         error: `Demasiados intentos fallidos. Espera unos minutos y vuelve a probar.`,
         motivo: "bloqueado",
+      });
+    }
+
+    // El PIN de gerencia va primero: el mismo teclado sirve para las dos cosas
+    // y, según de quién sea el número, se acaba en el fichaje o en el panel.
+    if (await esPinAdmin(db, pin)) {
+      await auditar(db, req, {
+        tipo_evento: 'GERENCIA_ENTRO_CON_PIN', entidad: 'mantenimiento',
+        device_id: idDispositivo(req),
+      }).catch(() => {});
+      return res.status(200).json({
+        success: true, nivel: "admin", token: TOKEN_ADMIN, destino: "panel.html",
       });
     }
 
