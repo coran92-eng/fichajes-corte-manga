@@ -361,6 +361,7 @@ function construir(panel, notas, tareasAyer, iniHoy) {
     return {
         dias, previos, abiertos,
         motivos: (panel.motivos || []).map(m => ({ empleado: m.empleado, fecha: m.fecha, tipo: m.tipo, motivo: m.motivo })),
+        dispositivosCompartidos: panel.dispositivos_compartidos || [],
         incidencias: (notas?.incidencias || []).filter(n => n.estado === 'abierta' || n.estado === 'en_curso'),
         faltas: (notas?.faltas || []).filter(n => n.estado === 'abierta' || n.estado === 'en_curso'),
         tareasAyer,
@@ -428,6 +429,12 @@ function pintar(d, avisos = [], tiempos = null) {
             `<strong>Fichajes fuera de hora, con su explicación</strong>`,
             d.motivos.map(m => `· <strong>${esc(m.empleado)}</strong> · ${m.tipo === 'entrada' ? 'entrada' : 'salida'} ${esc(m.fecha)}: ${esc(m.motivo)}`).join('<br>')
             + '<br><em>Solo lo ves tú: esto no sale en el parte del turno.</em>'));
+    }
+    if (d.dispositivosCompartidos.length) {
+        at.push(tarjeta('rojo', 'smartphone',
+            `<strong>Un mismo móvil ha fichado como más de una persona</strong>`,
+            d.dispositivosCompartidos.map(c => `· ${c.personas.map(esc).join(' y ')}`).join('<br>')
+            + '<br><em>Puede que alguien le haya dejado el móvil a un compañero, o le haya pedido que cerrara su sesión para fichar él.</em>'));
     }
 
     // ── Semana ──

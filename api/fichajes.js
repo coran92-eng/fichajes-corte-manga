@@ -2,7 +2,7 @@ import { getDbClient } from "./_db.js";
 import {
   initSchema, getCentroCfg, esRedAutorizada, ipDeReq, huellaRed, auditar,
   emitirTokenQr, validarTokenQr, hayQrConfigurado, exigirQr,
-  idDispositivo, esEncargadoOSuperior,
+  idDispositivo, esEncargadoOSuperior, verificarPin,
 } from "./_tareas-lib.js";
 
 /** Contraseña de gerencia o de encargado, para autorizar excepciones. */
@@ -49,6 +49,12 @@ async function prepararEsquema(db) {
   // mismo código valga dos veces a la misma persona.
   try { await db.execute("ALTER TABLE fichajes ADD COLUMN qr_ventana INTEGER"); } catch {}
   try { await db.execute("CREATE INDEX IF NOT EXISTS idx_fichajes_qr ON fichajes (empleado, qr_ventana)"); } catch {}
+
+  // Aparato con el que se fichó (§ dispositivo compartido): si el mismo
+  // aparato ficha como dos personas distintas, probablemente alguien le dejó
+  // el móvil a un compañero. No identifica a nadie por sí solo —lo pone el
+  // propio cliente—, pero sirve para que salte un aviso.
+  try { await db.execute("ALTER TABLE fichajes ADD COLUMN device_id TEXT NOT NULL DEFAULT ''"); } catch {}
 
   // Todas las pantallas leen por rango de fechas o por empleado; sin índice
   // cada consulta recorría la tabla entera.
@@ -156,7 +162,7 @@ async function resumenPanel(db, { centro, desde, hasta }) {
   // Solo las columnas que se usan: 'motivo' puede traer texto largo y no hace
   // falta más que en las salidas.
   const marcas = await db.execute({
-    sql: `SELECT empleado, tipo, hora, fecha, timestamp, motivo
+    sql: `SELECT empleado, tipo, hora, fecha, timestamp, motivo, device_id
           FROM fichajes WHERE ${cond.join(' AND ')}
           ORDER BY timestamp ASC LIMIT 8000`,
     args,
@@ -210,7 +216,32 @@ async function resumenPanel(db, { centro, desde, hasta }) {
     .slice(-8).reverse()
     .map(f => ({ empleado: f.empleado, fecha: f.fecha, tipo: f.tipo, motivo: String(f.motivo).slice(0, 300) }));
 
-  return { dias, previsto_dia: previstoDia, motivos, marcas_leidas: marcas.rows.length };
+  // Un mismo aparato fichando como dos personas: lo más probable es que
+  // alguien le haya dejado el móvil a un compañero, o le haya pedido que
+  // cerrara su sesión para fichar él. El iPad del bar queda fuera a
+  // propósito: a ese sí lo usa todo el mundo, y no dice nada raro.
+  let confiados = [];
+  if (centro) {
+    try {
+      const cfg = await getCentroCfg(db, centro);
+      confiados = String(cfg.dispositivos_confianza || '').split(',').map(x => x.trim()).filter(Boolean);
+    } catch {}
+  }
+  const porDispositivo = {};
+  for (const f of marcas.rows) {
+    const dev = String(f.device_id || '').trim();
+    if (!dev || confiados.includes(dev)) continue;
+    const grupo = (porDispositivo[dev] ||= new Map());
+    grupo.set(clave(f.empleado), f.empleado);
+  }
+  const dispositivosCompartidos = Object.entries(porDispositivo)
+    .filter(([, personas]) => personas.size > 1)
+    .map(([dispositivo, personas]) => ({ dispositivo, personas: [...personas.values()] }));
+
+  return {
+    dias, previsto_dia: previstoDia, motivos, marcas_leidas: marcas.rows.length,
+    dispositivos_compartidos: dispositivosCompartidos,
+  };
 }
 
 export default async function handler(req, res) {
@@ -297,7 +328,7 @@ export default async function handler(req, res) {
     else if (req.method === "POST") {
       const {
         empleado, tipo, fecha, hora, timestamp, centro = '', hora_prevista = '',
-        password_responsable = '', motivo = '', qr = '',
+        password_responsable = '', motivo = '', qr = '', pin = '',
       } = req.body;
 
       if (!empleado || !tipo || !fecha || !hora || !timestamp) {
@@ -314,12 +345,33 @@ export default async function handler(req, res) {
       }
 
       let fueraDeRed = false;
+      let sinPinAutorizado = false;
       let ventanaQrUsada = null;
 
       if (centro) {
         await initSchema(db);
         const cfg = await getCentroCfg(db, centro);
         const red = esRedAutorizada(req, cfg);
+
+        // Quién ficha: en el móvil lo dice la sesión del PIN, sin que haga
+        // falta volver a teclearlo en cada fichaje. El iPad del bar no tiene
+        // sesión propia —es una pantalla compartida—, así que sin PIN hace
+        // falta que lo autorice un encargado: es lo que impide que un
+        // compañero te fiche la entrada o la salida desde ahí. Un empleado
+        // que todavía no tiene PIN asignado sigue sin bloquearse (§ modo
+        // simple), igual que ya pasa al completar tareas.
+        const sesionToken = req.body.sesion || req.headers['x-sesion'] || '';
+        const identidad = await verificarPin(db, empleado, pin, sesionToken);
+        if (!identidad.ok) {
+          if (!claveResponsableValida(password_responsable)) {
+            return res.status(403).json({
+              error: "Ficha desde tu móvil. Si no lo tienes a mano, pide que te lo autorice un encargado.",
+              motivo: "identidad",
+            });
+          }
+          sinPinAutorizado = true;
+        }
+
         // Desde un móvil hay que haber leído el código del iPad. El iPad del
         // propio bar está registrado como dispositivo de confianza y ficha
         // como siempre: no tiene sentido pedirle que lea su propia pantalla.
@@ -367,8 +419,8 @@ export default async function handler(req, res) {
       }
 
       const result = await db.execute({
-        sql: "INSERT INTO fichajes (empleado, tipo, fecha, hora, timestamp, centro, hora_prevista, motivo, qr_ventana) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        args: [empleado, tipo, fecha, hora, timestamp, centro, hora_prevista, String(motivo || '').slice(0, 500), ventanaQrUsada],
+        sql: "INSERT INTO fichajes (empleado, tipo, fecha, hora, timestamp, centro, hora_prevista, motivo, qr_ventana, device_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        args: [empleado, tipo, fecha, hora, timestamp, centro, hora_prevista, String(motivo || '').slice(0, 500), ventanaQrUsada, idDispositivo(req)],
       });
 
       if (fueraDeRed) {
@@ -378,6 +430,15 @@ export default async function handler(req, res) {
           empleado, centro,
           payload: { tipo, hora, red: huellaRed(ipDeReq(req)) },
         });
+      }
+
+      if (sinPinAutorizado) {
+        await auditar(db, req, {
+          tipo_evento: 'FICHAJE_SIN_PIN_AUTORIZADO', entidad: 'fichajes',
+          entidad_id: result.lastInsertRowid?.toString(),
+          empleado, centro, device_id: idDispositivo(req),
+          payload: { tipo, hora },
+        }).catch(() => {});
       }
 
       if (ventanaQrUsada !== null) {
@@ -393,6 +454,7 @@ export default async function handler(req, res) {
         success: true,
         id: result.lastInsertRowid.toString(),
         fuera_de_red: fueraDeRed,
+        sin_pin_autorizado: sinPinAutorizado,
         por_qr: ventanaQrUsada !== null,
       });
     } 

@@ -735,6 +735,7 @@
         }
         .qr-aviso.ok { background: #d1fae5; color: #065f46; }
         .qr-aviso.falta { background: #fef3c7; color: #92400e; }
+        .qr-aviso.info { background: #dbeafe; color: #1e40af; }
         .qr-aviso-txt strong { display: block; margin-bottom: 2px; }
         .qr-barra {
             height: 4px; background: rgba(0,0,0,.12); border-radius: 4px;
@@ -747,6 +748,7 @@
         @media (prefers-color-scheme: dark) {
             .qr-aviso.ok { background: #022c22; color: #6ee7b7; }
             .qr-aviso.falta { background: #271a05; color: #fcd34d; }
+            .qr-aviso.info { background: #1e2a4a; color: #93c5fd; }
             .qr-barra { background: rgba(255,255,255,.12); }
         }
 
@@ -1405,7 +1407,7 @@
         <button id="btnUndo" class="undo-btn" type="button">Deshacer</button>
     </div>
 
-    <script type="module" src="app.js?v=23"></script>
+    <script type="module" src="app.js?v=25"></script>
     <script>
         document.addEventListener('DOMContentLoaded', () => {
             if (typeof lucide !== 'undefined') lucide.createIcons();

@@ -294,7 +294,18 @@ function pintarAvisoCodigo() {
     const barra = document.getElementById('qrBarra');
     if (!caja || !txt) return;
 
-    if (esIpadDelLocal()) { caja.style.display = 'none'; return; }
+    if (esIpadDelLocal()) {
+        // Aquí no hay sesión de nadie: es la pantalla compartida. Fichar desde
+        // aquí ya no es lo normal, así que se avisa antes de que alguien lo
+        // intente y le salga de sopetón la contraseña de encargado.
+        caja.style.display = 'block';
+        caja.className = 'qr-aviso info';
+        txt.innerHTML = '<strong>Esto es el iPad del bar</strong>'
+            + 'Cada uno ficha desde su propio móvil. Si alguien no lo tiene a mano, '
+            + 'Entrada y Salida piden aquí la autorización de un encargado.';
+        barra.style.display = 'none';
+        return;
+    }
 
     const queda = msDeCodigo();
     if (codigoDelBar()) {
@@ -584,6 +595,23 @@ async function registrarFichaje(tipo, horaPrevista = '', passwordResponsable = '
                 if (!clave) return;
                 return registrarFichaje(tipo, horaPrevista, clave, motivo);
             }
+
+            // Sin sesión de PIN (el iPad del bar, o un móvil cuya sesión ya no
+            // vale) no se sabe quién ficha realmente. Un encargado puede
+            // autorizar ese fichaje concreto, igual que con la excepción de
+            // red: queda registrado como excepción, no como algo normal.
+            if (data.motivo === 'identidad') {
+                btnElements.forEach(btn => btn.disabled = false);
+                const seguir = confirm(
+                    'Para fichar hace falta tu PIN o tu móvil.\n\n' +
+                    'Un encargado puede autorizar este fichaje.\n\n' +
+                    'Aceptar = pedir autorización\nCancelar = volver'
+                );
+                if (!seguir) return;
+                const clave = prompt('Contraseña de encargado o gerencia:');
+                if (!clave) return;
+                return registrarFichaje(tipo, horaPrevista, clave, motivo);
+            }
             mostrarMensaje(data.error || 'No se ha podido fichar', 'error');
             return;
         }
@@ -630,6 +658,7 @@ async function registrarFichaje(tipo, horaPrevista = '', passwordResponsable = '
         actualizarEstadoBotones(tipo);
         mostrarUndoToast(tipo, fichaje);
         if (centroActual) { cargarTurnoActual(); cargarResumenPrevios(); renderTareasPanel(true); }
+        if (tipo === 'entrada') avisarTareasTrasEntrada(empleado);
 
     } catch (error) {
         console.error('Error al registrar:', error);
