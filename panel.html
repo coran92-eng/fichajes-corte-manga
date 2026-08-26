@@ -126,6 +126,11 @@
             background: #1e293b center/cover no-repeat; position: relative;
         }
         .foto-tile.sospechosa { box-shadow: inset 0 0 0 2px #f59e0b; }
+        .foto-tile.con-error { box-shadow: inset 0 0 0 2px #ef4444; }
+        .foto-tile.con-error::after {
+            content: '!'; position: absolute; inset: 0; display: flex; align-items: center;
+            justify-content: center; color: #fca5a5; font-weight: 800; font-size: 20px;
+        }
         .foto-flag {
             position: absolute; top: 4px; right: 4px; background: #451a03; color: #fcd34d;
             font-size: 11px; border-radius: 6px; padding: 1px 5px;
@@ -137,6 +142,10 @@
         .foto-modal.abierto { display: flex; flex-direction: column; align-items: center; gap: 12px; }
         .foto-modal img { max-width: min(560px, 100%); max-height: 65dvh; border-radius: 10px; }
         .foto-modal-meta { color: #e2e8f0; font-size: 14px; line-height: 1.7; text-align: center; }
+        .foto-modal-error {
+            display: none; background: #450a0a; color: #fca5a5; padding: 13px;
+            border-radius: 9px; font-size: 13.5px; max-width: 400px; text-align: center;
+        }
         .foto-modal-cerrar {
             align-self: flex-end; background: #1e293b; border: 1px solid #334155;
             color: #e2e8f0; border-radius: 8px; padding: 6px 12px; font-size: 13px; cursor: pointer;
@@ -168,6 +177,7 @@
 <div class="foto-modal" id="fotoModal">
     <button type="button" class="foto-modal-cerrar" id="fotoModalCerrar">Cerrar ✕</button>
     <img alt="Foto de la tarea">
+    <div class="foto-modal-error"></div>
     <div class="foto-modal-meta"></div>
 </div>
 
@@ -641,26 +651,47 @@ function delta(actual, anterior, unidad) {
 // miniatura entra en pantalla, para no bajar de golpe todas las fotos del rango.
 const cacheFotos = new Map(); // id de evidencia → URL de objeto ya descargada
 
+/**
+ * Trae la foto y dice, si falla, por qué — antes se tragaba el error y solo
+ * quedaba un hueco en blanco sin ninguna pista de qué había pasado.
+ */
 async function urlDeFoto(id) {
     if (cacheFotos.has(id)) return cacheFotos.get(id);
-    const r = await fetch(`/api/tareas?recurso=evidencia&id=${id}`, { headers: H, cache: 'no-store' });
-    if (!r.ok) return null;
-    const url = URL.createObjectURL(await r.blob());
-    cacheFotos.set(id, url);
-    return url;
+    let resultado;
+    try {
+        const r = await fetch(`/api/tareas?recurso=evidencia&id=${id}`, { headers: H, cache: 'no-store' });
+        if (!r.ok) {
+            const data = await r.json().catch(() => ({}));
+            resultado = { url: null, error: data.error || `El servidor respondió ${r.status}` };
+        } else {
+            resultado = { url: URL.createObjectURL(await r.blob()), error: '' };
+        }
+    } catch (e) {
+        resultado = { url: null, error: e?.message || 'Sin conexión con el servidor' };
+    }
+    cacheFotos.set(id, resultado);
+    return resultado;
 }
 
 const observadorFotos = new IntersectionObserver((entradas, obs) => {
     for (const entrada of entradas) {
         if (!entrada.isIntersecting) continue;
         obs.unobserve(entrada.target);
-        urlDeFoto(Number(entrada.target.dataset.id))
-            .then(url => { if (url) entrada.target.style.backgroundImage = `url(${url})`; });
+        urlDeFoto(Number(entrada.target.dataset.id)).then(({ url, error }) => {
+            if (url) {
+                entrada.target.style.backgroundImage = `url(${url})`;
+            } else {
+                entrada.target.classList.add('con-error');
+                entrada.target.title += ` — no se pudo cargar: ${error}`;
+            }
+        });
     }
 }, { rootMargin: '200px' });
 
 async function abrirFoto(f) {
     const modal = document.getElementById('fotoModal');
+    const img = modal.querySelector('img');
+    const avisoError = modal.querySelector('.foto-modal-error');
     const verificada = f.origen_captura === 'camara_en_local' || f.origen_captura === 'ipad_local';
     modal.querySelector('.foto-modal-meta').innerHTML = `
         <strong>${esc(f.tarea)}</strong><br>
@@ -669,10 +700,19 @@ async function abrirFoto(f) {
         ${verificada
             ? '<span class="tag bien">hecha en el bar</span>'
             : '<span class="tag ojo">sin verificar con el código</span>'}`;
-    modal.querySelector('img').src = '';
+    img.style.display = 'none';
+    img.src = '';
+    avisoError.style.display = 'none';
     modal.classList.add('abierto');
-    const url = await urlDeFoto(f.id);
-    if (url) modal.querySelector('img').src = url;
+
+    const { url, error } = await urlDeFoto(f.id);
+    if (url) {
+        img.src = url;
+        img.style.display = 'block';
+    } else {
+        avisoError.textContent = `No se ha podido cargar la foto: ${error}`;
+        avisoError.style.display = 'block';
+    }
 }
 
 async function cargarFotos() {
