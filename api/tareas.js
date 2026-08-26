@@ -3,7 +3,7 @@ import {
   initSchema, getCentroCfg, fechaOperativaDe, resolverVentana, tocaEnFecha,
   verificarPin, turnoAbierto, estaEnDescanso, auditar, esEncargadoOSuperior,
   hashArchivo, purgarFotosCaducadas, RAFAGA_N, RAFAGA_MIN, HASH_LOOKBACK,
-  validarTokenQr, esDispositivoConfianza, exigirQr,
+  validarTokenQr, esDispositivoConfianza, hayQrConfigurado,
 } from "./_tareas-lib.js";
 
 // Tope defensivo del tamaño de foto que aceptamos (el cliente reescala antes
@@ -329,12 +329,18 @@ export default async function handler(req, res) {
     // impedir que una foto salga de la galería —`capture` es una sugerencia, no
     // una obligación—, así que la prueba de presencia la da el código, no la
     // imagen. El iPad del local está exento por ser dispositivo de confianza.
+    //
+    // A diferencia de fichar entrada/salida (que usa `exigirQr`, más laxo
+    // mientras no haya ningún aparato de confianza, para no dejar a todo el
+    // bar sin poder fichar), aquí se exige en cuanto hay QR_SECRET puesto: una
+    // tarea con foto sin verificar no bloquea a nadie que necesite entrar a
+    // trabajar, así que no hace falta esa misma tolerancia.
     const llevaFoto = t.tipo_evidencia === 'FOTO' || t.tipo_evidencia === 'FOTO+NUMERO';
     const cfgCentro = await getCentroCfg(db, centro);
     const desdeElIpad = esDispositivoConfianza(req, cfgCentro);
 
     let ventanaQrTarea = null;
-    if (llevaFoto && exigirQr(req, cfgCentro)) {
+    if (llevaFoto && hayQrConfigurado() && !desdeElIpad) {
       const v = validarTokenQr(centro, b.qr);
       if (!v.ok) {
         return res.status(403).json({
