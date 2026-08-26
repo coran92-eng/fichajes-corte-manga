@@ -1002,6 +1002,14 @@ async function fetchCuadranteDelDia() {
 
 const claveNombre = n => String(n || '').trim().toUpperCase();
 
+// Quién tiene el turno abierto ahora mismo (fichada la entrada, sin fichar la
+// salida). Lo calcula "El equipo de hoy" cada vez que se refresca; el panel de
+// tareas lo reutiliza para no ofrecer en «¿Quién?» a alguien que ni siquiera
+// ha entrado — guardar esa tarea a su nombre fallaría igualmente en el
+// servidor (§6.6), pero es mejor no dejar ni intentarlo.
+let clavesConTurnoAbierto = new Set();
+let turnoDelDiaCargado = false;
+
 /**
  * Une el cuadrante del día con lo que se ha fichado de verdad: quién viene hoy,
  * a qué hora le toca entrar y salir, y a qué hora lo ha hecho.
@@ -1086,10 +1094,17 @@ async function cargarTurnoActual() {
             fetchFichajes(Date.now() - 36 * 60 * 60 * 1000, Date.now() + 60000),
             fetchCuadranteDelDia(),
         ]);
-        renderizarTurnoPanel(
-            construirEquipoDelDia(fichajes, cuadrante.filas, inicioJornada),
+        const equipo = construirEquipoDelDia(fichajes, cuadrante.filas, inicioJornada);
+        renderizarTurnoPanel(equipo,
             { fecha, sinCuadrante: cuadrante.filas.length === 0, fallo: cuadrante.fallo }
         );
+
+        clavesConTurnoAbierto = new Set(
+            equipo.filter(p => p.estado === 'activo' || p.estado === 'descanso').map(p => claveNombre(p.nombre)));
+        // La primera vez que ya se sabe quién tiene turno abierto, se repinta el
+        // panel de tareas: si se adelantó sin saberlo, habría ofrecido a todo el
+        // mundo en «¿Quién?» hasta el siguiente refresco (medio minuto).
+        if (!turnoDelDiaCargado) { turnoDelDiaCargado = true; renderTareasPanel(); }
     } catch (e) {
         // Un fallo aquí dejaba el panel en blanco sin decir nada, y desde fuera
         // parecía que la función se había perdido.
@@ -1655,10 +1670,19 @@ function filaTarea(t, ahora) {
         return `<div class="tarea-row"><span class="tarea-punto"></span>${nombre}
             <span class="tarea-hecha-info" style="color:#6b7280">No aplica</span></div>`;
     }
-    // Pendiente, vencida o aún por llegar: siempre se puede marcar
+    // Pendiente, vencida o aún por llegar: siempre se puede marcar, pero solo
+    // a nombre de quien tiene el turno abierto — guardarla a nombre de alguien
+    // que no ha fichado entrada se rechazaría en el servidor de todos modos
+    // (§6.6); mejor no ofrecer esa opción que dejar que la rellenen entera
+    // para que falle al final. Mientras no se sepa aún quién tiene turno
+    // abierto (justo al cargar la página), se enseña a todo el mundo.
+    const elegibles = turnoDelDiaCargado
+        ? listaEmpleados.filter(n => clavesConTurnoAbierto.has(claveNombre(n)))
+        : listaEmpleados;
     const opciones = ['<option value="">¿Quién?</option>']
-        .concat(listaEmpleados.map(n => `<option value="${escTarea(n)}">${escTarea(n)}</option>`))
+        .concat(elegibles.map(n => `<option value="${escTarea(n)}">${escTarea(n)}</option>`))
         .join('');
+    const sinNadie = turnoDelDiaCargado && elegibles.length === 0;
 
     let extras = '';
     const tipo = t.tipo_evidencia;
@@ -1673,6 +1697,12 @@ function filaTarea(t, ahora) {
     }
     if (tipo === 'FOTO' || tipo === 'FOTO+NUMERO') {
         extras += `<button type="button" class="tarea-foto-btn" id="tfotolbl-${t.id}" data-tfoto="${t.id}">📷</button>`;
+    }
+
+    if (sinNadie) {
+        return `<div class="tarea-row ${cls}"><span class="tarea-punto"></span>${nombre}
+            <span class="tarea-hecha-info" style="color:#6b7280">Nadie ha fichado su entrada todavía</span>
+        </div>`;
     }
 
     return `<div class="tarea-row ${cls}"><span class="tarea-punto"></span>${nombre}
