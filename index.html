@@ -752,6 +752,16 @@
             .qr-barra { background: rgba(255,255,255,.12); }
         }
 
+        /* Por qué un botón de Entrada/Salida está apagado: un botón muerto sin
+           explicación parece que la app se ha roto. */
+        .estado-nota {
+            margin: -10px 0 16px; padding: 10px 12px; border-radius: 8px;
+            font-size: 13px; line-height: 1.5; background: #f3f4f6; color: #4b5563;
+        }
+        @media (prefers-color-scheme: dark) {
+            .estado-nota { background: #27272a; color: #d1d5db; }
+        }
+
         /* Panel plegable */
         .panel-toggle {
             width: 100%;
@@ -1149,6 +1159,7 @@
             <button class="btn-entrada" id="btnEntrada">Entrada</button>
             <button class="btn-salida" id="btnSalida">Salida</button>
         </div>
+        <div class="estado-nota" id="estadoNota" style="display:none"></div>
 
         <!-- Panel turno activo (solo visible si hay centro seleccionado) -->
         <div class="turno-panel" id="turnoPanel" style="display:none">
@@ -1407,7 +1418,7 @@
         <button id="btnUndo" class="undo-btn" type="button">Deshacer</button>
     </div>
 
-    <script type="module" src="app.js?v=26"></script>
+    <script type="module" src="app.js?v=27"></script>
     <script>
         document.addEventListener('DOMContentLoaded', () => {
             if (typeof lucide !== 'undefined') lucide.createIcons();
