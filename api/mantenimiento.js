@@ -64,6 +64,13 @@ async function turnosAbiertos(db, centro) {
       timestamp: Number(entrada.timestamp),
       horas_abierto: Math.round((Date.now() - Number(entrada.timestamp)) / 3600000),
       ultimo_tipo: registros[0].tipo,
+      // Todo lo fichado desde esa entrada: si cerrar el turno no basta, suele
+      // ser porque hay algo después —un descanso sin cerrar, otra entrada—
+      // que sigue siendo lo último y por eso la persona sigue saliendo aquí.
+      movimientos: registros
+        .filter(f => Number(f.timestamp) >= Number(entrada.timestamp))
+        .map(f => ({ tipo: f.tipo, fecha: f.fecha, hora: f.hora, timestamp: Number(f.timestamp) }))
+        .reverse(),
     });
   }
 
@@ -115,6 +122,24 @@ export default async function handler(req, res) {
       }
       if (ts > Date.now() + 60000) {
         return res.status(400).json({ error: "La salida no puede estar en el futuro" });
+      }
+
+      // Si hay algo fichado después de la hora de salida que se va a insertar
+      // (un descanso, otra entrada...), esa salida no queda como lo último y
+      // la persona seguiría saliendo como "sin cerrar" — un éxito que no
+      // arregla nada y encima parece que la herramienta ha fallado. Mejor
+      // decirlo antes que dejar que pase.
+      const ETIQUETA_TIPO = {
+        entrada: 'una entrada', salida: 'una salida',
+        inicio_descanso: 'un inicio de descanso', fin_descanso: 'un fin de descanso',
+      };
+      const posterior = turno.movimientos.find(m => m.timestamp > ts);
+      if (posterior) {
+        return res.status(409).json({
+          error: `Cerrar aquí no bastará: hay ${ETIQUETA_TIPO[posterior.tipo] || 'otro fichaje'} registrado después, `
+            + `el ${posterior.fecha} a las ${String(posterior.hora).slice(0, 5)}. `
+            + `Pon una hora de salida posterior a ese fichaje, o ciérralo/bórralo también.`,
+        });
       }
 
       // corregido = 1 deja claro que no lo fichó la persona, lo arregló gerencia.
