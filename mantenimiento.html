@@ -56,6 +56,15 @@
         .turno-info { flex: 1; min-width: 220px; }
         .turno-nombre { font-weight: 700; color: #1f2937; font-size: 15px; }
         .turno-desde { font-size: 13px; color: #92400e; margin-top: 3px; }
+        .turno-movs {
+            font-size: 12px; color: #92400e; margin-top: 8px; padding-top: 8px;
+            border-top: 1px dashed #fde68a; line-height: 1.6;
+        }
+        .turno-movs strong { color: #78350f; }
+        .turno-error {
+            width: 100%; background: #fee2e2; color: #7f1d1d; font-size: 13px;
+            padding: 8px 10px; border-radius: 6px; margin-top: 6px; display: none;
+        }
         .campo { display: flex; flex-direction: column; gap: 4px; }
         .campo label { font-size: 11px; color: #6b7280; font-weight: 600; text-transform: uppercase; }
         .campo input, .campo select {
@@ -170,7 +179,23 @@
             const pad = n => String(n).padStart(2, '0');
             const hoyISO = `${hoy.getFullYear()}-${pad(hoy.getMonth() + 1)}-${pad(hoy.getDate())}`;
 
-            cont.innerHTML = datos.map((t, i) => `
+            const ETIQUETA_TIPO = {
+                entrada: 'Entrada', salida: 'Salida',
+                inicio_descanso: 'Inicio de descanso', fin_descanso: 'Fin de descanso',
+            };
+
+            cont.innerHTML = datos.map((t, i) => {
+                // Si después de la entrada hay algo más que esa misma entrada
+                // (un descanso, otra marca...), cerrar el turno con una hora
+                // anterior a eso no bastará: hay que verlo para saber por qué.
+                const otros = (t.movimientos || []).filter((m, idx) => idx > 0);
+                const movsHtml = otros.length ? `
+                    <div class="turno-movs">
+                        <strong>Después de esa entrada también hay:</strong><br>
+                        ${otros.map(m => `${esc(ETIQUETA_TIPO[m.tipo] || m.tipo)} el ${esc(m.fecha)} a las ${esc(String(m.hora).slice(0, 5))}`).join('<br>')}
+                    </div>` : '';
+
+                return `
                 <div class="turno">
                     <div class="turno-info">
                         <div class="turno-nombre">${esc(t.empleado)}</div>
@@ -178,6 +203,7 @@
                             Entró el ${esc(t.fecha)} a las ${esc(String(t.hora).slice(0, 5))}
                             · lleva ${t.horas_abierto} h marcado como presente
                         </div>
+                        ${movsHtml}
                     </div>
                     <div class="campo">
                         <label for="f${i}">Salió el día</label>
@@ -188,8 +214,9 @@
                         <input type="time" id="h${i}" step="300">
                     </div>
                     <button class="btn-ok" data-cerrar="${i}">Cerrar turno</button>
-                </div>
-            `).join('');
+                    <div class="turno-error" id="err${i}"></div>
+                </div>`;
+            }).join('');
 
             cont.querySelectorAll('[data-cerrar]').forEach(btn => {
                 btn.addEventListener('click', () => cerrarTurno(datos[+btn.dataset.cerrar], +btn.dataset.cerrar, btn));
@@ -199,6 +226,8 @@
         async function cerrarTurno(turno, i, btn) {
             const fecha = document.getElementById(`f${i}`).value;
             const hora = document.getElementById(`h${i}`).value;
+            const errEl = document.getElementById(`err${i}`);
+            if (errEl) errEl.style.display = 'none';
             if (!fecha || !hora) {
                 mostrar('Indica el día y la hora a la que se fue', 'error');
                 return;
@@ -218,7 +247,14 @@
                     }),
                 });
                 const d = await r.json().catch(() => ({}));
-                if (!r.ok) { mostrar(d.error || 'No se ha podido cerrar', 'error'); return; }
+                if (!r.ok) {
+                    // En la propia tarjeta, no solo arriba del todo: si hay
+                    // varias personas en la lista, el aviso de arriba puede
+                    // pasar desapercibido y parecer que sí funcionó.
+                    if (errEl) { errEl.textContent = d.error || 'No se ha podido cerrar'; errEl.style.display = 'block'; }
+                    mostrar(d.error || 'No se ha podido cerrar', 'error');
+                    return;
+                }
                 mostrar(`✓ Turno de ${turno.empleado} cerrado a las ${hora}`, 'ok');
                 cargarAbiertos();
             } catch {
