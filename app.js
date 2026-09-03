@@ -655,7 +655,7 @@ async function registrarFichaje(tipo, horaPrevista = '', passwordResponsable = '
         // en el iPad. A qué hora entra o sale cada uno, y desde dónde, no es
         // información de relevo: queda con el fichaje y sale en tu panel.
 
-        actualizarEstadoBotones(tipo);
+        actualizarEstadoBotones(tipo, fichaje);
         mostrarUndoToast(tipo, fichaje);
         if (centroActual) { cargarTurnoActual(); cargarResumenPrevios(); renderTareasPanel(true); }
         if (tipo === 'entrada') avisarTareasTrasEntrada(empleado);
@@ -804,7 +804,7 @@ function actualizarUltimaAccion() {
                 };
                 lastActionEl.innerHTML = `<strong>Último registro:</strong><br>${tipos[data[0].tipo]}<br>${data[0].hora}`;
                 lastActionEl.className = 'last-action has-data';
-                actualizarEstadoBotones(data[0].tipo);
+                actualizarEstadoBotones(data[0].tipo, data[0]);
                 cargarHorarioHoy(empleado);
             } else {
                 lastActionEl.innerHTML = 'No tienes registros aún';
@@ -966,11 +966,15 @@ function iniciarPanelTurno() {
 }
 
 /** Fecha de la jornada operativa en curso (corte a las 07:00). */
-function fechaOperativa() {
-    const now = new Date();
-    const d = new Date(now);
-    if (now.getHours() < 7) d.setDate(d.getDate() - 1);
+/** La jornada de un instante cualquiera, con el mismo corte a las 07:00. */
+function fechaOperativaDeTs(ts) {
+    const d = new Date(ts);
+    if (d.getHours() < 7) d.setDate(d.getDate() - 1);
     return fechaISO(d);
+}
+
+function fechaOperativa() {
+    return fechaOperativaDeTs(Date.now());
 }
 
 /**
@@ -1373,14 +1377,41 @@ function renderizarResumen(lista, items, vacioMsg) {
     }).join('');
 }
 
-function actualizarEstadoBotones(tipo) {
+/**
+ * Explica por qué un botón está apagado. Un botón muerto sin ningún mensaje
+ * parece que la app se ha roto, y es justo lo que pasa cuando a alguien se le
+ * quedó un turno sin cerrar de otro día: la app no deja fichar la entrada
+ * otra vez, con toda la razón, pero eso no se veía en ningún sitio.
+ */
+function notaDeEstado(tipo, ultimo) {
+    if (tipo !== 'entrada' && tipo !== 'fin_descanso') return '';
+    // Por timestamp, no por la fecha de calendario que guarda el fichaje: la
+    // jornada corta a las 07:00, así que un turno que cruza medianoche no
+    // debe parecer "de otro día" solo por haber cambiado el reloj.
+    const esDeHoy = ultimo?.timestamp && fechaOperativaDeTs(Number(ultimo.timestamp)) === fechaOperativa();
+    if (esDeHoy) {
+        return 'Ya has fichado tu entrada hoy. Cuando termines, ficha la salida.';
+    }
+    const fecha = ultimo?.fecha ? ` (${ultimo.fecha})` : '';
+    return `Tu último fichaje fue una entrada${fecha} sin salida registrada, así que la app entiende que sigues en turno. `
+        + 'Si no es así, ficha tu salida para cerrarlo, o pide a un encargado que te lo arregle en «Arreglar fichajes».';
+}
+
+function actualizarEstadoBotones(tipo, ultimo = null) {
     const btnEntrada = document.getElementById('btnEntrada');
     const btnSalida = document.getElementById('btnSalida');
     const btnDescansoIni = document.getElementById('btnDescansoIni');
     const btnDescansoFin = document.getElementById('btnDescansoFin');
     const badge = document.getElementById('estadoBadge');
+    const nota = document.getElementById('estadoNota');
 
     if (!btnEntrada) return;
+
+    if (nota) {
+        const texto = notaDeEstado(tipo, ultimo);
+        nota.textContent = texto;
+        nota.style.display = texto ? 'block' : 'none';
+    }
 
     switch (tipo) {
         case 'entrada':
