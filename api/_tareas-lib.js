@@ -150,6 +150,16 @@ export async function initSchema(db) {
 
   // PIN por empleado para autorizar acciones en tablet compartida (§7).
   try { await db.execute("ALTER TABLE empleados ADD COLUMN pin_hash TEXT NOT NULL DEFAULT ''"); } catch {}
+  // Chat de Telegram vinculado (bot de empleados): un chat es de una persona,
+  // así que el índice es único, pero solo entre los que sí están vinculados
+  // —si fuera único sobre la columna entera, todos los que valen '' chocarían
+  // entre sí—.
+  try { await db.execute("ALTER TABLE empleados ADD COLUMN telegram_chat_id TEXT NOT NULL DEFAULT ''"); } catch {}
+  try {
+    await db.execute(
+      "CREATE UNIQUE INDEX IF NOT EXISTS idx_empleados_telegram ON empleados (telegram_chat_id) WHERE telegram_chat_id <> ''"
+    );
+  } catch {}
 
   await db.execute(`
     CREATE TABLE IF NOT EXISTS mantenimiento (
@@ -230,6 +240,33 @@ export function epochDesdeLocal(fecha, hora, tz = TZ_DEFAULT) {
 export function minutosDeHora(hhmm) {
   const [h, m] = String(hhmm).split(':').map(Number);
   return (h || 0) * 60 + (m || 0);
+}
+
+/**
+ * Minutos trabajados a partir de las marcas de UNA persona, en orden
+ * cronológico. Usado tanto en el resumen semanal de aviso-diario.js como en
+ * el /horas del bot de empleados — es el mismo cálculo, no tiene sentido
+ * tenerlo escrito dos veces.
+ */
+export function minutosTrabajados(eventos) {
+  let entradaTs = null, descansoIni = null, restar = 0, minutos = 0;
+  for (const f of eventos) {
+    const ts = Number(f.timestamp);
+    if (f.tipo === 'entrada') {
+      entradaTs = ts; descansoIni = null; restar = 0;
+    } else if (f.tipo === 'inicio_descanso') {
+      if (entradaTs !== null) descansoIni = ts;
+    } else if (f.tipo === 'fin_descanso') {
+      if (descansoIni !== null) { restar += ts - descansoIni; descansoIni = null; }
+    } else if (f.tipo === 'salida') {
+      if (entradaTs !== null) {
+        if (descansoIni !== null) { restar += ts - descansoIni; descansoIni = null; }
+        minutos += Math.max(0, (ts - entradaTs - restar) / 60000);
+      }
+      entradaTs = null; restar = 0;
+    }
+  }
+  return minutos;
 }
 
 function sumarDias(fecha, dias) {
@@ -619,6 +656,68 @@ export async function pinYaEnUso(db, pin, salvo = '') {
   const e = await identificarPorPin(db, pin);
   if (!e) return false;
   return String(e.nombre).trim().toLowerCase() !== String(salvo).trim().toLowerCase();
+}
+
+// ── Bot de Telegram para empleados ─────────────────────────────
+// Un bot distinto al de gerencia (§ api/_telegram.js): ahí hay un solo chat
+// fijo para el dueño, aquí cada persona tiene el suyo, así que hace falta
+// saber qué chat es de quién. Se vincula con el mismo PIN que ya usan para
+// fichar y para las tareas — nada nuevo que dar de alta.
+
+/** El empleado dueño de este chat de Telegram, o null si no está vinculado. */
+export async function identificarPorTelegramChatId(db, chatId) {
+  const limpio = String(chatId ?? '').trim();
+  if (!limpio) return null;
+  const r = await db.execute({
+    sql: "SELECT nombre, centro, rol FROM empleados WHERE telegram_chat_id = ? LIMIT 1",
+    args: [limpio],
+  });
+  return r.rows[0] || null;
+}
+
+/**
+ * Vincula un chat de Telegram a un empleado por su nombre.
+ *
+ * Si ese chat ya estaba vinculado a otra ficha —aparato compartido, cuenta
+ * reasignada—, se libera antes: un chat es de una sola persona, igual que
+ * hace cumplir el índice único de arriba.
+ */
+export async function vincularTelegram(db, nombre, chatId) {
+  const limpio = String(chatId ?? '').trim();
+  if (!limpio || !nombre) return;
+  await db.execute({
+    sql: `UPDATE empleados SET telegram_chat_id = ''
+          WHERE telegram_chat_id = ? AND LOWER(TRIM(nombre)) <> LOWER(TRIM(?))`,
+    args: [limpio, nombre],
+  });
+  await db.execute({
+    sql: "UPDATE empleados SET telegram_chat_id = ? WHERE LOWER(TRIM(nombre)) = LOWER(TRIM(?))",
+    args: [limpio, nombre],
+  });
+}
+
+/**
+ * El chat de Telegram vinculado a un empleado por su nombre, o '' si no tiene
+ * ninguno (o no existe). Para los avisos que salen desde otras rutas —
+ * horario nuevo, solicitud resuelta— que necesitan saber a quién escribir.
+ */
+export async function telegramChatDeEmpleado(db, nombre) {
+  if (!nombre) return '';
+  const r = await db.execute({
+    sql: "SELECT telegram_chat_id FROM empleados WHERE LOWER(TRIM(nombre)) = LOWER(TRIM(?)) LIMIT 1",
+    args: [nombre],
+  });
+  return r.rows[0]?.telegram_chat_id || '';
+}
+
+/** Desvincula un chat, sea de quien sea. */
+export async function desvincularTelegram(db, chatId) {
+  const limpio = String(chatId ?? '').trim();
+  if (!limpio) return;
+  await db.execute({
+    sql: "UPDATE empleados SET telegram_chat_id = '' WHERE telegram_chat_id = ?",
+    args: [limpio],
+  });
 }
 
 // ── PIN de gerencia ───────────────────────────────────────────

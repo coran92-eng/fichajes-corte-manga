@@ -1,5 +1,7 @@
 import { getDbClient } from "./_db.js";
-import { centroDeEmpleado, centroCanonico } from "./_tareas-lib.js";
+import { centroDeEmpleado, centroCanonico, telegramChatDeEmpleado } from "./_tareas-lib.js";
+import { avisarEmpleado } from "./_telegram-empleados.js";
+import { escTelegram } from "./_telegram.js";
 
 // El esquema se prepara una vez por instancia, no en cada petición. Antes
 // eran ocho viajes a la base de datos antes de la consulta —cuatro de ellos
@@ -179,16 +181,30 @@ export default async function handler(req, res) {
       // Sin normalizar centro, un turno reenviado con el centro escrito de
       // otra forma no borraría el anterior: se quedarían los dos, y cuál
       // "gana" en las pantallas que lo muestran depende del orden de lectura.
-      await db.execute({
+      const borrado = await db.execute({
         sql: `DELETE FROM horarios WHERE empleado = ? AND fecha = ?
               AND LOWER(TRIM(COALESCE(centro,''))) = LOWER(TRIM(?))`,
         args: [empleado, fecha, centroResuelto],
       });
+      const esNuevo = !Number(borrado.rowsAffected || 0);
 
       const result = await db.execute({
         sql: "INSERT INTO horarios (empleado, centro, fecha, hora_entrada, hora_salida, semana, estado, creado_en, notas, rol_primera, hora_cambio, rol_segunda, hora_descanso) VALUES (?, ?, ?, ?, ?, ?, 'pendiente', ?, ?, ?, ?, ?, ?)",
         args: [empleado, centroResuelto, fecha, hora_entrada, hora_salida, semana, Date.now(), notas, rol_primera, hora_cambio, rol_segunda, hora_descanso],
       });
+
+      // Si tiene el bot vinculado, se entera del turno sin tener que ir a
+      // mirar el panel — es justo lo que hoy se sabe solo porque el encargado
+      // se lo dice aparte.
+      const chatId = await telegramChatDeEmpleado(db, empleado);
+      if (chatId) {
+        const verbo = esNuevo ? 'Nuevo turno' : 'Turno modificado';
+        await avisarEmpleado(chatId,
+          `📅 <b>${verbo}</b>: ${fecha}, ${String(hora_entrada).slice(0, 5)}–${String(hora_salida).slice(0, 5)}`
+          + (rol_segunda ? ` (partido, vuelves a las ${String(hora_cambio).slice(0, 5)})` : '')
+          + ` en ${escTelegram(centroResuelto)}.`
+        );
+      }
 
       return res.status(201).json({ success: true, id: result.lastInsertRowid.toString() });
     }

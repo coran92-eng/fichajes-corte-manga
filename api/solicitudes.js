@@ -1,6 +1,7 @@
 import { getDbClient } from "./_db.js";
 import { avisarTelegram, escTelegram, conEnlacePanel } from "./_telegram.js";
-import { centroDeEmpleado } from "./_tareas-lib.js";
+import { centroDeEmpleado, telegramChatDeEmpleado } from "./_tareas-lib.js";
+import { avisarEmpleado } from "./_telegram-empleados.js";
 
 const TIPOS_SOLICITUD = ['modificar', 'crear', 'eliminar'];
 const TIPOS_FICHAJE = ['entrada', 'salida', 'inicio_descanso', 'fin_descanso'];
@@ -196,6 +197,17 @@ export default async function handler(req, res) {
         sql: "UPDATE solicitudes SET estado = ?, nota_admin = ?, resuelto_en = ? WHERE id = ?",
         args: [estado, nota_admin, Date.now(), id],
       });
+
+      // Quien la pidió se entera de si se aprobó o se rechazó, en vez de
+      // tener que volver a mirar si ya se resolvió.
+      const chatId = await telegramChatDeEmpleado(db, sol.empleado);
+      if (chatId) {
+        const emoji = estado === 'aprobada' ? '✅' : '❌';
+        await avisarEmpleado(chatId,
+          `${emoji} Tu solicitud del ${sol.fecha} ha sido ${estado === 'aprobada' ? 'aprobada' : 'rechazada'}.`
+          + (nota_admin ? `\n${escTelegram(nota_admin)}` : '')
+        );
+      }
 
       return res.status(200).json({ success: true });
     }
