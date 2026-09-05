@@ -164,5 +164,11 @@ mantenerEncendido();
 pedir();
 setInterval(tictac, 250);
 </script>
+<script>
+    // Aquí no hay nadie delante para tocar un aviso de "actualizar": se
+    // recarga sola en cuanto haya una versión nueva.
+    window.SW_ACTUALIZA_SOLO = true;
+</script>
+<script src="sw-update.js"></script>
 </body>
 </html>
