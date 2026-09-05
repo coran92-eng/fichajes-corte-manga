@@ -1,4 +1,5 @@
 import { getDbClient } from "./_db.js";
+import { avisarTelegram, escTelegram, conEnlacePanel } from "./_telegram.js";
 
 const TIPOS_SOLICITUD = ['modificar', 'crear', 'eliminar'];
 const TIPOS_FICHAJE = ['entrada', 'salida', 'inicio_descanso', 'fin_descanso'];
@@ -102,6 +103,23 @@ export default async function handler(req, res) {
           hora_original, hora_propuesta, motivo, Date.now(),
         ],
       });
+
+      // Toda solicitud de corrección avisa: es el empleado pidiendo que
+      // alguien con acceso al panel revise y apruebe o rechace un fichaje.
+      const campo = String(tipo_fichaje).replace(/_/g, ' ');
+      const verbo = tipo_solicitud === 'crear'
+        ? `crear un fichaje de ${campo} el ${fecha} a las ${hora_propuesta}`
+        : tipo_solicitud === 'modificar'
+          ? `corregir su ${campo} del ${fecha}` + (hora_original
+              ? ` (${hora_original} → ${hora_propuesta})`
+              : ` a las ${hora_propuesta}`)
+          : `eliminar su ${campo} del ${fecha}` + (hora_original ? ` (${hora_original})` : '');
+
+      await avisarTelegram(conEnlacePanel(
+        `✏️ <b>${escTelegram(empleado)}</b> ha pedido ${escTelegram(verbo)} en ${escTelegram(centro || 'la app')}.\n`
+        + `Motivo: ${escTelegram(motivo)}`,
+        centro
+      ));
 
       return res.status(201).json({ success: true, id: result.lastInsertRowid.toString() });
     }
