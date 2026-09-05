@@ -76,12 +76,29 @@ function lunesDe(fechaISO) {
   return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
 }
 
-/** "lun 08/09", a partir de una fecha YYYY-MM-DD — mediodía UTC evita que la zona horaria mueva el día. */
-function etiquetaFecha(fechaISO) {
-  const d = new Date(`${fechaISO}T12:00:00Z`);
-  const dia = new Intl.DateTimeFormat('es-ES', { timeZone: 'UTC', weekday: 'short' }).format(d);
-  const dm = new Intl.DateTimeFormat('es-ES', { timeZone: 'UTC', day: '2-digit', month: '2-digit' }).format(d);
-  return `${dia} ${dm}`;
+// Mediodía UTC en todas estas conversiones: evita que la zona horaria del
+// servidor mueva la fecha al día de al lado por unas horas de diferencia.
+function fechaAlMediodia(fechaISO) {
+  return new Date(`${fechaISO}T12:00:00Z`);
+}
+
+/**
+ * "08/09", para la cabecera de rango de una semana. A mano y no con Intl:
+ * combinar day+month en '2-digit' sin year no rellena el mes con cero en
+ * todas las versiones de ICU (da "8/9" en vez de "08/09"), y aquí el propio
+ * texto de origen (YYYY-MM-DD) ya trae el cero puesto.
+ */
+function etiquetaFechaCorta(fechaISO) {
+  const [, mes, dia] = String(fechaISO).split('-');
+  return `${dia}/${mes}`;
+}
+
+/** "Viernes, 19 de septiembre" — el día completo, no la fecha corta. */
+function etiquetaDiaLargo(fechaISO) {
+  const texto = new Intl.DateTimeFormat('es-ES', {
+    timeZone: 'UTC', weekday: 'long', day: 'numeric', month: 'long',
+  }).format(fechaAlMediodia(fechaISO));
+  return texto.charAt(0).toUpperCase() + texto.slice(1);
 }
 
 async function enviarAyuda(chatId, empleado) {
@@ -112,16 +129,28 @@ async function intentarVincular(db, req, chatId, pin) {
   await avisarEmpleado(chatId, `✅ Listo, <b>${escTelegram(empleado.nombre)}</b>. Ya puedes preguntarme:\n\n${AYUDA_TEXTO}`);
 }
 
+// Tope defensivo: en la práctica nunca se carga tanto por delante, pero un
+// mensaje sin límite podría pasarse de los 4096 caracteres que admite
+// Telegram y perderse entero.
+const TOPE_TURNOS_HORARIO = 60;
+
+/**
+ * Todos los turnos que tenga cargados a partir de hoy, agrupados por semana
+ * —igual que ya se ven en el panel del encargado—, con el día completo (no
+ * abreviado) y la fecha larga: es lo que se pidió para que de un vistazo se
+ * sepa qué día de la semana entra y a qué hora, sin tener que traducir "lun"
+ * ni el año de la fecha.
+ */
 async function responderHorario(db, empleado, chatId) {
   const hoy = new Date().toISOString().slice(0, 10);
   const r = await db.execute({
-    sql: `SELECT fecha, hora_entrada, hora_salida, rol_segunda, hora_cambio, estado
+    sql: `SELECT fecha, hora_entrada, hora_salida, rol_segunda, hora_cambio, estado, semana
           FROM horarios
           WHERE LOWER(TRIM(empleado)) = LOWER(TRIM(?))
             AND LOWER(TRIM(COALESCE(centro,''))) = LOWER(TRIM(?))
             AND fecha >= ? AND estado <> 'rechazado'
-          ORDER BY fecha ASC LIMIT 14`,
-    args: [empleado.nombre, empleado.centro || '', hoy],
+          ORDER BY fecha ASC LIMIT ?`,
+    args: [empleado.nombre, empleado.centro || '', hoy, TOPE_TURNOS_HORARIO],
   });
 
   if (!r.rows.length) {
@@ -129,13 +158,33 @@ async function responderHorario(db, empleado, chatId) {
     return;
   }
 
-  const lineas = r.rows.map(f => {
-    let linea = `${etiquetaFecha(f.fecha)}: ${String(f.hora_entrada).slice(0, 5)}–${String(f.hora_salida).slice(0, 5)}`;
-    if (f.rol_segunda) linea += ` (turno partido, vuelve a las ${String(f.hora_cambio).slice(0, 5)})`;
-    if (f.estado === 'pendiente') linea += ' ⏳ sin validar';
-    return linea;
-  });
-  await avisarEmpleado(chatId, `📅 <b>Tu horario</b>\n${lineas.join('\n')}`);
+  // Los turnos ya llegan ordenados por fecha, así que agrupar en orden de
+  // aparición basta para que cada semana salga seguida de la siguiente.
+  const porSemana = new Map();
+  for (const f of r.rows) {
+    const clave = f.semana || '';
+    if (!porSemana.has(clave)) porSemana.set(clave, []);
+    porSemana.get(clave).push(f);
+  }
+
+  const bloques = [];
+  for (const [semana, dias] of porSemana) {
+    const numero = semana.split('-W')[1] || '?';
+    const rango = `${etiquetaFechaCorta(dias[0].fecha)}–${etiquetaFechaCorta(dias[dias.length - 1].fecha)}`;
+    const lineas = dias.map(f => {
+      let linea = `${etiquetaDiaLargo(f.fecha)}: ${String(f.hora_entrada).slice(0, 5)}–${String(f.hora_salida).slice(0, 5)}`;
+      if (f.rol_segunda) linea += ` (turno partido, vuelve a las ${String(f.hora_cambio).slice(0, 5)})`;
+      if (f.estado === 'pendiente') linea += ' ⏳ sin validar';
+      return linea;
+    });
+    bloques.push([`📅 <b>Semana ${numero}</b> (${rango})`, ...lineas].join('\n'));
+  }
+
+  let texto = bloques.join('\n\n');
+  if (r.rows.length >= TOPE_TURNOS_HORARIO) {
+    texto += `\n\n(mostrando los próximos ${TOPE_TURNOS_HORARIO} turnos guardados)`;
+  }
+  await avisarEmpleado(chatId, texto);
 }
 
 async function responderHoras(db, empleado, chatId, cfg) {
