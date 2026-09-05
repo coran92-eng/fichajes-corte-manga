@@ -35,7 +35,8 @@ export default async function handler(req, res) {
         sql: `SELECT i.estado, p.nombre, p.criticidad
               FROM tarea_instancias i
               JOIN tarea_plantillas p ON p.id = i.plantilla_version_id
-              WHERE i.centro = ? AND i.fecha_operativa = ?`,
+              WHERE LOWER(TRIM(COALESCE(i.centro,''))) = LOWER(TRIM(?))
+                AND i.fecha_operativa = ?`,
         args: [centro, ayer],
       });
       // Nada configurado ese día: no hay nada que resumir, y no vale la pena
