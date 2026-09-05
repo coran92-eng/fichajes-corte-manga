@@ -1419,22 +1419,11 @@
     </div>
 
     <script type="module" src="app.js?v=27"></script>
+    <script src="sw-update.js"></script>
     <script>
         document.addEventListener('DOMContentLoaded', () => {
             if (typeof lucide !== 'undefined') lucide.createIcons();
         });
-        // Registrar Service Worker para offline (mantener fuera del módulo para scope global)
-        if ('serviceWorker' in navigator) {
-            // updateViaCache:'none' evita que el navegador cachee sw.js
-            // (hasta 24h por defecto), que dejaba dispositivos servidos con
-            // una versión antigua sin poder actualizarse.
-            navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' })
-                .then(reg => {
-                    reg.update();
-                    setInterval(() => reg.update(), 60 * 60 * 1000);
-                })
-                .catch(err => console.log('Error registrando SW:', err));
-        }
 
         // Monitorear conexión
         window.addEventListener('online', () => {
