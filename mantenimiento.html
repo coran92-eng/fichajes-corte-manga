@@ -85,6 +85,12 @@
         }
         .btn-borrar-turno:hover { background: #fee2e2; }
         .btn-borrar-turno:disabled { opacity: .5; cursor: not-allowed; }
+        .turno-dia-chk { width: 17px; height: 17px; cursor: pointer; flex-shrink: 0; }
+        .btn-borrar-lote {
+            background: #b91c1c; color: white; border: none; border-radius: 6px;
+            padding: 8px 14px; font-size: 13px; font-weight: 600; cursor: pointer;
+        }
+        .btn-borrar-lote:disabled { background: #d1d5db; color: #9ca3af; cursor: not-allowed; }
         .fila-fusion { display: flex; align-items: flex-end; gap: 12px; flex-wrap: wrap; }
         .msg { padding: 12px 14px; border-radius: 8px; margin-bottom: 18px; font-weight: 600; font-size: 14px; display: none; }
         .msg.ok { background: #d1fae5; color: #065f46; display: block; }
@@ -131,7 +137,13 @@
                 </div>
                 <button class="btn-fusion" id="btnVerTurnos">Ver</button>
             </div>
-            <div id="listaTurnosDia" style="margin-top:14px"></div>
+            <div id="turnosDiaAcciones" style="display:none;margin-top:14px;display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+                <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:#374151;cursor:pointer">
+                    <input type="checkbox" id="chkTodosTurnos"> Marcar todos
+                </label>
+                <button type="button" class="btn-borrar-lote" id="btnBorrarLote" disabled>Borrar seleccionados (0)</button>
+            </div>
+            <div id="listaTurnosDia" style="margin-top:10px"></div>
         </div>
 
         <div class="bloque">
@@ -294,11 +306,20 @@
             }
         }
 
+        function actualizarBotonLote() {
+            const marcados = document.querySelectorAll('.turno-dia-chk:checked').length;
+            const btn = document.getElementById('btnBorrarLote');
+            btn.textContent = `Borrar seleccionados (${marcados})`;
+            btn.disabled = marcados === 0;
+        }
+
         async function cargarTurnosDia() {
             const fecha = document.getElementById('turnosFecha').value;
             const cont = document.getElementById('listaTurnosDia');
-            if (!fecha) { cont.innerHTML = ''; return; }
+            const acciones = document.getElementById('turnosDiaAcciones');
+            if (!fecha) { cont.innerHTML = ''; acciones.style.display = 'none'; return; }
             cont.innerHTML = '<div class="vacio">Cargando…</div>';
+            acciones.style.display = 'none';
 
             let datos = [];
             try {
@@ -315,13 +336,20 @@
                 return;
             }
 
+            acciones.style.display = 'flex';
+            document.getElementById('chkTodosTurnos').checked = false;
             datos.sort((a, b) => String(a.hora_entrada).localeCompare(String(b.hora_entrada)));
             cont.innerHTML = datos.map(t => `
                 <div class="turno-dia" data-id="${t.id}">
+                    <input type="checkbox" class="turno-dia-chk" data-id="${t.id}" aria-label="Seleccionar ${esc(t.empleado)}">
                     <span class="turno-dia-nombre">${esc(t.empleado)}</span>
                     <span class="turno-dia-horas">${esc(String(t.hora_entrada).slice(0, 5))} – ${esc(String(t.hora_salida).slice(0, 5))}</span>
                     <button type="button" class="btn-borrar-turno" data-id="${t.id}">No trabaja este día</button>
                 </div>`).join('');
+
+            cont.querySelectorAll('.turno-dia-chk').forEach(chk => {
+                chk.addEventListener('change', actualizarBotonLote);
+            });
 
             cont.querySelectorAll('.btn-borrar-turno').forEach(btn => {
                 btn.addEventListener('click', async () => {
@@ -334,12 +362,42 @@
                         if (!r.ok) throw new Error();
                         fila.remove();
                         mostrar(`✓ Turno de ${nombre} borrado`, 'ok');
+                        actualizarBotonLote();
                     } catch {
                         mostrar('No se ha podido borrar. Inténtalo de nuevo.', 'error');
                         btn.disabled = false;
                     }
                 });
             });
+
+            actualizarBotonLote();
+        }
+
+        async function borrarLoteTurnos() {
+            const marcados = [...document.querySelectorAll('.turno-dia-chk:checked')];
+            if (!marcados.length) return;
+            const nombres = marcados.map(c => c.closest('.turno-dia').querySelector('.turno-dia-nombre').textContent);
+            if (!confirm(`Se borrará el turno de ${marcados.length} persona${marcados.length !== 1 ? 's' : ''} ese día:\n${nombres.join(', ')}\n\n¿Seguro?`)) return;
+
+            const btn = document.getElementById('btnBorrarLote');
+            btn.disabled = true;
+            let hechos = 0, fallos = 0;
+            for (const chk of marcados) {
+                const fila = chk.closest('.turno-dia');
+                try {
+                    const r = await fetch(`/api/horarios?id=${encodeURIComponent(chk.dataset.id)}`, { method: 'DELETE' });
+                    if (!r.ok) throw new Error();
+                    fila.remove();
+                    hechos++;
+                } catch {
+                    fallos++;
+                }
+            }
+            mostrar(
+                fallos ? `Borrados ${hechos}, pero ${fallos} fallaron — recarga y reinténtalo con esos.` : `✓ ${hechos} turnos borrados`,
+                fallos ? 'error' : 'ok'
+            );
+            actualizarBotonLote();
         }
 
         async function fusionar() {
@@ -382,6 +440,11 @@
             });
             document.getElementById('btnFusionar').addEventListener('click', fusionar);
             document.getElementById('btnVerTurnos').addEventListener('click', cargarTurnosDia);
+            document.getElementById('btnBorrarLote').addEventListener('click', borrarLoteTurnos);
+            document.getElementById('chkTodosTurnos').addEventListener('change', e => {
+                document.querySelectorAll('.turno-dia-chk').forEach(chk => { chk.checked = e.target.checked; });
+                actualizarBotonLote();
+            });
             cargarEmpleados();
             cargarAbiertos();
 
