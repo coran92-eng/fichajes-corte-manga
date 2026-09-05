@@ -16,7 +16,8 @@
  * regenere el PIN, que también desvincula — igual que ya revoca sus sesiones
  * del móvil).
  *
- * Comandos, una vez vinculado:
+ * Comandos, una vez vinculado (o los botones fijos de abajo del chat, que
+ * mandan lo mismo sin tener que escribirlo):
  *   /horario → sus próximos turnos.
  *   /horas   → horas trabajadas esta semana y este mes.
  *   /tareas  → tareas de hoy de su rol en su centro.
@@ -45,6 +46,27 @@ const AYUDA_TEXTO =
   '/horas — las horas que llevas esta semana y este mes\n' +
   '/tareas — las tareas de hoy de tu turno\n' +
   '/salir — desvincular esta conversación';
+
+// Botones fijos debajo del chat, para no tener que escribir el comando. Es
+// un teclado normal de Telegram (no botones inline sobre un mensaje): al
+// tocar uno, Telegram manda su texto tal cual, como si el empleado lo hubiera
+// escrito — por eso la clave de este mapa tiene que ser exactamente la
+// etiqueta del botón.
+const BOTON_A_COMANDO = {
+  '📅 Mi horario': '/horario',
+  '🕐 Mis horas': '/horas',
+  '📋 Tareas de hoy': '/tareas',
+  '🚪 Salir': '/salir',
+};
+
+const TECLADO_PRINCIPAL = {
+  keyboard: [
+    ['📅 Mi horario', '🕐 Mis horas'],
+    ['📋 Tareas de hoy', '🚪 Salir'],
+  ],
+  resize_keyboard: true, // botones del tamaño del texto, no ocupando media pantalla
+  is_persistent: true,   // se queda puesto; no hace falta reabrirlo en cada mensaje
+};
 
 /** La traza no debe tumbar el mensaje que la disparó. */
 async function auditarSuave(db, req, datos) {
@@ -102,7 +124,10 @@ function etiquetaDiaLargo(fechaISO) {
 }
 
 async function enviarAyuda(chatId, empleado) {
-  await avisarEmpleado(chatId, `Hola, <b>${escTelegram(empleado.nombre)}</b>. Puedo con esto:\n\n${AYUDA_TEXTO}`);
+  await avisarEmpleado(
+    chatId, `Hola, <b>${escTelegram(empleado.nombre)}</b>. Puedo con esto (o toca uno de los botones de abajo):\n\n${AYUDA_TEXTO}`,
+    { reply_markup: TECLADO_PRINCIPAL }
+  );
 }
 
 async function intentarVincular(db, req, chatId, pin) {
@@ -126,7 +151,10 @@ async function intentarVincular(db, req, chatId, pin) {
     empleado: empleado.nombre, centro: empleado.centro || '', device_id: `tg:${chatId}`,
   });
 
-  await avisarEmpleado(chatId, `✅ Listo, <b>${escTelegram(empleado.nombre)}</b>. Ya puedes preguntarme:\n\n${AYUDA_TEXTO}`);
+  await avisarEmpleado(
+    chatId, `✅ Listo, <b>${escTelegram(empleado.nombre)}</b>. Usa los botones de abajo, o escríbeme:\n\n${AYUDA_TEXTO}`,
+    { reply_markup: TECLADO_PRINCIPAL }
+  );
 }
 
 // Tope defensivo: en la práctica nunca se carga tanto por delante, pero un
@@ -248,7 +276,10 @@ async function desvincular(db, req, empleado, chatId) {
     tipo_evento: 'EMPLEADO_DESVINCULO_TELEGRAM', entidad: 'empleados',
     empleado: empleado.nombre, centro: empleado.centro || '',
   });
-  await avisarEmpleado(chatId, 'Listo, esta conversación ya no está vinculada. Escribe tu PIN cuando quieras volver a engancharla.');
+  await avisarEmpleado(
+    chatId, 'Listo, esta conversación ya no está vinculada. Escribe tu PIN cuando quieras volver a engancharla.',
+    { reply_markup: { remove_keyboard: true } }
+  );
 }
 
 async function manejarMensaje(db, req, message) {
@@ -267,7 +298,9 @@ async function manejarMensaje(db, req, message) {
     return;
   }
 
-  const comando = comandoDe(texto);
+  // Un botón del teclado manda su etiqueta tal cual, como si se hubiera
+  // escrito el comando a mano.
+  const comando = BOTON_A_COMANDO[texto] || comandoDe(texto);
   if (comando === '/salir') return desvincular(db, req, empleado, chatId);
   if (comando === '/ayuda' || comando === '/start') return enviarAyuda(chatId, empleado);
 
