@@ -1,6 +1,6 @@
 import { getDbClient } from "./_db.js";
 import { initSchema, getCentroCfg, fechaOperativaDe } from "./_tareas-lib.js";
-import { avisarTelegram, escTelegram, hayTelegramConfigurado } from "./_telegram.js";
+import { avisarTelegram, escTelegram, hayTelegramConfigurado, conEnlacePanel } from "./_telegram.js";
 
 const DIA_MS = 24 * 60 * 60 * 1000;
 
@@ -62,7 +62,7 @@ export default async function handler(req, res) {
       }
       if (!sinHacer.length && !tardias) lineas.push('✅ Todo en orden.');
 
-      await avisarTelegram(lineas.join('\n'));
+      await avisarTelegram(conEnlacePanel(lineas.join('\n'), centro));
     }
 
     return res.status(200).json({ ok: true });

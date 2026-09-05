@@ -8,6 +8,10 @@
     {
       "source": "/api/auth-encargado",
       "destination": "/api/auth?rol=encargado"
+    },
+    {
+      "source": "/api/red-local",
+      "destination": "/api/fichajes?modulo=red"
     }
   ],
   "crons": [
