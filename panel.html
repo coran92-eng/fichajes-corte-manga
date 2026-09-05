@@ -106,6 +106,15 @@
         .pers-nom { font-weight: 700; color: #e2e8f0; min-width: 88px; }
         .pers-dato { display: inline-flex; }
 
+        /* ── Tareas de la semana ── */
+        .tf {
+            display: flex; align-items: center; gap: 7px; flex-wrap: wrap;
+            padding: 6px 0; font-size: 12.5px; border-bottom: 1px solid #1e293b;
+        }
+        .tf:last-child { border-bottom: none; }
+        .tf-nom { font-weight: 700; color: #e2e8f0; flex: 1; min-width: 140px; }
+        .tf-quien { color: #94a3b8; }
+
         .nota-pie { color: #64748b; font-size: 12px; line-height: 1.6; margin-top: 26px; }
         .cargando { color: #64748b; padding: 40px 0; text-align: center; font-size: 14px; }
         .error { background: #450a0a; color: #fca5a5; padding: 13px; border-radius: 9px; font-size: 13.5px; }
@@ -163,6 +172,9 @@
     <div class="fecha-txt" id="fechaTxt"></div>
 
     <div id="contenido"><div class="cargando">Cargando los últimos 7 días…</div></div>
+
+    <h2>Tareas de la semana <span style="text-transform:none;letter-spacing:0">(toca un día para ver quién hizo qué)</span></h2>
+    <div id="tareasSemanaCont"><div class="cargando">Cargando tareas…</div></div>
 
     <h2>Fotos de las tareas</h2>
     <div class="fotos-filtro">
@@ -715,6 +727,85 @@ async function abrirFoto(f) {
     }
 }
 
+// ── Tareas de la semana ──────────────────────────────────────
+const ETIQUETA_ESTADO = {
+    COMPLETADA: 'bien', COMPLETADA_TARDIA: 'ojo', VENCIDA: 'mal',
+    PENDIENTE: '', NO_APLICA: '',
+};
+const TEXTO_ESTADO = {
+    COMPLETADA: 'hecha a tiempo', COMPLETADA_TARDIA: 'hecha tarde',
+    VENCIDA: 'sin hacer', PENDIENTE: 'pendiente todavía', NO_APLICA: 'no aplica',
+};
+
+async function cargarTareasSemana() {
+    const cont = document.getElementById('tareasSemanaCont');
+    cont.innerHTML = '<div class="cargando">Cargando tareas…</div>';
+
+    const ahora = Date.now();
+    const iniHoy = inicioJornadaDe(ahora);
+    const desde = iso(new Date(iniHoy - 6 * DIA_MS));
+    const hasta = iso(new Date(iniHoy));
+
+    const r = await pedir(`/api/tareas?resumen=semana&centro=${encodeURIComponent(centro)}&desde=${desde}&hasta=${hasta}`);
+    if (!r.datos) {
+        cont.innerHTML = `<div class="error">No se han podido leer las tareas (${esc(r.fallo)}).</div>`;
+        return;
+    }
+
+    const porFecha = {};
+    for (const d of (r.datos.dias || [])) porFecha[d.fecha] = d;
+
+    const dias = [];
+    for (let i = 6; i >= 0; i--) {
+        const ts = iniHoy - i * DIA_MS;
+        const fecha = iso(new Date(ts));
+        dias.push({ fecha, ts, esHoy: i === 0, ...(porFecha[fecha] || { total: 0, completadas: 0, tardias: 0, bloqueantes_pendientes: 0, tareas: [] }) });
+    }
+
+    cont.innerHTML = dias.map(d => {
+        const nom = new Intl.DateTimeFormat('es-ES', { weekday: 'short', day: '2-digit', month: '2-digit' }).format(new Date(d.ts));
+        const color = !d.total ? ''
+            : d.bloqueantes_pendientes > 0 ? 'rojo'
+            : d.tardias > 0 || d.completadas < d.total ? 'ambar'
+            : 'verde';
+
+        const tags = [];
+        if (!d.total) tags.push('<span class="tag">sin tareas configuradas</span>');
+        else {
+            tags.push(`<span class="tag ${d.completadas === d.total ? 'bien' : ''}">${d.completadas}/${d.total} hechas</span>`);
+            if (d.bloqueantes_pendientes) tags.push(`<span class="tag mal">${d.bloqueantes_pendientes} bloqueante${d.bloqueantes_pendientes !== 1 ? 's' : ''} sin hacer</span>`);
+            if (d.tardias) tags.push(`<span class="tag ojo">${d.tardias} tarde</span>`);
+        }
+
+        const filas = d.tareas.map(t => `
+            <div class="tf">
+                <span class="tf-nom">${esc(t.nombre)}${t.criticidad === 'BLOQUEANTE' ? ' <span class="tag mal">imprescindible</span>' : ''}</span>
+                <span class="tf-quien">${t.completada_por ? esc(t.completada_por) : '—'}</span>
+                <span class="tag ${ETIQUETA_ESTADO[t.estado] || ''}">${TEXTO_ESTADO[t.estado] || t.estado}</span>
+            </div>`).join('');
+
+        return `
+        <div class="dia ${color}">
+            <div class="dia-cab" data-tdia="${d.fecha}" role="button" tabindex="0">
+                <span class="dia-nombre">${nom}${d.esHoy ? ' · hoy' : ''}</span>
+                ${d.tareas.length ? '<span class="dia-flecha">▾</span>' : ''}
+            </div>
+            <div class="dia-tags">${tags.join('')}</div>
+            ${filas ? `<div class="dia-gente" id="td-${d.fecha}">${filas}</div>` : ''}
+        </div>`;
+    }).join('');
+
+    cont.querySelectorAll('[data-tdia]').forEach(cab => {
+        const abrir = () => {
+            const caja = document.getElementById(`td-${cab.dataset.tdia}`);
+            if (caja) caja.classList.toggle('abierta');
+            cab.querySelector('.dia-flecha')?.classList.toggle('girada');
+        };
+        cab.addEventListener('click', abrir);
+        cab.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); abrir(); } });
+    });
+}
+
 async function cargarFotos() {
     const cont = document.getElementById('fotosCont');
     const desde = document.getElementById('fotoDesde').value;
@@ -748,9 +839,9 @@ async function cargarFotos() {
 
 document.addEventListener('DOMContentLoaded', async () => {
     if (typeof lucide !== 'undefined') lucide.createIcons();
-    document.getElementById('btnRecargar').addEventListener('click', () => { cargar(); cargarFotos(); });
+    document.getElementById('btnRecargar').addEventListener('click', () => { cargar(); cargarTareasSemana(); cargarFotos(); });
     document.getElementById('btnDetalle').addEventListener('click', () => { window.location.href = 'admin.html'; });
-    document.getElementById('selCentro').addEventListener('change', e => { centro = e.target.value; cargar(); cargarFotos(); });
+    document.getElementById('selCentro').addEventListener('change', e => { centro = e.target.value; cargar(); cargarTareasSemana(); cargarFotos(); });
     document.getElementById('btnFotos').addEventListener('click', cargarFotos);
     document.getElementById('fotoModalCerrar').addEventListener('click', () => {
         document.getElementById('fotoModal').classList.remove('abierto');
@@ -763,6 +854,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     document.getElementById('fotoHasta').value = iso(new Date(hoy));
 
     cargar();
+    cargarTareasSemana();
     cargarFotos();
 });
 </script>

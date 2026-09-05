@@ -164,6 +164,52 @@ export default async function handler(req, res) {
       return res.status(200).json({ evidencias: r.rows });
     }
 
+    // ── Resumen de varios días, para el panel ──────────────────
+    // Solo lectura: no genera instancias ni marca vencidas (eso ya lo hace la
+    // visita normal del día). Un día sin instancias generadas simplemente sale
+    // sin tareas — no vale la pena escribir en la base para "revisar" un día
+    // que ya pasó y que, si el bar estuvo abierto, ya se visitó por su cuenta.
+    if (req.method === "GET" && req.query.resumen === 'semana') {
+      const centro = req.query.centro;
+      const desde = req.query.desde;
+      const hasta = req.query.hasta || desde;
+      if (!centro || !desde) {
+        return res.status(400).json({ error: "Centro y fecha desde son requeridos" });
+      }
+
+      const r = await db.execute({
+        sql: `SELECT i.fecha_operativa, i.estado, i.completada_por, i.completada_ts_servidor,
+                     i.fuera_de_plazo, p.nombre, p.criticidad, p.bloque, p.rol_responsable
+              FROM tarea_instancias i
+              JOIN tarea_plantillas p ON p.id = i.plantilla_version_id
+              WHERE i.centro = ? AND i.fecha_operativa BETWEEN ? AND ?
+              ORDER BY i.fecha_operativa ASC, p.bloque ASC, p.orden ASC`,
+        args: [centro, desde, hasta],
+      });
+
+      const porDia = {};
+      for (const t of r.rows) {
+        const dia = (porDia[t.fecha_operativa] ||= {
+          fecha: t.fecha_operativa, total: 0, completadas: 0, tardias: 0,
+          bloqueantes_pendientes: 0, tareas: [],
+        });
+        dia.total++;
+        if (t.estado === 'COMPLETADA' || t.estado === 'COMPLETADA_TARDIA') dia.completadas++;
+        if (t.estado === 'COMPLETADA_TARDIA') dia.tardias++;
+        if (t.criticidad === 'BLOQUEANTE' && (t.estado === 'PENDIENTE' || t.estado === 'VENCIDA')) {
+          dia.bloqueantes_pendientes++;
+        }
+        dia.tareas.push({
+          nombre: t.nombre, bloque: t.bloque, criticidad: t.criticidad,
+          rol_responsable: t.rol_responsable, estado: t.estado,
+          completada_por: t.completada_por, completada_ts: t.completada_ts_servidor,
+          fuera_de_plazo: !!t.fuera_de_plazo,
+        });
+      }
+
+      return res.status(200).json({ dias: Object.values(porDia) });
+    }
+
     // ── Lista de tareas del día ───────────────────────────────
     if (req.method === "GET") {
       res.setHeader('Cache-Control', 'no-store');
