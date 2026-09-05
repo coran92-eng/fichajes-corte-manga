@@ -14,7 +14,7 @@
  *   - el botón "Marcar como no aplica" del aviso de tarea vencida.
  */
 import { getDbClient } from "./_db.js";
-import { initSchema, getCentroCfg, fechaOperativaDe } from "./_tareas-lib.js";
+import { initSchema, getCentroCfg, fechaOperativaDe, auditar } from "./_tareas-lib.js";
 import {
   avisarTelegram, escTelegram, hayTelegramConfigurado,
   responderCallbackTelegram, editarBotonesTelegram,
@@ -91,7 +91,7 @@ async function manejarMensaje(message) {
  * header X-Auth-Token que exige, porque el mensaje viene de Telegram, no de
  * la app) y confirma en el chat.
  */
-async function marcarNoAplica(callbackQuery) {
+async function marcarNoAplica(req, callbackQuery) {
   const [, idTexto] = String(callbackQuery.data || '').split(':');
   const instanciaId = Number(idTexto);
   const chatId = callbackQuery.message?.chat?.id;
@@ -106,7 +106,7 @@ async function marcarNoAplica(callbackQuery) {
   await initSchema(db);
 
   const r = await db.execute({
-    sql: `SELECT i.estado, p.nombre FROM tarea_instancias i
+    sql: `SELECT i.estado, i.centro, p.nombre FROM tarea_instancias i
           JOIN tarea_plantillas p ON p.id = i.plantilla_version_id
           WHERE i.id = ?`,
     args: [instanciaId],
@@ -116,7 +116,7 @@ async function marcarNoAplica(callbackQuery) {
     return;
   }
 
-  const { estado, nombre } = r.rows[0];
+  const { estado, centro, nombre } = r.rows[0];
   if (estado !== 'PENDIENTE' && estado !== 'VENCIDA') {
     // Ya se resolvió por otra vía (la app, o un segundo toque del mismo
     // botón): no se vuelve a tocar, solo se avisa y se limpia el botón.
@@ -129,18 +129,23 @@ async function marcarNoAplica(callbackQuery) {
     sql: `UPDATE tarea_instancias SET estado = 'NO_APLICA', motivo_no_aplica = ?, completada_por = ?, completada_ts_servidor = ? WHERE id = ?`,
     args: [MOTIVO_TELEGRAM, 'Telegram', Date.now(), instanciaId],
   });
+  await auditar(db, req, {
+    tipo_evento: 'TAREA_NO_APLICA', entidad: 'tarea_instancias', entidad_id: instanciaId,
+    empleado: 'Telegram', centro,
+    payload: { motivo: MOTIVO_TELEGRAM, estado_anterior: estado },
+  });
 
   await responderCallbackTelegram(callbackQuery.id, 'Marcada como no aplica');
   if (chatId && messageId) await editarBotonesTelegram(chatId, messageId, { inline_keyboard: [] });
   await avisarTelegram(`✅ Marcada como no aplica: <b>${escTelegram(nombre)}</b>`);
 }
 
-async function manejarCallback(callbackQuery) {
+async function manejarCallback(req, callbackQuery) {
   if (!esDelDueno(callbackQuery.message?.chat?.id)) return;
 
   const datos = String(callbackQuery.data || '');
   if (datos.startsWith('no_aplica:')) {
-    await marcarNoAplica(callbackQuery);
+    await marcarNoAplica(req, callbackQuery);
   } else {
     // Callback que no reconocemos: se contesta igual para que no se quede
     // "cargando" en el móvil, aunque no haya nada que hacer con él.
@@ -167,7 +172,7 @@ export default async function handler(req, res) {
 
   try {
     if (update.callback_query) {
-      await manejarCallback(update.callback_query);
+      await manejarCallback(req, update.callback_query);
     } else if (update.message?.text) {
       await manejarMensaje(update.message);
     }
