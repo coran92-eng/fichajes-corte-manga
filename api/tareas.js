@@ -55,7 +55,8 @@ async function marcarVencidas(db, centro, fechaOperativa) {
     sql: `SELECT i.id, p.nombre, p.criticidad
           FROM tarea_instancias i
           JOIN tarea_plantillas p ON p.id = i.plantilla_version_id
-          WHERE i.centro = ? AND i.fecha_operativa = ? AND i.estado = 'PENDIENTE'
+          WHERE LOWER(TRIM(COALESCE(i.centro,''))) = LOWER(TRIM(?))
+            AND i.fecha_operativa = ? AND i.estado = 'PENDIENTE'
             AND (i.ventana_fin_ts + i.tolerancia_min * 60000) < ?`,
     args: [centro, fechaOperativa, Date.now()],
   });
@@ -87,7 +88,8 @@ async function listar(db, centro, fechaOperativa) {
                  p.ventana_inicio, p.ventana_fin, p.version
           FROM tarea_instancias i
           JOIN tarea_plantillas p ON p.id = i.plantilla_version_id
-          WHERE i.centro = ? AND i.fecha_operativa = ?
+          WHERE LOWER(TRIM(COALESCE(i.centro,''))) = LOWER(TRIM(?))
+            AND i.fecha_operativa = ?
           ORDER BY p.bloque ASC, p.orden ASC, i.ventana_inicio_ts ASC`,
     args: [centro, fechaOperativa],
   });
@@ -180,7 +182,8 @@ export default async function handler(req, res) {
               FROM evidencias e
               JOIN tarea_instancias i ON i.id = e.tarea_instancia_id
               JOIN tarea_plantillas p ON p.id = i.plantilla_version_id
-              WHERE i.centro = ? AND i.fecha_operativa BETWEEN ? AND ?
+              WHERE LOWER(TRIM(COALESCE(i.centro,''))) = LOWER(TRIM(?))
+                AND i.fecha_operativa BETWEEN ? AND ?
                 AND e.archivo_b64 IS NOT NULL
               ORDER BY e.ts_servidor DESC
               LIMIT 300`,
@@ -207,7 +210,8 @@ export default async function handler(req, res) {
                      i.fuera_de_plazo, p.nombre, p.criticidad, p.bloque, p.rol_responsable
               FROM tarea_instancias i
               JOIN tarea_plantillas p ON p.id = i.plantilla_version_id
-              WHERE i.centro = ? AND i.fecha_operativa BETWEEN ? AND ?
+              WHERE LOWER(TRIM(COALESCE(i.centro,''))) = LOWER(TRIM(?))
+                AND i.fecha_operativa BETWEEN ? AND ?
               ORDER BY i.fecha_operativa ASC, p.bloque ASC, p.orden ASC`,
         args: [centro, desde, hasta],
       });
