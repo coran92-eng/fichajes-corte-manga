@@ -4,6 +4,7 @@ import {
   emitirTokenQr, validarTokenQr, hayQrConfigurado, exigirQr,
   idDispositivo, esEncargadoOSuperior, verificarPin,
 } from "./_tareas-lib.js";
+import { avisarTelegram, escTelegram } from "./_telegram.js";
 
 /** Contraseña de gerencia o de encargado, para autorizar excepciones. */
 function claveResponsableValida(clave) {
@@ -99,6 +100,65 @@ function fechaJornada(ts) {
   const d = new Date(`${natural}T12:00:00Z`);
   d.setUTCDate(d.getUTCDate() - 1);
   return `${d.getUTCFullYear()}-${dosCifras(d.getUTCMonth() + 1)}-${dosCifras(d.getUTCDate())}`;
+}
+
+// Mismo margen que ya usan el móvil y el panel para decidir qué es "puntual":
+// 5 min en la entrada, 15 en la salida (irse un poco más tarde es habitual;
+// llegar tarde no debería serlo tanto).
+const MARGEN_ENTRADA_MIN = 5;
+const MARGEN_SALIDA_MIN = 15;
+
+/**
+ * Avisa por Telegram de cada entrada y salida, comparada con el horario
+ * previsto de esa persona ese día — de dónde sale "quién llega tarde, quién
+ * se va antes". No bloquea el fichaje si Telegram falla o si no hay horario
+ * cargado: avisa igual, diciendo que no hay con qué comparar.
+ */
+async function avisarFichajeTelegram(db, { empleado, tipo, centro, timestamp, hora }) {
+  if (tipo !== 'entrada' && tipo !== 'salida') return;
+
+  try {
+    const fecha = fechaJornada(Number(timestamp));
+    let prevista = '';
+    try {
+      const r = await db.execute({
+        sql: `SELECT hora_entrada, hora_salida FROM horarios
+              WHERE empleado = ? AND fecha = ?
+                AND (LOWER(TRIM(COALESCE(centro,''))) = LOWER(TRIM(?)) OR TRIM(COALESCE(centro,'')) = '')
+                AND LOWER(TRIM(COALESCE(estado,''))) <> 'rechazado'
+              LIMIT 1`,
+        args: [empleado, fecha, centro || ''],
+      });
+      if (r.rows.length) {
+        const campo = tipo === 'entrada' ? 'hora_entrada' : 'hora_salida';
+        prevista = String(r.rows[0][campo] || '').slice(0, 5);
+      }
+    } catch {}
+
+    const horaReal = String(hora).slice(0, 5);
+    const emoji = tipo === 'entrada' ? '🟢' : '🔵';
+    const verbo = tipo === 'entrada' ? 'ha fichado su entrada' : 'ha fichado su salida';
+    let texto = `${emoji} <b>${escTelegram(empleado)}</b> ${verbo} a las ${horaReal}`;
+
+    if (!prevista) {
+      texto += ' (sin horario cargado ese día, no se puede comparar).';
+    } else {
+      const diff = difMin(minutosDeHHMM(horaReal), minutosDeHHMM(prevista));
+      const margen = tipo === 'entrada' ? MARGEN_ENTRADA_MIN : MARGEN_SALIDA_MIN;
+      texto += ` (previsto ${prevista}) — `;
+      if (diff === null) {
+        texto += 'horario no válido para comparar.';
+      } else if (Math.abs(diff) <= margen) {
+        texto += tipo === 'entrada' ? 'puntual ✅' : 'a su hora ✅';
+      } else if (diff > 0) {
+        texto += tipo === 'entrada' ? `${diff} min tarde ⚠️` : `${diff} min más tarde de lo previsto ⚠️`;
+      } else {
+        texto += tipo === 'entrada' ? `${-diff} min antes de su hora` : `${-diff} min antes de lo previsto`;
+      }
+    }
+
+    await avisarTelegram(texto);
+  } catch {}
 }
 
 /** Qué hizo una persona en su jornada, a partir de sus marcas en orden. */
@@ -449,6 +509,8 @@ export default async function handler(req, res) {
           payload: { tipo, hora, ventana: ventanaQrUsada },
         }).catch(() => {});
       }
+
+      await avisarFichajeTelegram(db, { empleado, tipo, centro, timestamp, hora });
 
       return res.status(201).json({
         success: true,

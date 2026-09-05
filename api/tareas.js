@@ -68,7 +68,7 @@ async function marcarVencidas(db, centro, fechaOperativa) {
   });
 
   for (const t of vencidas.rows) {
-    avisarTelegram(
+    await avisarTelegram(
       `⏰ <b>${escTelegram(t.nombre)}</b> se ha pasado de plazo sin hacerse`
       + `${t.criticidad === 'BLOQUEANTE' ? ' — <b>bloqueante</b>' : ''} en ${escTelegram(centro)}.`
     );
