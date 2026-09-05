@@ -5,7 +5,7 @@ import {
   hashArchivo, purgarFotosCaducadas, RAFAGA_N, RAFAGA_MIN, HASH_LOOKBACK,
   validarTokenQr, esDispositivoConfianza, hayQrConfigurado,
 } from "./_tareas-lib.js";
-import { avisarTelegram, avisarTelegramConFoto, escTelegram } from "./_telegram.js";
+import { avisarTelegram, avisarTelegramConFoto, escTelegram, conEnlacePanel } from "./_telegram.js";
 
 // Tope defensivo del tamaño de foto que aceptamos (el cliente reescala antes
 // de enviar). Evita reventar la fila de la base de datos.
@@ -118,11 +118,12 @@ async function marcarVencidas(db, centro, fechaOperativa) {
         : `Nadie de ${escTelegram((t.rol_responsable || '').toLowerCase())} está en el bar ahora mismo `
           + `(sí: ${dentro.map(p => escTelegram(p.nombre)).join(', ')}).`;
 
-    await avisarTelegram(
+    await avisarTelegram(conEnlacePanel(
       `⏰ <b>${escTelegram(t.nombre)}</b> se ha pasado de plazo sin hacerse`
       + `${t.criticidad === 'BLOQUEANTE' ? ' — <b>bloqueante</b>' : ''} en ${escTelegram(centro)}.\n`
-      + lineaDentro
-    );
+      + lineaDentro,
+      centro
+    ));
   }
 }
 
@@ -588,8 +589,11 @@ export default async function handler(req, res) {
     // comparar una cosa con la otra sin tener que entrar a mirar el panel.
     try {
       const horaTexto = new Intl.DateTimeFormat('es-ES', { timeZone: 'Europe/Madrid', hour: '2-digit', minute: '2-digit' }).format(ahora);
-      const texto = `✅ <b>${escTelegram(t.nombre)}</b> completada por ${escTelegram(empleado)} a las ${horaTexto}`
-        + (fueraDePlazo ? ' — fuera de plazo ⚠️' : '');
+      const texto = conEnlacePanel(
+        `✅ <b>${escTelegram(t.nombre)}</b> completada por ${escTelegram(empleado)} a las ${horaTexto}`
+        + (fueraDePlazo ? ' — fuera de plazo ⚠️' : ''),
+        centro
+      );
 
       // Con foto, se manda la propia imagen en vez de solo decir que la hay:
       // así se ve de un vistazo si de verdad está hecha, sin entrar al panel.

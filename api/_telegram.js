@@ -18,6 +18,27 @@ export function hayTelegramConfigurado() {
   return !!(process.env.TELEGRAM_BOT_TOKEN && process.env.TELEGRAM_CHAT_ID);
 }
 
+// Si APP_URL no está puesta, se usa el dominio conocido de producción: mejor
+// un enlace que funciona sin configurar nada más que uno roto por defecto.
+const APP_URL_DEFAULT = 'https://fichaje-corte-manga.vercel.app';
+
+/** Enlace al panel del dueño, listo para pegar en cualquier aviso. */
+export function enlacePanel(centro) {
+  const base = (process.env.APP_URL || APP_URL_DEFAULT).replace(/\/+$/, '');
+  return `${base}/panel.html?centro=${encodeURIComponent(centro || '')}`;
+}
+
+/**
+ * Añade el enlace al panel al final de un aviso, en su propia línea. Se usa
+ * en casi todos los avisos —por eso vive aquí y no repetido en cada sitio—,
+ * salvo cuando no aplica (por ejemplo, un aviso que ya no es de un centro
+ * concreto).
+ */
+export function conEnlacePanel(texto, centro) {
+  if (!centro) return texto;
+  return `${texto}\n<a href="${enlacePanel(centro)}">Ver el panel</a>`;
+}
+
 /** Escapa lo mínimo que exige el HTML de Telegram (parse_mode: 'HTML'). */
 export function escTelegram(s) {
   return String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');

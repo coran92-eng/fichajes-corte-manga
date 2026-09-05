@@ -3,8 +3,135 @@ import {
   initSchema, getCentroCfg, esRedAutorizada, ipDeReq, huellaRed, auditar,
   emitirTokenQr, validarTokenQr, hayQrConfigurado, exigirQr,
   idDispositivo, esEncargadoOSuperior, verificarPin,
+  esDispositivoConfianza, hayDispositivosDeConfianza,
 } from "./_tareas-lib.js";
-import { avisarTelegram, escTelegram } from "./_telegram.js";
+import { avisarTelegram, escTelegram, conEnlacePanel } from "./_telegram.js";
+
+const listaCsv = txt => String(txt || '').split(',').map(x => x.trim()).filter(Boolean);
+
+/**
+ * Redes y dispositivos del local (antes era api/red-local.js; fusionado aquí
+ * para no gastar una función de Vercel más — llega por el rewrite de
+ * vercel.json, que lo enruta a /api/fichajes?modulo=red).
+ *
+ * La idea es que no haya que tocar configuración técnica: se abre esta
+ * pantalla ESTANDO EN EL LOCAL y se pulsa el botón. El día que el operador
+ * cambie la IP, se vuelve a pulsar y listo.
+ *
+ * Dos cosas distintas conviven aquí:
+ *  · Redes autorizadas — desde dónde se puede fichar.
+ *  · Dispositivos de confianza — el iPad del bar, exento de leer el código QR
+ *    que muestra él mismo. Cualquier otro aparato sí tiene que leerlo.
+ */
+async function handlerRed(req, res, db) {
+  await initSchema(db);
+  const centro = req.query.centro || req.body?.centro || '';
+
+  if (req.method === "GET") {
+    res.setHeader('Cache-Control', 'no-store');
+    const cfg = centro ? await getCentroCfg(db, centro) : { ips_autorizadas: '', dispositivos_confianza: '' };
+    const red = esRedAutorizada(req, cfg);
+
+    return res.status(200).json({
+      centro,
+      red_actual: huellaRed(ipDeReq(req)),
+      autorizadas: listaCsv(cfg.ips_autorizadas),
+      estas_dentro: red.permitido && !red.sinConfigurar,
+      sin_configurar: !!red.sinConfigurar,
+      qr_configurado: hayQrConfigurado(),
+      dispositivos: listaCsv(cfg.dispositivos_confianza),
+      este_dispositivo: idDispositivo(req),
+      es_de_confianza: esDispositivoConfianza(req, cfg),
+      qr_en_uso: hayQrConfigurado() && hayDispositivosDeConfianza(cfg),
+      qr_exigible: exigirQr(req, cfg),
+    });
+  }
+
+  if (!esEncargadoOSuperior(req)) {
+    return res.status(403).json({ error: "No autorizado" });
+  }
+  if (!centro) return res.status(400).json({ error: "Centro requerido" });
+
+  const cfg = await getCentroCfg(db, centro);
+  const actuales = listaCsv(cfg.ips_autorizadas);
+  const aparatos = listaCsv(cfg.dispositivos_confianza);
+
+  if (req.query.recurso === 'dispositivo') {
+    const id = idDispositivo(req);
+
+    if (req.method === "POST") {
+      if (!id) return res.status(422).json({ error: "Este aparato no tiene identificador" });
+      if (!esRedAutorizada(req, cfg).permitido) {
+        return res.status(403).json({ error: "Solo se puede marcar de confianza estando en el local" });
+      }
+      if (aparatos.includes(id)) {
+        return res.status(200).json({ success: true, ya_estaba: true, dispositivos: aparatos });
+      }
+      const nuevos = [...aparatos, id];
+      await db.execute({
+        sql: "UPDATE centros_cfg SET dispositivos_confianza = ? WHERE LOWER(TRIM(centro)) = LOWER(TRIM(?))",
+        args: [nuevos.join(','), centro],
+      });
+      await auditar(db, req, {
+        tipo_evento: 'DISPOSITIVO_DE_CONFIANZA', entidad: 'centros_cfg', entidad_id: centro,
+        centro, device_id: id, payload: { total: nuevos.length },
+      });
+      return res.status(201).json({ success: true, dispositivos: nuevos });
+    }
+
+    if (req.method === "DELETE") {
+      const quitar = req.query.id || req.body?.id || id;
+      if (!quitar) return res.status(400).json({ error: "Dispositivo requerido" });
+      const nuevos = aparatos.filter(x => x !== quitar);
+      await db.execute({
+        sql: "UPDATE centros_cfg SET dispositivos_confianza = ? WHERE LOWER(TRIM(centro)) = LOWER(TRIM(?))",
+        args: [nuevos.join(','), centro],
+      });
+      await auditar(db, req, {
+        tipo_evento: 'DISPOSITIVO_RETIRADO', entidad: 'centros_cfg', entidad_id: centro,
+        centro, device_id: quitar, payload: { quedan: nuevos.length },
+      });
+      return res.status(200).json({ success: true, dispositivos: nuevos });
+    }
+  }
+
+  if (req.method === "POST") {
+    const red = huellaRed(ipDeReq(req));
+    if (!red) return res.status(422).json({ error: "No se ha podido identificar la red" });
+    if (actuales.includes(red)) {
+      return res.status(200).json({ success: true, ya_estaba: true, red });
+    }
+
+    const nuevas = [...actuales, red];
+    await db.execute({
+      sql: "UPDATE centros_cfg SET ips_autorizadas = ? WHERE LOWER(TRIM(centro)) = LOWER(TRIM(?))",
+      args: [nuevas.join(','), centro],
+    });
+    await auditar(db, req, {
+      tipo_evento: 'RED_AUTORIZADA', entidad: 'centros_cfg', entidad_id: centro,
+      centro, payload: { red, total: nuevas.length },
+    });
+    return res.status(201).json({ success: true, red, autorizadas: nuevas });
+  }
+
+  if (req.method === "DELETE") {
+    const red = req.query.red || req.body?.red;
+    if (!red) return res.status(400).json({ error: "Red requerida" });
+
+    const nuevas = actuales.filter(x => x !== red);
+    await db.execute({
+      sql: "UPDATE centros_cfg SET ips_autorizadas = ? WHERE LOWER(TRIM(centro)) = LOWER(TRIM(?))",
+      args: [nuevas.join(','), centro],
+    });
+    await auditar(db, req, {
+      tipo_evento: 'RED_RETIRADA', entidad: 'centros_cfg', entidad_id: centro,
+      centro, payload: { red, quedan: nuevas.length },
+    });
+    return res.status(200).json({ success: true, autorizadas: nuevas });
+  }
+
+  return res.status(405).json({ error: "Method not allowed" });
+}
 
 /** Contraseña de gerencia o de encargado, para autorizar excepciones. */
 function claveResponsableValida(clave) {
@@ -157,7 +284,7 @@ async function avisarFichajeTelegram(db, { empleado, tipo, centro, timestamp, ho
       }
     }
 
-    await avisarTelegram(texto);
+    await avisarTelegram(conEnlacePanel(texto, centro));
   } catch {}
 }
 
@@ -307,6 +434,13 @@ async function resumenPanel(db, { centro, desde, hasta }) {
 export default async function handler(req, res) {
   try {
     const db = getDbClient();
+
+    // Redes y dispositivos de confianza (antes api/red-local.js): llega por
+    // el rewrite de vercel.json, no comparte esquema con lo de abajo.
+    if (req.query.modulo === 'red') {
+      return await handlerRed(req, res, db);
+    }
+
     const t0 = Date.now();
     await prepararEsquema(db);
     const msEsquema = Date.now() - t0;
