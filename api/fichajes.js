@@ -288,6 +288,44 @@ async function avisarFichajeTelegram(db, { empleado, tipo, centro, timestamp, ho
   } catch {}
 }
 
+/**
+ * Avisa por Telegram si el aparato con el que se acaba de fichar ya se había
+ * usado antes para OTRO empleado —probable móvil compartido—. Los
+ * dispositivos de confianza (el iPad del bar) quedan fuera: a ese lo usa todo
+ * el mundo y no dice nada raro.
+ *
+ * Para no repetir el aviso en cada fichaje sucesivo del día, solo se manda la
+ * PRIMERA vez que aparece esa pareja device_id+dos-nombres: se comprueba si
+ * ya hay algún fichaje anterior del otro nombre con este mismo device_id.
+ */
+async function avisarDispositivoCompartido(db, req, cfg, { empleado, centro, device_id, id_actual }) {
+  if (!device_id || esDispositivoConfianza(req, cfg)) return;
+
+  try {
+    const otro = await db.execute({
+      sql: `SELECT DISTINCT empleado FROM fichajes
+            WHERE device_id = ? AND empleado <> ? AND id < ?
+            LIMIT 1`,
+      args: [device_id, empleado, id_actual],
+    });
+    if (!otro.rows.length) return;
+    const otroNombre = otro.rows[0].empleado;
+
+    // La pareja ya se había formado antes de este fichaje si "empleado" ya
+    // había fichado con este mismo device_id alguna vez (el otro nombre ya
+    // sabemos que sí, es quien acabamos de encontrar). Si es así, ya se avisó
+    // en su momento: no repetirlo en cada fichaje sucesivo del día.
+    const parejaYaFormada = await db.execute({
+      sql: "SELECT 1 FROM fichajes WHERE device_id = ? AND empleado = ? AND id < ? LIMIT 1",
+      args: [device_id, empleado, id_actual],
+    });
+    if (parejaYaFormada.rows.length) return;
+
+    const texto = `📱 El mismo móvil ha fichado como ${escTelegram(empleado)} y como ${escTelegram(otroNombre)} en ${escTelegram(centro)}.\nPuede que alguien le haya dejado el móvil a un compañero.`;
+    await avisarTelegram(conEnlacePanel(texto, centro));
+  } catch {}
+}
+
 /** Qué hizo una persona en su jornada, a partir de sus marcas en orden. */
 function jornadaDe(nombre, eventos, prev) {
   let entradaTs = null, descansoIni = null, restar = 0, minutos = 0;
@@ -541,10 +579,11 @@ export default async function handler(req, res) {
       let fueraDeRed = false;
       let sinPinAutorizado = false;
       let ventanaQrUsada = null;
+      let cfg = null;
 
       if (centro) {
         await initSchema(db);
-        const cfg = await getCentroCfg(db, centro);
+        cfg = await getCentroCfg(db, centro);
         const red = esRedAutorizada(req, cfg);
 
         // Quién ficha: en el móvil lo dice la sesión del PIN, sin que haga
@@ -624,6 +663,8 @@ export default async function handler(req, res) {
           empleado, centro,
           payload: { tipo, hora, red: huellaRed(ipDeReq(req)) },
         });
+        const texto = `📡 ${escTelegram(empleado)} ha fichado su ${tipo === 'entrada' ? 'entrada' : 'salida'} desde fuera del local (autorizado con contraseña de responsable).`;
+        await avisarTelegram(conEnlacePanel(texto, centro)).catch(() => {});
       }
 
       if (sinPinAutorizado) {
@@ -633,6 +674,8 @@ export default async function handler(req, res) {
           empleado, centro, device_id: idDispositivo(req),
           payload: { tipo, hora },
         }).catch(() => {});
+        const texto = `🔓 La ${tipo === 'entrada' ? 'entrada' : 'salida'} de ${escTelegram(empleado)} en ${escTelegram(centro)} se ha autorizado sin PIN (con contraseña de encargado o gerencia).`;
+        await avisarTelegram(conEnlacePanel(texto, centro)).catch(() => {});
       }
 
       if (ventanaQrUsada !== null) {
@@ -645,6 +688,11 @@ export default async function handler(req, res) {
       }
 
       await avisarFichajeTelegram(db, { empleado, tipo, centro, timestamp, hora });
+      if (centro) {
+        await avisarDispositivoCompartido(db, req, cfg, {
+          empleado, centro, device_id: idDispositivo(req), id_actual: result.lastInsertRowid,
+        });
+      }
 
       return res.status(201).json({
         success: true,
