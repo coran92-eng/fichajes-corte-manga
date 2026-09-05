@@ -78,7 +78,7 @@ export default async function handler(req, res) {
         const cond = [];
         const argsR = [];
         if (estado) { cond.push("estado = ?"); argsR.push(estado); }
-        if (centro) { cond.push("centro = ?"); argsR.push(centro); }
+        if (centro) { cond.push("LOWER(TRIM(COALESCE(centro,''))) = LOWER(TRIM(?))"); argsR.push(centro); }
 
         const sql = `SELECT semana, centro, COUNT(*) AS turnos,
                             COUNT(DISTINCT empleado) AS personas,
@@ -101,7 +101,7 @@ export default async function handler(req, res) {
         args.push(empleado);
       }
       if (centro) {
-        conditions.push("centro = ?");
+        conditions.push("LOWER(TRIM(COALESCE(centro,''))) = LOWER(TRIM(?))");
         args.push(centro);
       }
       if (semana) {
@@ -166,8 +166,12 @@ export default async function handler(req, res) {
       // sobre la marcha y esa regla solo impedía registrar lo que ya estaba
       // decidido.
 
+      // Sin normalizar centro, un turno reenviado con el centro escrito de
+      // otra forma no borraría el anterior: se quedarían los dos, y cuál
+      // "gana" en las pantallas que lo muestran depende del orden de lectura.
       await db.execute({
-        sql: "DELETE FROM horarios WHERE empleado = ? AND fecha = ? AND centro = ?",
+        sql: `DELETE FROM horarios WHERE empleado = ? AND fecha = ?
+              AND LOWER(TRIM(COALESCE(centro,''))) = LOWER(TRIM(?))`,
         args: [empleado, fecha, centro],
       });
 

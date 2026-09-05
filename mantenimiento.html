@@ -72,6 +72,19 @@
             font-size: 14px; font-family: inherit;
         }
         .vacio { color: #6b7280; font-size: 14px; padding: 10px 0; }
+        .turno-dia {
+            display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+            background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 8px;
+            padding: 10px 14px; margin-bottom: 8px;
+        }
+        .turno-dia-nombre { font-weight: 700; color: #1f2937; font-size: 14px; flex: 1; min-width: 140px; }
+        .turno-dia-horas { font-family: 'Courier New', monospace; font-size: 13px; color: #4b5563; }
+        .btn-borrar-turno {
+            background: none; border: 1px solid #fca5a5; color: #b91c1c;
+            border-radius: 6px; padding: 5px 10px; font-size: 12px; font-weight: 600; cursor: pointer;
+        }
+        .btn-borrar-turno:hover { background: #fee2e2; }
+        .btn-borrar-turno:disabled { opacity: .5; cursor: not-allowed; }
         .fila-fusion { display: flex; align-items: flex-end; gap: 12px; flex-wrap: wrap; }
         .msg { padding: 12px 14px; border-radius: 8px; margin-bottom: 18px; font-weight: 600; font-size: 14px; display: none; }
         .msg.ok { background: #d1fae5; color: #065f46; display: block; }
@@ -102,6 +115,23 @@
                 Queda marcado como corregido por gerencia.
             </p>
             <div id="listaAbiertos"><div class="vacio">Cargando…</div></div>
+        </div>
+
+        <div class="bloque">
+            <h2><i data-lucide="calendar-days" style="width:17px;height:17px"></i>Turnos del cuadrante en un día</h2>
+            <p class="ayuda">
+                Quien aparece aquí tiene un turno guardado para ese día, y por eso sale en
+                "El equipo de hoy" aunque no vaya a venir. Bórralo si esa persona no trabaja
+                ese día — no toca fichajes ni horas ya trabajadas, solo lo previsto.
+            </p>
+            <div class="fila-fusion">
+                <div class="campo">
+                    <label for="turnosFecha">Día</label>
+                    <input type="date" id="turnosFecha">
+                </div>
+                <button class="btn-fusion" id="btnVerTurnos">Ver</button>
+            </div>
+            <div id="listaTurnosDia" style="margin-top:14px"></div>
         </div>
 
         <div class="bloque">
@@ -264,6 +294,54 @@
             }
         }
 
+        async function cargarTurnosDia() {
+            const fecha = document.getElementById('turnosFecha').value;
+            const cont = document.getElementById('listaTurnosDia');
+            if (!fecha) { cont.innerHTML = ''; return; }
+            cont.innerHTML = '<div class="vacio">Cargando…</div>';
+
+            let datos = [];
+            try {
+                const r = await fetch(`/api/horarios?centro=${encodeURIComponent(centro)}&fecha=${fecha}`);
+                if (!r.ok) throw new Error();
+                datos = await r.json();
+            } catch {
+                cont.innerHTML = '<div class="vacio">No se ha podido consultar. Recarga la página.</div>';
+                return;
+            }
+
+            if (!datos.length) {
+                cont.innerHTML = '<div class="vacio">Nadie tiene turno guardado ese día.</div>';
+                return;
+            }
+
+            datos.sort((a, b) => String(a.hora_entrada).localeCompare(String(b.hora_entrada)));
+            cont.innerHTML = datos.map(t => `
+                <div class="turno-dia" data-id="${t.id}">
+                    <span class="turno-dia-nombre">${esc(t.empleado)}</span>
+                    <span class="turno-dia-horas">${esc(String(t.hora_entrada).slice(0, 5))} – ${esc(String(t.hora_salida).slice(0, 5))}</span>
+                    <button type="button" class="btn-borrar-turno" data-id="${t.id}">No trabaja este día</button>
+                </div>`).join('');
+
+            cont.querySelectorAll('.btn-borrar-turno').forEach(btn => {
+                btn.addEventListener('click', async () => {
+                    const fila = btn.closest('.turno-dia');
+                    const nombre = fila.querySelector('.turno-dia-nombre').textContent;
+                    if (!confirm(`Borrar el turno de ${nombre} ese día. ¿Seguro?`)) return;
+                    btn.disabled = true;
+                    try {
+                        const r = await fetch(`/api/horarios?id=${encodeURIComponent(btn.dataset.id)}`, { method: 'DELETE' });
+                        if (!r.ok) throw new Error();
+                        fila.remove();
+                        mostrar(`✓ Turno de ${nombre} borrado`, 'ok');
+                    } catch {
+                        mostrar('No se ha podido borrar. Inténtalo de nuevo.', 'error');
+                        btn.disabled = false;
+                    }
+                });
+            });
+        }
+
         async function fusionar() {
             const origen = document.getElementById('fusionOrigen').value.trim();
             const destino = document.getElementById('fusionDestino').value;
@@ -303,8 +381,14 @@
                 window.location.href = 'admin.html';
             });
             document.getElementById('btnFusionar').addEventListener('click', fusionar);
+            document.getElementById('btnVerTurnos').addEventListener('click', cargarTurnosDia);
             cargarEmpleados();
             cargarAbiertos();
+
+            const hoy = new Date();
+            const pad = n => String(n).padStart(2, '0');
+            document.getElementById('turnosFecha').value = `${hoy.getFullYear()}-${pad(hoy.getMonth() + 1)}-${pad(hoy.getDate())}`;
+            cargarTurnosDia();
         });
     </script>
 </body>
