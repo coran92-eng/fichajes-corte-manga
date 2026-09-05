@@ -280,6 +280,22 @@
             display: none;
         }
 
+        /* Hora sugerida (07:30–15:00 por defecto), no un turno real todavía:
+           nadie ha confirmado que esta persona trabaje este día. Se distingue
+           a simple vista para no confundirla con un turno ya decidido, y no
+           se manda al pulsar "Enviar" hasta que se toque. */
+        .horario-cell.es-sugerido input[type="time"] {
+            border-style: dashed;
+            color: #9ca3af;
+            background: #f9fafb;
+        }
+        .horario-cell.es-sugerido::after {
+            content: 'sugerido, sin confirmar';
+            font-size: 10px;
+            color: #9ca3af;
+            text-align: center;
+        }
+
         /* Duración del turno */
         .turno-dur {
             font-size: 11px;
@@ -761,6 +777,14 @@
                 background: #2d3748;
             }
 
+            .horario-cell.es-sugerido input[type="time"] {
+                background: #1f2937;
+                color: #6b7280;
+            }
+            .horario-cell.es-sugerido::after {
+                color: #6b7280;
+            }
+
             .libranza-toggle {
                 color: #9ca3af;
             }
@@ -960,6 +984,6 @@
         });
     })();
     </script>
-    <script type="module" src="horario-encargado.js?v=2"></script>
+    <script type="module" src="horario-encargado.js?v=3"></script>
 </body>
 </html>

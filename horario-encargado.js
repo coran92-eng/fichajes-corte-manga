@@ -453,10 +453,12 @@ function renderTabla(horarioExistente = []) {
 
             return `
                 <td>
-                    <div class="horario-cell${esLibre ? ' es-libre' : ''}"
+                    <div class="horario-cell${esLibre ? ' es-libre' : ''}${entry ? '' : ' es-sugerido'}"
                          data-empleado="${escapeAttr(empleado)}"
                          data-fecha="${fecha}"
-                         data-rol-emp="${escapeAttr(rol || '')}">
+                         data-rol-emp="${escapeAttr(rol || '')}"
+                         data-id="${entry ? entry.id : ''}"
+                         data-sugerido="${entry ? '0' : '1'}">
                         <label class="libranza-toggle">
                             <input type="checkbox" class="chk-libre"${esLibre ? ' checked' : ''}> Libre
                         </label>
@@ -526,7 +528,14 @@ function renderTabla(horarioExistente = []) {
     });
     // Recalcular duración y barra al cambiar horas, roles o descanso
     wrapper.querySelectorAll('.inp-entrada, .inp-salida, .inp-cambio, .sel-rol1, .sel-rol2, .inp-descanso').forEach(inp => {
-        inp.addEventListener('change', () => actualizarCelda(inp.closest('.horario-cell')));
+        inp.addEventListener('change', () => {
+            // Tocar el campo confirma la sugerencia: a partir de aquí, esta
+            // persona sí trabaja este día y se puede enviar de verdad.
+            const cell = inp.closest('.horario-cell');
+            cell.dataset.sugerido = '0';
+            cell.classList.remove('es-sugerido');
+            actualizarCelda(cell);
+        });
     });
     // Añadir / quitar descanso 20 min (solo visible cuando la jornada > 5h)
     wrapper.querySelectorAll('.btn-desc-toggle').forEach(btn => {
@@ -804,11 +813,24 @@ function renderResumenSemana() {
     }).join('');
 }
 
-function onLibreToggle(e) {
+async function onLibreToggle(e) {
     const cell = e.target.closest('.horario-cell');
     if (!cell) return;
     if (e.target.checked) {
         cell.classList.add('es-libre');
+        // Si ya había un turno guardado para este día, marcarlo "Libre" no
+        // basta con dejar de enviarlo: ese turno viejo se queda tal cual en
+        // la base y "El equipo de hoy" lo seguiría contando como en horario.
+        // Se borra aquí mismo, no al pulsar "Enviar" el resto de la semana.
+        const id = cell.dataset.id;
+        if (id) {
+            try {
+                await fetch(`/api/horarios?id=${encodeURIComponent(id)}`, { method: 'DELETE' });
+                cell.dataset.id = '';
+            } catch {
+                mostrarMensaje('No se pudo borrar el turno existente de este día; inténtalo de nuevo.', 'error');
+            }
+        }
     } else {
         cell.classList.remove('es-libre');
     }
@@ -828,8 +850,11 @@ async function enviarHorario() {
         return;
     }
 
-    // Collect all non-libre cells that have both time inputs filled
-    const cells = document.querySelectorAll('.horario-cell:not(.es-libre)');
+    // Solo las celdas libres o sin tocar: las que muestran 07:30–15:00 porque
+    // nadie las ha confirmado no cuentan como turno real. Antes se enviaban
+    // igual que las de verdad, y así es como acaban entrando al cuadrante
+    // personas que ese día no trabajan (§ "El equipo de hoy" con gente de más).
+    const cells = document.querySelectorAll('.horario-cell:not(.es-libre):not([data-sugerido="1"])');
     const turnos = [];
     const invalidos = [];
 
