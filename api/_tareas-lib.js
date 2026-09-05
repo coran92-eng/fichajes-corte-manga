@@ -708,6 +708,42 @@ export async function estaEnDescanso(db, empleado, centro) {
   return r.rows.length ? r.rows[0].tipo === 'inicio_descanso' : false;
 }
 
+/**
+ * Quién tiene el turno abierto ahora mismo en un centro (su fichaje más
+ * reciente no es una salida), con el rol de cada uno. Usado por el aviso de
+ * tarea vencida y por el resumen de /hoy en Telegram, para decir no solo qué
+ * falta sino quién estaba delante para hacerla.
+ */
+export async function quienEstaDentro(db, centro) {
+  const desde = Date.now() - 24 * 60 * 60 * 1000;
+  const r = await db.execute({
+    sql: `SELECT f.empleado, f.tipo, f.timestamp, emp.rol
+          FROM fichajes f
+          LEFT JOIN empleados emp ON LOWER(TRIM(emp.nombre)) = LOWER(TRIM(f.empleado))
+          WHERE (LOWER(TRIM(COALESCE(f.centro,''))) = LOWER(TRIM(?)) OR TRIM(COALESCE(f.centro,'')) = '')
+            AND f.timestamp >= ?
+          ORDER BY f.timestamp DESC`,
+    args: [centro, desde],
+  });
+
+  const vistos = new Set();
+  const dentro = [];
+  for (const f of r.rows) {
+    const clave = String(f.empleado).trim().toLowerCase();
+    if (vistos.has(clave)) continue;
+    vistos.add(clave);
+    if (f.tipo !== 'salida') dentro.push({ nombre: f.empleado, rol: String(f.rol || '').toLowerCase() });
+  }
+  return dentro;
+}
+
+/** Mismo criterio que ya usa el móvil (tareaEsDe): "mixto" cubre sala y cocina. */
+export function esDelRol(rolResponsable, rolEmpleado) {
+  if (!rolEmpleado) return false;
+  if (rolEmpleado === 'mixto') return rolResponsable === 'SALA' || rolResponsable === 'COCINA';
+  return rolEmpleado.toUpperCase() === rolResponsable;
+}
+
 // ── Auditoría ─────────────────────────────────────────────────
 export async function auditar(db, req, datos) {
   // Normalmente se guarda la IP tal cual. Quien necesite agrupar por red —el
