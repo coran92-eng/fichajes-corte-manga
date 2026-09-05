@@ -59,22 +59,29 @@ const VERBO_TIPO = {
 };
 
 /**
- * Turnos que se quedaron abiertos: el último fichaje de cada persona (de
- * cualquier día hasta ayer inclusive) no fue una salida.
+ * Turnos que se quedaron abiertos: la última marca de esa persona no fue una
+ * salida.
+ *
+ * Solo cuentan los que se abrieron AYER. Sin ese suelo, la última marca de
+ * quien se fue del bar hace meses sigue siendo una entrada para siempre, y
+ * saldría en el resumen todos los días — lo mismo con quien olvida fichar la
+ * salida antes de dos semanas de vacaciones. Cada despiste se avisa una vez,
+ * el día siguiente, que es de lo que va este resumen; lo viejo se limpia desde
+ * el panel, no machacando el chat.
  */
-async function turnosSinCerrar(db, centro, finTs) {
+async function turnosSinCerrar(db, centro, inicioTs, finTs) {
   const r = await db.execute({
     sql: `SELECT f.empleado, f.tipo, f.fecha, f.hora
           FROM fichajes f
           WHERE LOWER(TRIM(COALESCE(f.centro,''))) = LOWER(TRIM(?))
-            AND f.timestamp < ?
+            AND f.timestamp >= ? AND f.timestamp < ?
             AND f.timestamp = (
               SELECT MAX(f2.timestamp) FROM fichajes f2
               WHERE f2.empleado = f.empleado
                 AND LOWER(TRIM(COALESCE(f2.centro,''))) = LOWER(TRIM(?))
                 AND f2.timestamp < ?
             )`,
-    args: [centro, finTs, centro, finTs],
+    args: [centro, inicioTs, finTs, centro, finTs],
   });
   return r.rows.filter(f => f.tipo !== 'salida');
 }
@@ -113,7 +120,7 @@ async function enviarResumenDiario(db, centro, cfg, ayer, inicioAyerTs, finAyerT
     args: [centro, ayer],
   });
 
-  const abiertos = await turnosSinCerrar(db, centro, finAyerTs);
+  const abiertos = await turnosSinCerrar(db, centro, inicioAyerTs, finAyerTs);
   const sinFichar = await sinFicharTeniendoHorario(db, centro, ayer, inicioAyerTs, finAyerTs);
 
   // Nada que contar ese día: ni tareas dadas de alta, ni incidencias de
@@ -249,24 +256,35 @@ export default async function handler(req, res) {
     // Un resumen por centro: cada uno tiene su propia jornada operativa.
     const centros = await db.execute("SELECT centro FROM centros_cfg");
 
+    // Cada centro va en su propio try: este resumen es la red de seguridad de
+    // todo lo demás (lo que no se vio en el momento aparece aquí al día
+    // siguiente), así que un centro con datos raros no puede dejar sin resumen
+    // a los demás. El cron no lo mira nadie: si falla en silencio, nadie se
+    // entera, por eso el fallo se cuenta en la respuesta y se registra.
+    const fallos = [];
     for (const { centro } of centros.rows) {
-      const cfg = await getCentroCfg(db, centro);
-      const ayer = fechaOperativaDe(Date.now() - DIA_MS, cfg);
-      const hoyOperativo = fechaOperativaDe(Date.now(), cfg);
-      const inicioAyerTs = epochDesdeLocal(ayer, cfg.inicio_jornada, cfg.zona_horaria);
-      const finAyerTs = epochDesdeLocal(hoyOperativo, cfg.inicio_jornada, cfg.zona_horaria);
+      try {
+        const cfg = await getCentroCfg(db, centro);
+        const ayer = fechaOperativaDe(Date.now() - DIA_MS, cfg);
+        const hoyOperativo = fechaOperativaDe(Date.now(), cfg);
+        const inicioAyerTs = epochDesdeLocal(ayer, cfg.inicio_jornada, cfg.zona_horaria);
+        const finAyerTs = epochDesdeLocal(hoyOperativo, cfg.inicio_jornada, cfg.zona_horaria);
 
-      await enviarResumenDiario(db, centro, cfg, ayer, inicioAyerTs, finAyerTs);
+        await enviarResumenDiario(db, centro, cfg, ayer, inicioAyerTs, finAyerTs);
 
-      // El resumen semanal solo se manda los lunes; el cron sigue corriendo
-      // todos los días a las 06:00 UTC (§vercel.json), esto es una decisión
-      // dentro del propio handler, no un cron aparte.
-      if (esLunes(cfg.zona_horaria)) {
-        await enviarResumenSemanal(db, centro, cfg, ayer, finAyerTs);
+        // El resumen semanal solo se manda los lunes; el cron sigue corriendo
+        // todos los días a las 06:00 UTC (§vercel.json), esto es una decisión
+        // dentro del propio handler, no un cron aparte.
+        if (esLunes(cfg.zona_horaria)) {
+          await enviarResumenSemanal(db, centro, cfg, ayer, finAyerTs);
+        }
+      } catch (error) {
+        console.error(`Resumen diario falló en ${centro}:`, error);
+        fallos.push(centro);
       }
     }
 
-    return res.status(200).json({ ok: true });
+    return res.status(200).json({ ok: true, fallos });
   } catch (error) {
     console.error("API Error:", error);
     return res.status(500).json({ error: "Internal Server Error", details: error.message });

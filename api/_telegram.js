@@ -59,8 +59,17 @@ async function llamarApiTelegram(metodo, payload) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     });
-    return await r.json();
-  } catch {
+    const json = await r.json();
+    // Telegram contesta 200 con {ok:false} para cosas como "mensaje demasiado
+    // largo" o HTML mal cerrado. Sin esto, el aviso desaparecía sin dejar ni
+    // rastro en los logs: justo lo peor que puede hacer un canal cuyo trabajo
+    // es que te enteres de todo.
+    if (json && json.ok === false) {
+      console.error(`Telegram rechazó ${metodo}:`, json.description || json);
+    }
+    return json;
+  } catch (error) {
+    console.error(`Telegram no respondió a ${metodo}:`, error.message);
     return null;
   }
 }
@@ -111,11 +120,29 @@ export async function editarBotonesTelegram(chatId, messageId, replyMarkup) {
  * mensaje en vez de solo nombrarla. `fotoBase64` puede venir con el prefijo
  * "data:image/...;base64," (así la guarda tareas.js) o sin él.
  *
- * El texto va como caption, que Telegram limita a 1024 caracteres —de sobra
- * para estos avisos, que son una línea—. Si la foto falla por lo que sea (
- * demasiado grande, formato que Telegram no traga, sin conexión), no se
- * pierde el aviso: cae al mensaje de texto de siempre.
+ * El texto va como caption, que Telegram limita a 1024 caracteres. Si la foto
+ * falla por lo que sea (demasiado grande, formato que Telegram no traga, sin
+ * conexión), no se pierde el aviso: cae al mensaje de texto de siempre.
  */
+const MAX_CAPTION = 1024;
+
+/**
+ * Recorta a lo que cabe en un pie de foto, pero por líneas enteras: cortar a
+ * pelo en el carácter 1024 puede partir una etiqueta <b> por la mitad, y
+ * entonces Telegram rechaza el mensaje entero por HTML mal formado —se
+ * perdería la foto por recortar mal el texto—.
+ */
+function recortarCaption(texto) {
+  if (texto.length <= MAX_CAPTION) return texto;
+  const lineas = texto.split('\n');
+  let salida = '';
+  for (const linea of lineas) {
+    if ((salida + linea).length + 1 > MAX_CAPTION) break;
+    salida += (salida ? '\n' : '') + linea;
+  }
+  return salida || texto.slice(0, MAX_CAPTION);
+}
+
 export async function avisarTelegramConFoto(texto, fotoBase64, mime = 'image/jpeg') {
   if (!hayTelegramConfigurado()) return;
   if (!fotoBase64) return avisarTelegram(texto);
@@ -130,15 +157,19 @@ export async function avisarTelegramConFoto(texto, fotoBase64, mime = 'image/jpe
     const form = new FormData();
     form.append('chat_id', chatId);
     form.append('parse_mode', 'HTML');
-    form.append('caption', texto.slice(0, 1024));
+    form.append('caption', recortarCaption(texto));
     form.append('photo', new Blob([buf], { type: mime }), 'evidencia.jpg');
 
     const r = await fetch(`https://api.telegram.org/bot${token}/sendPhoto`, {
       method: 'POST',
       body: form,
     });
-    if (!r.ok) await avisarTelegram(texto);
-  } catch {
+    if (!r.ok) {
+      console.error('Telegram rechazó sendPhoto:', await r.text().catch(() => r.status));
+      await avisarTelegram(texto);
+    }
+  } catch (error) {
+    console.error('Telegram no respondió a sendPhoto:', error.message);
     await avisarTelegram(texto).catch(() => {});
   }
 }
