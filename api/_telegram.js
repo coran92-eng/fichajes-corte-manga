@@ -44,18 +44,66 @@ export function escTelegram(s) {
   return String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
-export async function avisarTelegram(texto) {
-  if (!hayTelegramConfigurado()) return;
+/**
+ * Bajo nivel: llama a un método cualquiera de la Bot API
+ * (https://core.telegram.org/bots/api#available-methods) sin lanzar si algo
+ * falla. Devuelve el JSON que responde Telegram, o null si no se pudo llamar
+ * (sin configurar, sin red, respuesta que no es JSON...).
+ */
+async function llamarApiTelegram(metodo, payload) {
+  if (!hayTelegramConfigurado()) return null;
   const token = process.env.TELEGRAM_BOT_TOKEN;
-  const chatId = process.env.TELEGRAM_CHAT_ID;
-
   try {
-    await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+    const r = await fetch(`https://api.telegram.org/bot${token}/${metodo}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ chat_id: chatId, text: texto, parse_mode: 'HTML' }),
+      body: JSON.stringify(payload),
     });
-  } catch {}
+    return await r.json();
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * `opciones.reply_markup` permite adjuntar botones (inline_keyboard) sin
+ * tener que montar el payload a mano en cada sitio que quiera mandar uno —
+ * ver `marcarVencidas` en tareas.js para un ejemplo real.
+ */
+export async function avisarTelegram(texto, opciones = {}) {
+  if (!hayTelegramConfigurado()) return;
+  const chatId = process.env.TELEGRAM_CHAT_ID;
+  await llamarApiTelegram('sendMessage', {
+    chat_id: chatId,
+    text: texto,
+    parse_mode: 'HTML',
+    ...(opciones.reply_markup ? { reply_markup: opciones.reply_markup } : {}),
+  });
+}
+
+/**
+ * Contesta a un callback_query (toque de un botón inline). Telegram exige
+ * responder a todos: si no, el botón se queda "cargando" en el móvil de
+ * quien lo tocó aunque ya se haya hecho lo que pedía.
+ */
+export async function responderCallbackTelegram(callbackQueryId, texto = '') {
+  await llamarApiTelegram('answerCallbackQuery', { callback_query_id: callbackQueryId, text: texto });
+}
+
+/**
+ * Quita (o sustituye) los botones de un mensaje ya mandado, sin tocar su
+ * texto. Se usa en vez de reescribir el mensaje entero al resolver una
+ * tarea desde Telegram: Telegram devuelve el texto de `callback_query.message`
+ * ya "aplanado" (sin las etiquetas HTML con las que se mandó), así que
+ * reconstruirlo con formato sería frágil — más simple quitar el botón y
+ * mandar la confirmación como mensaje aparte.
+ */
+export async function editarBotonesTelegram(chatId, messageId, replyMarkup) {
+  await llamarApiTelegram('editMessageReplyMarkup', {
+    chat_id: chatId,
+    message_id: messageId,
+    reply_markup: replyMarkup,
+  });
 }
 
 /**

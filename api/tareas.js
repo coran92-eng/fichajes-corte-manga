@@ -118,12 +118,16 @@ async function marcarVencidas(db, centro, fechaOperativa) {
         : `Nadie de ${escTelegram((t.rol_responsable || '').toLowerCase())} está en el bar ahora mismo `
           + `(sí: ${dentro.map(p => escTelegram(p.nombre)).join(', ')}).`;
 
+    // Botón para resolverla sin entrar en el panel: útil para lo que de
+    // verdad no aplica hoy (cerrado por vacaciones, proveedor que no vino...).
     await avisarTelegram(conEnlacePanel(
       `⏰ <b>${escTelegram(t.nombre)}</b> se ha pasado de plazo sin hacerse`
       + `${t.criticidad === 'BLOQUEANTE' ? ' — <b>bloqueante</b>' : ''} en ${escTelegram(centro)}.\n`
       + lineaDentro,
       centro
-    ));
+    ), {
+      reply_markup: { inline_keyboard: [[{ text: '🚫 Marcar como no aplica', callback_data: `no_aplica:${t.id}` }]] },
+    });
   }
 }
 
