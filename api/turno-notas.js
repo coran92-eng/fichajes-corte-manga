@@ -3,6 +3,7 @@ import {
   initSchema, getCentroCfg, fechaOperativaDe, auditar, hashArchivo,
   esEncargadoOSuperior,
 } from "./_tareas-lib.js";
+import { avisarTelegram, escTelegram, conEnlacePanel } from "./_telegram.js";
 
 const MAX_FOTO_B64 = 700 * 1024;
 const PRIORIDADES = ['baja', 'normal', 'alta'];
@@ -190,6 +191,18 @@ export default async function handler(req, res) {
         empleado: b.autor || '', centro, device_id: b.device_id,
         payload: { texto: texto.slice(0, 200), prioridad },
       });
+
+      // Solo incidencia/falta avisan por Telegram: son urgentes (algo roto o
+      // agotado). Una nota normal es para el relevo del siguiente turno, no
+      // hace falta molestar a nadie con ella.
+      if (tipo === 'incidencia' || tipo === 'falta') {
+        const emoji = tipo === 'incidencia' ? '🔧' : '📦';
+        const titulo = tipo === 'incidencia' ? 'Nueva incidencia' : 'Se ha acabado algo';
+        await avisarTelegram(conEnlacePanel(
+          `${emoji} ${titulo} en ${escTelegram(centro)}: ${escTelegram(texto)}.\n(${escTelegram(b.autor || 'Sin autor')})`,
+          centro
+        ));
+      }
 
       return res.status(201).json({ success: true, id: r.lastInsertRowid?.toString() });
     }
