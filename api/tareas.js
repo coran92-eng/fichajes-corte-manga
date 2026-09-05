@@ -41,6 +41,42 @@ async function generarInstancias(db, centro, fechaOperativa, cfg) {
 }
 
 /**
+ * Quién tiene el turno abierto ahora mismo en un centro (su fichaje más
+ * reciente no es una salida), con el rol de cada uno. Sirve para el aviso de
+ * tarea vencida: decir no solo qué falta, sino quién estaba delante para
+ * hacerla.
+ */
+async function quienEstaDentro(db, centro) {
+  const desde = Date.now() - 24 * 60 * 60 * 1000;
+  const r = await db.execute({
+    sql: `SELECT f.empleado, f.tipo, f.timestamp, emp.rol
+          FROM fichajes f
+          LEFT JOIN empleados emp ON LOWER(TRIM(emp.nombre)) = LOWER(TRIM(f.empleado))
+          WHERE (LOWER(TRIM(COALESCE(f.centro,''))) = LOWER(TRIM(?)) OR TRIM(COALESCE(f.centro,'')) = '')
+            AND f.timestamp >= ?
+          ORDER BY f.timestamp DESC`,
+    args: [centro, desde],
+  });
+
+  const vistos = new Set();
+  const dentro = [];
+  for (const f of r.rows) {
+    const clave = String(f.empleado).trim().toLowerCase();
+    if (vistos.has(clave)) continue;
+    vistos.add(clave);
+    if (f.tipo !== 'salida') dentro.push({ nombre: f.empleado, rol: String(f.rol || '').toLowerCase() });
+  }
+  return dentro;
+}
+
+/** Mismo criterio que ya usa el móvil (tareaEsDe): "mixto" cubre sala y cocina. */
+function esDelRol(rolResponsable, rolEmpleado) {
+  if (!rolEmpleado) return false;
+  if (rolEmpleado === 'mixto') return rolResponsable === 'SALA' || rolResponsable === 'COCINA';
+  return rolEmpleado.toUpperCase() === rolResponsable;
+}
+
+/**
  * Marca como VENCIDA lo que pasó de ventana + tolerancia (§4.4, automático),
  * y avisa por Telegram de las que acaban de cruzar esa línea.
  *
@@ -52,7 +88,7 @@ async function generarInstancias(db, centro, fechaOperativa, cfg) {
  */
 async function marcarVencidas(db, centro, fechaOperativa) {
   const vencidas = await db.execute({
-    sql: `SELECT i.id, p.nombre, p.criticidad
+    sql: `SELECT i.id, p.nombre, p.criticidad, p.rol_responsable
           FROM tarea_instancias i
           JOIN tarea_plantillas p ON p.id = i.plantilla_version_id
           WHERE LOWER(TRIM(COALESCE(i.centro,''))) = LOWER(TRIM(?))
@@ -68,10 +104,24 @@ async function marcarVencidas(db, centro, fechaOperativa) {
     args: ids,
   });
 
+  // Una sola consulta para todas las tareas vencidas de esta pasada, no una
+  // por tarea: quién está dentro no cambia entre una y otra.
+  const dentro = await quienEstaDentro(db, centro);
+
   for (const t of vencidas.rows) {
+    const responsables = dentro.filter(p => esDelRol(t.rol_responsable, p.rol));
+    const lineaDentro = !dentro.length
+      ? 'Nadie fichado dentro ahora mismo.'
+      : responsables.length
+        ? `En el bar ahora mismo, de ${escTelegram((t.rol_responsable || '').toLowerCase())}: `
+          + responsables.map(p => escTelegram(p.nombre)).join(', ')
+        : `Nadie de ${escTelegram((t.rol_responsable || '').toLowerCase())} está en el bar ahora mismo `
+          + `(sí: ${dentro.map(p => escTelegram(p.nombre)).join(', ')}).`;
+
     await avisarTelegram(
       `⏰ <b>${escTelegram(t.nombre)}</b> se ha pasado de plazo sin hacerse`
-      + `${t.criticidad === 'BLOQUEANTE' ? ' — <b>bloqueante</b>' : ''} en ${escTelegram(centro)}.`
+      + `${t.criticidad === 'BLOQUEANTE' ? ' — <b>bloqueante</b>' : ''} en ${escTelegram(centro)}.\n`
+      + lineaDentro
     );
   }
 }
