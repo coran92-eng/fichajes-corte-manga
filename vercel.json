@@ -10,6 +10,12 @@
       "destination": "/api/auth?rol=encargado"
     }
   ],
+  "crons": [
+    {
+      "path": "/api/aviso-diario",
+      "schedule": "0 6 * * *"
+    }
+  ],
   "headers": [
     {
       "source": "/((?!api/).*)",

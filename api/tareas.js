@@ -5,6 +5,7 @@ import {
   hashArchivo, purgarFotosCaducadas, RAFAGA_N, RAFAGA_MIN, HASH_LOOKBACK,
   validarTokenQr, esDispositivoConfianza, hayQrConfigurado,
 } from "./_tareas-lib.js";
+import { avisarTelegram, escTelegram } from "./_telegram.js";
 
 // Tope defensivo del tamaño de foto que aceptamos (el cliente reescala antes
 // de enviar). Evita reventar la fila de la base de datos.
@@ -39,15 +40,39 @@ async function generarInstancias(db, centro, fechaOperativa, cfg) {
   return creadas;
 }
 
-/** Marca como VENCIDA lo que pasó de ventana + tolerancia (§4.4, automático). */
+/**
+ * Marca como VENCIDA lo que pasó de ventana + tolerancia (§4.4, automático),
+ * y avisa por Telegram de las que acaban de cruzar esa línea.
+ *
+ * El aviso sale una sola vez por tarea sin necesitar ninguna marca extra: se
+ * busca ANTES de actualizar quién sigue en PENDIENTE y ya se ha pasado, se
+ * cambia su estado, y solo esas se avisan. La próxima vez que se llame (esto
+ * corre en cada visita a la pantalla de tareas) esas filas ya no están en
+ * PENDIENTE, así que no vuelven a salir en la búsqueda ni se avisan dos veces.
+ */
 async function marcarVencidas(db, centro, fechaOperativa) {
-  await db.execute({
-    sql: `UPDATE tarea_instancias
-          SET estado = 'VENCIDA'
-          WHERE centro = ? AND fecha_operativa = ? AND estado = 'PENDIENTE'
-            AND (ventana_fin_ts + tolerancia_min * 60000) < ?`,
+  const vencidas = await db.execute({
+    sql: `SELECT i.id, p.nombre, p.criticidad
+          FROM tarea_instancias i
+          JOIN tarea_plantillas p ON p.id = i.plantilla_version_id
+          WHERE i.centro = ? AND i.fecha_operativa = ? AND i.estado = 'PENDIENTE'
+            AND (i.ventana_fin_ts + i.tolerancia_min * 60000) < ?`,
     args: [centro, fechaOperativa, Date.now()],
   });
+  if (!vencidas.rows.length) return;
+
+  const ids = vencidas.rows.map(r => r.id);
+  await db.execute({
+    sql: `UPDATE tarea_instancias SET estado = 'VENCIDA' WHERE id IN (${ids.map(() => '?').join(',')})`,
+    args: ids,
+  });
+
+  for (const t of vencidas.rows) {
+    avisarTelegram(
+      `⏰ <b>${escTelegram(t.nombre)}</b> se ha pasado de plazo sin hacerse`
+      + `${t.criticidad === 'BLOQUEANTE' ? ' — <b>bloqueante</b>' : ''} en ${escTelegram(centro)}.`
+    );
+  }
 }
 
 async function listar(db, centro, fechaOperativa) {
