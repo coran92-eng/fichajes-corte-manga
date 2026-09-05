@@ -529,6 +529,17 @@ export default async function handler(req, res) {
       },
     });
 
+    // El aviso de "se ha pasado de plazo" ya existía (marcarVencidas); este es
+    // el complemento — que se sepa también cuando SÍ se hace, para poder
+    // comparar una cosa con la otra sin tener que entrar a mirar el panel.
+    try {
+      const horaTexto = new Intl.DateTimeFormat('es-ES', { timeZone: 'Europe/Madrid', hour: '2-digit', minute: '2-digit' }).format(ahora);
+      await avisarTelegram(
+        `✅ <b>${escTelegram(t.nombre)}</b> completada por ${escTelegram(empleado)} a las ${horaTexto}`
+        + (fueraDePlazo ? ' — fuera de plazo ⚠️' : '')
+      );
+    } catch {}
+
     return res.status(200).json({
       success: true,
       estado: estadoFinal,
