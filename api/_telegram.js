@@ -36,3 +36,40 @@ export async function avisarTelegram(texto) {
     });
   } catch {}
 }
+
+/**
+ * Igual que avisarTelegram, pero con la foto de la tarea como imagen del
+ * mensaje en vez de solo nombrarla. `fotoBase64` puede venir con el prefijo
+ * "data:image/...;base64," (así la guarda tareas.js) o sin él.
+ *
+ * El texto va como caption, que Telegram limita a 1024 caracteres —de sobra
+ * para estos avisos, que son una línea—. Si la foto falla por lo que sea (
+ * demasiado grande, formato que Telegram no traga, sin conexión), no se
+ * pierde el aviso: cae al mensaje de texto de siempre.
+ */
+export async function avisarTelegramConFoto(texto, fotoBase64, mime = 'image/jpeg') {
+  if (!hayTelegramConfigurado()) return;
+  if (!fotoBase64) return avisarTelegram(texto);
+
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  const chatId = process.env.TELEGRAM_CHAT_ID;
+
+  try {
+    const limpio = String(fotoBase64).replace(/^data:[^;]+;base64,/, '');
+    const buf = Buffer.from(limpio, 'base64');
+
+    const form = new FormData();
+    form.append('chat_id', chatId);
+    form.append('parse_mode', 'HTML');
+    form.append('caption', texto.slice(0, 1024));
+    form.append('photo', new Blob([buf], { type: mime }), 'evidencia.jpg');
+
+    const r = await fetch(`https://api.telegram.org/bot${token}/sendPhoto`, {
+      method: 'POST',
+      body: form,
+    });
+    if (!r.ok) await avisarTelegram(texto);
+  } catch {
+    await avisarTelegram(texto).catch(() => {});
+  }
+}
