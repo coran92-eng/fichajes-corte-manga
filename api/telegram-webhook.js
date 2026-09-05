@@ -22,7 +22,7 @@ import {
 } from "./_tareas-lib.js";
 import {
   avisarTelegram, escTelegram, hayTelegramConfigurado,
-  responderCallbackTelegram, editarBotonesTelegram,
+  responderCallbackTelegram, editarBotonesTelegram, TECLADO_DUENO,
 } from "./_telegram.js";
 
 const MOTIVO_TELEGRAM = 'Marcado desde Telegram por el dueño';
@@ -83,6 +83,12 @@ function comandoDe(texto) {
   const primera = String(texto || '').trim().split(/\s+/)[0] || '';
   return primera.replace(/@\w+$/, '').toLowerCase();
 }
+
+// Un botón del teclado (§ TECLADO_DUENO en _telegram.js) manda su etiqueta
+// tal cual, como si se hubiera escrito el comando a mano.
+const BOTON_A_COMANDO = {
+  '📋 Resumen de hoy': '/hoy',
+};
 
 /** Un texto por centro: Telegram corta los mensajes a 4096 caracteres, y
  * juntar todos los centros en uno solo hacía que a partir de dos o tres el
@@ -158,17 +164,24 @@ async function resumenHoy() {
 
 async function manejarMensaje(message) {
   if (!esDelDueno(message.chat?.id)) return;
-  if (comandoDe(message.text) !== '/hoy') return;
+  const texto = String(message.text || '').trim();
+  const comando = BOTON_A_COMANDO[texto] || comandoDe(texto);
+  if (comando !== '/hoy') return;
 
   const bloques = await resumenHoy();
   // Aunque no haya nada que contar hay que contestar algo: si el dueño escribe
   // /hoy y no le llega nada, no sabe si es que no hay tareas o si el bot está
   // roto.
   if (!bloques.length) {
-    await avisarTelegram('Ningún centro tiene tareas ni fichajes para hoy todavía.');
+    await avisarTelegram('Ningún centro tiene tareas ni fichajes para hoy todavía.', { reply_markup: TECLADO_DUENO });
     return;
   }
-  for (const bloque of bloques) await avisarTelegram(bloque);
+  // El teclado va solo en el último mensaje: es el que queda "puesto" en el
+  // chat, así que no hace falta repetirlo en cada bloque.
+  for (let i = 0; i < bloques.length; i++) {
+    const esUltimo = i === bloques.length - 1;
+    await avisarTelegram(bloques[i], esUltimo ? { reply_markup: TECLADO_DUENO } : {});
+  }
 }
 
 /**
