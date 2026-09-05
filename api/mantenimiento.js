@@ -1,6 +1,7 @@
 import { getDbClient } from "./_db.js";
 import {
   initSchema, getCentroCfg, epochDesdeLocal, auditar, nivelDesdeReq,
+  centroCanonico,
 } from "./_tareas-lib.js";
 
 /** La traza no debe tumbar un arreglo que ya se ha aplicado. */
@@ -29,6 +30,103 @@ const COLUMNAS_CON_NOMBRE = [
   ['tarea_instancias', 'completada_por'],
   ['evento_auditoria', 'empleado'],
 ];
+
+/**
+ * Todas las tablas donde el centro viaja como texto. `centros_cfg` no está:
+ * es el propio registro de qué centros existen, no algo que normalizar contra
+ * sí mismo.
+ */
+const COLUMNAS_CON_CENTRO = [
+  ['empleados', 'centro'],
+  ['fichajes', 'centro'],
+  ['horarios', 'centro'],
+  ['solicitudes', 'centro'],
+  ['turno_notas', 'centro'],
+  ['tarea_plantillas', 'centro'],
+  ['tarea_instancias', 'centro'],
+  ['evento_auditoria', 'centro'],
+  ['proveedores', 'centro'],
+  ['pedidos', 'centro'],
+];
+
+/**
+ * Qué cambiaría al normalizar cada tabla: por cada valor de centro guardado
+ * que es en realidad un centro dado de alta pero escrito de otra forma
+ * (mayúsculas, espacios), cuántas filas lo tienen. No toca nada —de aquí
+ * salen tanto la vista previa como la propia limpieza, para que lo que se
+ * enseña sea exactamente lo que se va a aplicar.
+ */
+async function centrosSucios(db) {
+  const tablas = [];
+  for (const [tabla, columna] of COLUMNAS_CON_CENTRO) {
+    try {
+      const r = await db.execute(
+        `SELECT ${columna} AS valor, COUNT(*) AS n FROM ${tabla}
+         WHERE TRIM(COALESCE(${columna}, '')) <> '' GROUP BY ${columna}`
+      );
+      const cambios = [];
+      for (const fila of r.rows) {
+        // Se compara contra la forma canónica: si coinciden, esta variante ya
+        // está bien escrita y no hay nada que hacer con ella.
+        const bueno = await centroCanonico(db, fila.valor);
+        if (bueno && bueno !== fila.valor) {
+          cambios.push({ actual: fila.valor, correcto: bueno, filas: Number(fila.n) });
+        }
+      }
+      if (cambios.length) tablas.push({ tabla, columna, cambios });
+    } catch {
+      // Una tabla que aún no existe en esta base no debe cortar la vista.
+    }
+  }
+  return tablas;
+}
+
+/**
+ * Aplica lo que enseña centrosSucios(): cada variante mal escrita pasa a la
+ * forma dada de alta, tabla por tabla.
+ *
+ * Esto no crea duplicados que no pudieran existir ya —dos horarios de la
+ * misma persona el mismo día con el centro escrito distinto ya eran, de
+ * hecho, el mismo turno guardado dos veces (§ fallo real de esta app)—, pero
+ * normalizar los hace visibles al coincidir. Por eso se listan aparte al
+ * terminar: quedan para revisarlos en "Turnos del cuadrante en un día", que
+ * ya tiene el borrado.
+ */
+async function normalizarCentros(db, req) {
+  const sucios = await centrosSucios(db);
+  let total = 0;
+  const aplicado = [];
+  for (const { tabla, columna, cambios } of sucios) {
+    for (const c of cambios) {
+      const r = await db.execute({
+        sql: `UPDATE ${tabla} SET ${columna} = ? WHERE ${columna} = ?`,
+        args: [c.correcto, c.actual],
+      });
+      const n = Number(r.rowsAffected || 0);
+      total += n;
+      aplicado.push({ tabla, de: c.actual, a: c.correcto, filas: n });
+    }
+  }
+
+  let duplicadosHorarios = [];
+  try {
+    const dup = await db.execute(`
+      SELECT empleado, fecha, centro, COUNT(*) AS n FROM horarios
+      WHERE TRIM(COALESCE(centro,'')) <> ''
+      GROUP BY empleado, fecha, centro HAVING COUNT(*) > 1
+    `);
+    duplicadosHorarios = dup.rows.map(d => ({
+      empleado: d.empleado, fecha: d.fecha, centro: d.centro, filas: Number(d.n),
+    }));
+  } catch {}
+
+  await auditarSuave(db, req, {
+    tipo_evento: 'CENTROS_NORMALIZADOS', entidad: 'varias',
+    payload: { total, aplicado },
+  });
+
+  return { total, aplicado, duplicados_horarios: duplicadosHorarios };
+}
 
 /** Turnos abiertos: la última marca de la persona no es una salida. */
 async function turnosAbiertos(db, centro) {
@@ -213,6 +311,14 @@ export default async function handler(req, res) {
 
       const total = Object.values(movidos).reduce((a, b) => a + b, 0);
       return res.status(200).json({ success: true, destino: nombreBueno, total, movidos });
+    }
+
+    if (req.method === 'GET' && accion === 'centros-sucios') {
+      return res.status(200).json(await centrosSucios(db));
+    }
+
+    if (req.method === 'POST' && accion === 'normalizar-centros') {
+      return res.status(200).json(await normalizarCentros(db, req));
     }
 
     return res.status(405).json({ error: "Method not allowed" });
