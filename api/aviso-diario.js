@@ -61,7 +61,7 @@ export default async function handler(req, res) {
       }
       if (!sinHacer.length && !tardias) lineas.push('✅ Todo en orden.');
 
-      avisarTelegram(lineas.join('\n'));
+      await avisarTelegram(lineas.join('\n'));
     }
 
     return res.status(200).json({ ok: true });
