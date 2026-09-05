@@ -10,17 +10,66 @@
  *   https://api.telegram.org/bot<TOKEN>/setWebhook?url=https://fichaje-corte-manga.vercel.app/api/telegram-webhook&secret_token=<TELEGRAM_WEBHOOK_SECRET>
  *
  * Soporta:
- *   - /hoy → resumen del día en curso (hechas/pendientes/vencidas) por centro.
+ *   - /hoy → resumen del día en curso por centro: recuento, quién está
+ *     fichado dentro, fichajes de hoy y detalle tarea a tarea (quién la hizo,
+ *     o quién de su rol está dentro si sigue sin hacerse).
  *   - el botón "Marcar como no aplica" del aviso de tarea vencida.
  */
 import { getDbClient } from "./_db.js";
-import { initSchema, getCentroCfg, fechaOperativaDe, auditar } from "./_tareas-lib.js";
+import {
+  initSchema, getCentroCfg, fechaOperativaDe, epochDesdeLocal, auditar,
+  quienEstaDentro, esDelRol,
+} from "./_tareas-lib.js";
 import {
   avisarTelegram, escTelegram, hayTelegramConfigurado,
   responderCallbackTelegram, editarBotonesTelegram,
 } from "./_telegram.js";
 
 const MOTIVO_TELEGRAM = 'Marcado desde Telegram por el dueño';
+
+const EMOJI_ESTADO = {
+  COMPLETADA: '✅', COMPLETADA_TARDIA: '✅', NO_APLICA: '🚫', VENCIDA: '⏰', PENDIENTE: '⏳',
+};
+const VERBO_FICHAJE = {
+  entrada: 'entrada', salida: 'salida', inicio_descanso: 'descanso', fin_descanso: 'vuelta',
+};
+
+/** Línea de detalle de una tarea: quién la hizo, o quién debería estar haciéndola. */
+function lineaTarea(t, dentro) {
+  const emoji = EMOJI_ESTADO[t.estado] || '•';
+  const nombre = escTelegram(t.nombre) + (t.criticidad === 'BLOQUEANTE' ? ' (bloqueante)' : '');
+
+  if (t.estado === 'COMPLETADA' || t.estado === 'COMPLETADA_TARDIA') {
+    const quien = t.completada_por ? escTelegram(t.completada_por) : 'sin nombre registrado';
+    return `${emoji} ${nombre} — ${quien}${t.estado === 'COMPLETADA_TARDIA' ? ' (tarde)' : ''}`;
+  }
+  if (t.estado === 'NO_APLICA') {
+    return `${emoji} ${nombre} — no aplica${t.motivo_no_aplica ? `: ${escTelegram(t.motivo_no_aplica)}` : ''}`;
+  }
+
+  // PENDIENTE o VENCIDA: quién de su rol está fichado dentro ahora mismo.
+  const responsables = dentro.filter(p => esDelRol(t.rol_responsable, p.rol));
+  const quien = !dentro.length
+    ? 'nadie fichado dentro'
+    : responsables.length
+      ? `dentro: ${responsables.map(p => escTelegram(p.nombre)).join(', ')}`
+      : `nadie de ${escTelegram((t.rol_responsable || '').toLowerCase())} dentro (sí: ${dentro.map(p => escTelegram(p.nombre)).join(', ')})`;
+  return `${emoji} ${nombre} — ${quien}`;
+}
+
+/** Fichajes de hoy agrupados por empleado, en el orden en que ocurrieron. */
+function lineaFichajes(fichajes) {
+  const porEmpleado = new Map();
+  for (const f of fichajes) {
+    const k = f.empleado;
+    if (!porEmpleado.has(k)) porEmpleado.set(k, []);
+    const verbo = VERBO_FICHAJE[f.tipo] || f.tipo;
+    porEmpleado.get(k).push(`${verbo} ${String(f.hora).slice(0, 5)}`);
+  }
+  return [...porEmpleado.entries()]
+    .map(([nombre, eventos]) => `${escTelegram(nombre)}: ${eventos.join(', ')}`)
+    .join('\n');
+}
 
 /** ¿Es este chat el del dueño? Nadie más debe poder usar el bot aunque adivine la URL. */
 function esDelDueno(chatId) {
@@ -45,33 +94,53 @@ async function resumenHoy() {
   for (const { centro } of centros.rows) {
     const cfg = await getCentroCfg(db, centro);
     const hoy = fechaOperativaDe(Date.now(), cfg);
+    const inicioHoyTs = epochDesdeLocal(hoy, cfg.inicio_jornada, cfg.zona_horaria);
 
     const r = await db.execute({
-      sql: `SELECT i.estado, p.nombre, p.criticidad
+      sql: `SELECT i.estado, i.completada_por, i.motivo_no_aplica,
+                   p.nombre, p.criticidad, p.rol_responsable
             FROM tarea_instancias i
             JOIN tarea_plantillas p ON p.id = i.plantilla_version_id
             WHERE LOWER(TRIM(COALESCE(i.centro,''))) = LOWER(TRIM(?))
-              AND i.fecha_operativa = ?`,
+              AND i.fecha_operativa = ?
+            ORDER BY i.ventana_inicio_ts ASC`,
       args: [centro, hoy],
     });
-    // Centro sin ninguna tarea generada todavía para hoy: nada que resumir.
-    if (!r.rows.length) continue;
+    const dentro = await quienEstaDentro(db, centro);
+    const fichajes = await db.execute({
+      sql: `SELECT empleado, tipo, hora FROM fichajes
+            WHERE LOWER(TRIM(COALESCE(centro,''))) = LOWER(TRIM(?))
+              AND timestamp >= ?
+            ORDER BY timestamp ASC`,
+      args: [centro, inicioHoyTs],
+    });
 
-    const total = r.rows.length;
-    const completadas = r.rows.filter(t => t.estado === 'COMPLETADA' || t.estado === 'COMPLETADA_TARDIA').length;
-    const pendientes = r.rows.filter(t => t.estado === 'PENDIENTE').length;
-    const vencidas = r.rows.filter(t => t.estado === 'VENCIDA').length;
-    const bloqueantesSinHacer = r.rows.filter(t =>
-      (t.estado === 'PENDIENTE' || t.estado === 'VENCIDA') && t.criticidad === 'BLOQUEANTE');
+    // Centro sin ninguna tarea generada todavía para hoy y sin fichajes: nada que resumir.
+    if (!r.rows.length && !fichajes.rows.length) continue;
 
-    const lineas = [
-      `📋 <b>Hoy</b> (${hoy}) — ${escTelegram(centro)}`,
-      `${completadas}/${total} hechas, ${pendientes} pendientes${vencidas ? `, ${vencidas} vencidas` : ''}`,
-    ];
-    if (bloqueantesSinHacer.length) {
-      lineas.push(`🔴 Bloqueante sin hacer: ${bloqueantesSinHacer.map(t => escTelegram(t.nombre)).join(', ')}`);
+    const cabecera = [`📋 <b>Hoy</b> (${hoy}) — ${escTelegram(centro)}`];
+    if (r.rows.length) {
+      const total = r.rows.length;
+      const completadas = r.rows.filter(t => t.estado === 'COMPLETADA' || t.estado === 'COMPLETADA_TARDIA').length;
+      const pendientes = r.rows.filter(t => t.estado === 'PENDIENTE').length;
+      const vencidas = r.rows.filter(t => t.estado === 'VENCIDA').length;
+      cabecera.push(`${completadas}/${total} hechas, ${pendientes} pendientes${vencidas ? `, ${vencidas} vencidas` : ''}`);
     }
-    bloques.push(lineas.join('\n'));
+    const lineas = [cabecera.join('\n')];
+
+    lineas.push(dentro.length
+      ? `🚪 Dentro ahora: ${dentro.map(p => escTelegram(p.nombre)).join(', ')}`
+      : '🚪 Nadie fichado dentro ahora mismo.');
+
+    if (fichajes.rows.length) {
+      lineas.push(`🕐 Fichajes de hoy:\n${lineaFichajes(fichajes.rows)}`);
+    }
+
+    if (r.rows.length) {
+      lineas.push(`Tareas:\n${r.rows.map(t => lineaTarea(t, dentro)).join('\n')}`);
+    }
+
+    bloques.push(lineas.join('\n\n'));
   }
 
   return bloques.length ? bloques.join('\n\n') : 'Ningún centro tiene tareas dadas de alta para hoy.';

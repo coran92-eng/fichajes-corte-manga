@@ -4,6 +4,7 @@ import {
   verificarPin, turnoAbierto, estaEnDescanso, auditar, esEncargadoOSuperior,
   hashArchivo, purgarFotosCaducadas, RAFAGA_N, RAFAGA_MIN, HASH_LOOKBACK,
   validarTokenQr, esDispositivoConfianza, hayQrConfigurado,
+  quienEstaDentro, esDelRol,
 } from "./_tareas-lib.js";
 import { avisarTelegram, avisarTelegramConFoto, escTelegram, conEnlacePanel } from "./_telegram.js";
 
@@ -38,42 +39,6 @@ async function generarInstancias(db, centro, fechaOperativa, cfg) {
     if (r.rowsAffected) creadas++;
   }
   return creadas;
-}
-
-/**
- * Quién tiene el turno abierto ahora mismo en un centro (su fichaje más
- * reciente no es una salida), con el rol de cada uno. Sirve para el aviso de
- * tarea vencida: decir no solo qué falta, sino quién estaba delante para
- * hacerla.
- */
-async function quienEstaDentro(db, centro) {
-  const desde = Date.now() - 24 * 60 * 60 * 1000;
-  const r = await db.execute({
-    sql: `SELECT f.empleado, f.tipo, f.timestamp, emp.rol
-          FROM fichajes f
-          LEFT JOIN empleados emp ON LOWER(TRIM(emp.nombre)) = LOWER(TRIM(f.empleado))
-          WHERE (LOWER(TRIM(COALESCE(f.centro,''))) = LOWER(TRIM(?)) OR TRIM(COALESCE(f.centro,'')) = '')
-            AND f.timestamp >= ?
-          ORDER BY f.timestamp DESC`,
-    args: [centro, desde],
-  });
-
-  const vistos = new Set();
-  const dentro = [];
-  for (const f of r.rows) {
-    const clave = String(f.empleado).trim().toLowerCase();
-    if (vistos.has(clave)) continue;
-    vistos.add(clave);
-    if (f.tipo !== 'salida') dentro.push({ nombre: f.empleado, rol: String(f.rol || '').toLowerCase() });
-  }
-  return dentro;
-}
-
-/** Mismo criterio que ya usa el móvil (tareaEsDe): "mixto" cubre sala y cocina. */
-function esDelRol(rolResponsable, rolEmpleado) {
-  if (!rolEmpleado) return false;
-  if (rolEmpleado === 'mixto') return rolResponsable === 'SALA' || rolResponsable === 'COCINA';
-  return rolEmpleado.toUpperCase() === rolResponsable;
 }
 
 /**
