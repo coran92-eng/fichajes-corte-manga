@@ -1,6 +1,6 @@
 import { getDbClient } from "./_db.js";
 import {
-  initSchema, auditar, esEncargadoOSuperior, nivelDesdeReq,
+  initSchema, auditar, esEncargadoOSuperior, nivelDesdeReq, centroCanonico,
   BLOQUES, ROLES, TIPOS_EVIDENCIA, CRITICIDADES,
 } from "./_tareas-lib.js";
 
@@ -74,11 +74,15 @@ export default async function handler(req, res) {
       // Carga del catálogo inicial (§15) para poder probar de inmediato.
       if (accion === 'seed') {
         if (nivel !== 'ADMIN') return res.status(403).json({ error: "Solo gerencia puede cargar el catálogo" });
-        const centro = req.body?.centro;
-        if (!centro) return res.status(400).json({ error: "Centro requerido" });
+        if (!req.body?.centro) return res.status(400).json({ error: "Centro requerido" });
+        // Sin normalizar, el "ya tiene plantillas" no encontraba las que se
+        // cargaron con el centro escrito de otra forma, y el catálogo entero
+        // se duplicaba en vez de avisar.
+        const centro = await centroCanonico(db, req.body.centro);
 
         const ya = await db.execute({
-          sql: `SELECT COUNT(*) AS n FROM tarea_plantillas WHERE centro = ? AND vigente_hasta = ''`,
+          sql: `SELECT COUNT(*) AS n FROM tarea_plantillas
+                WHERE LOWER(TRIM(COALESCE(centro,''))) = LOWER(TRIM(?)) AND vigente_hasta = ''`,
           args: [centro],
         });
         if (Number(ya.rows[0].n) > 0) {
@@ -109,13 +113,16 @@ export default async function handler(req, res) {
       if (errores.length) return res.status(422).json({ error: errores.join('; ') });
 
       const familia_id = nuevaFamiliaId();
+      // Una plantilla guardada con el centro escrito de otra forma no genera
+      // tareas para ese centro: se queda de adorno en el catálogo.
+      const centroPlantilla = await centroCanonico(db, b.centro || '');
       const r = await db.execute({
         sql: `INSERT INTO tarea_plantillas
               (familia_id, version, centro, nombre, instrucciones, bloque, rol_responsable,
                ventana_inicio, ventana_fin, tolerancia_min, tipo_evidencia, evidencia_config,
                criticidad, recurrencia, orden, activa, vigente_desde, vigente_hasta, creado_en)
               VALUES (?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, '', ?)`,
-        args: [familia_id, b.centro || '', String(b.nombre).trim(), b.instrucciones || '',
+        args: [familia_id, centroPlantilla, String(b.nombre).trim(), b.instrucciones || '',
                b.bloque, b.rol_responsable, b.ventana_inicio, b.ventana_fin,
                Number(b.tolerancia_min ?? 30), b.tipo_evidencia, b.evidencia_config || '',
                b.criticidad || 'NORMAL', b.recurrencia || '{"tipo":"diaria"}',
@@ -124,7 +131,7 @@ export default async function handler(req, res) {
 
       await auditar(db, req, {
         tipo_evento: 'PLANTILLA_CREADA', entidad: 'tarea_plantillas',
-        entidad_id: r.lastInsertRowid?.toString(), centro: b.centro || '',
+        entidad_id: r.lastInsertRowid?.toString(), centro: centroPlantilla,
         payload: { nombre: b.nombre, familia_id },
       });
       return res.status(201).json({ success: true, id: r.lastInsertRowid?.toString(), familia_id });
@@ -150,13 +157,14 @@ export default async function handler(req, res) {
         args: [hoyISO(), prev.id],
       });
 
+      const centroVersion = await centroCanonico(db, b.centro ?? prev.centro);
       const r = await db.execute({
         sql: `INSERT INTO tarea_plantillas
               (familia_id, version, centro, nombre, instrucciones, bloque, rol_responsable,
                ventana_inicio, ventana_fin, tolerancia_min, tipo_evidencia, evidencia_config,
                criticidad, recurrencia, orden, activa, vigente_desde, vigente_hasta, creado_en)
               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '', ?)`,
-        args: [b.familia_id, Number(prev.version) + 1, b.centro ?? prev.centro,
+        args: [b.familia_id, Number(prev.version) + 1, centroVersion,
                String(b.nombre).trim(), b.instrucciones || '', b.bloque, b.rol_responsable,
                b.ventana_inicio, b.ventana_fin, Number(b.tolerancia_min ?? 30),
                b.tipo_evidencia, b.evidencia_config || '', b.criticidad || 'NORMAL',
@@ -166,7 +174,7 @@ export default async function handler(req, res) {
 
       await auditar(db, req, {
         tipo_evento: 'PLANTILLA_NUEVA_VERSION', entidad: 'tarea_plantillas',
-        entidad_id: r.lastInsertRowid?.toString(), centro: b.centro ?? prev.centro,
+        entidad_id: r.lastInsertRowid?.toString(), centro: centroVersion,
         payload: { familia_id: b.familia_id, version: Number(prev.version) + 1 },
       });
       return res.status(200).json({ success: true, id: r.lastInsertRowid?.toString() });

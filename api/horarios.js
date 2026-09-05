@@ -1,4 +1,5 @@
 import { getDbClient } from "./_db.js";
+import { centroDeEmpleado, centroCanonico } from "./_tareas-lib.js";
 
 // El esquema se prepara una vez por instancia, no en cada petición. Antes
 // eran ocho viajes a la base de datos antes de la consulta —cuatro de ellos
@@ -166,18 +167,27 @@ export default async function handler(req, res) {
       // sobre la marcha y esa regla solo impedía registrar lo que ya estaba
       // decidido.
 
+      // Cada fila de horario es de un empleado concreto, así que su ficha es
+      // la fuente de verdad del centro (igual que en fichajes). Se resuelve
+      // una sola vez y se reutiliza en el DELETE y en el INSERT siguientes:
+      // si cada uno normalizara por su cuenta, uno podría comparar contra la
+      // ficha y el otro guardar lo que mandó el cliente, y volveríamos a
+      // dejar horarios duplicados o fantasma (el mismo fallo que tuvo esta
+      // tabla antes).
+      const centroResuelto = await centroDeEmpleado(db, empleado, centro);
+
       // Sin normalizar centro, un turno reenviado con el centro escrito de
       // otra forma no borraría el anterior: se quedarían los dos, y cuál
       // "gana" en las pantallas que lo muestran depende del orden de lectura.
       await db.execute({
         sql: `DELETE FROM horarios WHERE empleado = ? AND fecha = ?
               AND LOWER(TRIM(COALESCE(centro,''))) = LOWER(TRIM(?))`,
-        args: [empleado, fecha, centro],
+        args: [empleado, fecha, centroResuelto],
       });
 
       const result = await db.execute({
         sql: "INSERT INTO horarios (empleado, centro, fecha, hora_entrada, hora_salida, semana, estado, creado_en, notas, rol_primera, hora_cambio, rol_segunda, hora_descanso) VALUES (?, ?, ?, ?, ?, ?, 'pendiente', ?, ?, ?, ?, ?, ?)",
-        args: [empleado, centro, fecha, hora_entrada, hora_salida, semana, Date.now(), notas, rol_primera, hora_cambio, rol_segunda, hora_descanso],
+        args: [empleado, centroResuelto, fecha, hora_entrada, hora_salida, semana, Date.now(), notas, rol_primera, hora_cambio, rol_segunda, hora_descanso],
       });
 
       return res.status(201).json({ success: true, id: result.lastInsertRowid.toString() });
@@ -197,10 +207,17 @@ export default async function handler(req, res) {
           });
         }
       } else {
-        await db.execute({
-          sql: "UPDATE horarios SET estado = ? WHERE semana = ? AND centro = ?",
-          args: [estado, semana, centro],
+        // Sin normalizar el centro, validar la semana entera no tocaba ni una
+        // fila si el centro venía escrito de otra forma —y devolvía success
+        // igual, así que el cuadrante se quedaba sin validar sin que nadie se
+        // enterara—. Se devuelve cuántas filas se han cambiado por lo mismo:
+        // un cero es la señal de que algo no cuadra.
+        const r = await db.execute({
+          sql: `UPDATE horarios SET estado = ?
+                WHERE semana = ? AND LOWER(TRIM(COALESCE(centro,''))) = LOWER(TRIM(?))`,
+          args: [estado, semana, centro || ''],
         });
+        return res.status(200).json({ success: true, filas: Number(r.rowsAffected || 0) });
       }
 
       return res.status(200).json({ success: true });

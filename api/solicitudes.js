@@ -1,5 +1,6 @@
 import { getDbClient } from "./_db.js";
 import { avisarTelegram, escTelegram, conEnlacePanel } from "./_telegram.js";
+import { centroDeEmpleado } from "./_tareas-lib.js";
 
 const TIPOS_SOLICITUD = ['modificar', 'crear', 'eliminar'];
 const TIPOS_FICHAJE = ['entrada', 'salida', 'inicio_descanso', 'fin_descanso'];
@@ -57,7 +58,7 @@ export default async function handler(req, res) {
         args.push(empleado);
       }
       if (centro) {
-        conditions.push("centro = ?");
+        conditions.push("LOWER(TRIM(COALESCE(centro,''))) = LOWER(TRIM(?))");
         args.push(centro);
       }
 
@@ -94,12 +95,14 @@ export default async function handler(req, res) {
         return res.status(400).json({ error: "Falta la hora propuesta" });
       }
 
+      const centroResuelto = await centroDeEmpleado(db, empleado, centro);
+
       const result = await db.execute({
         sql: `INSERT INTO solicitudes
           (empleado, centro, tipo_solicitud, fichaje_id, tipo_fichaje, fecha, hora_original, hora_propuesta, motivo, estado, creado_en)
           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pendiente', ?)`,
         args: [
-          empleado, centro, tipo_solicitud, fichaje_id, tipo_fichaje, fecha,
+          empleado, centroResuelto, tipo_solicitud, fichaje_id, tipo_fichaje, fecha,
           hora_original, hora_propuesta, motivo, Date.now(),
         ],
       });
@@ -116,9 +119,9 @@ export default async function handler(req, res) {
           : `eliminar su ${campo} del ${fecha}` + (hora_original ? ` (${hora_original})` : '');
 
       await avisarTelegram(conEnlacePanel(
-        `✏️ <b>${escTelegram(empleado)}</b> ha pedido ${escTelegram(verbo)} en ${escTelegram(centro || 'la app')}.\n`
+        `✏️ <b>${escTelegram(empleado)}</b> ha pedido ${escTelegram(verbo)} en ${escTelegram(centroResuelto || 'la app')}.\n`
         + `Motivo: ${escTelegram(motivo)}`,
-        centro
+        centroResuelto
       ));
 
       return res.status(201).json({ success: true, id: result.lastInsertRowid.toString() });
