@@ -1,6 +1,9 @@
 import { getDbClient } from "./_db.js";
-import { initSchema, getCentroCfg, fechaOperativaDe, epochDesdeLocal, minutosDeHora } from "./_tareas-lib.js";
+import {
+  initSchema, getCentroCfg, fechaOperativaDe, epochDesdeLocal, minutosDeHora, minutosTrabajados,
+} from "./_tareas-lib.js";
 import { avisarTelegram, escTelegram, hayTelegramConfigurado, conEnlacePanel } from "./_telegram.js";
+import { avisarEmpleado, hayBotEmpleadosConfigurado } from "./_telegram-empleados.js";
 
 const DIA_MS = 24 * 60 * 60 * 1000;
 const norm = s => String(s || '').trim().toLowerCase();
@@ -25,31 +28,34 @@ function esLunes(tz, ts = Date.now()) {
   return dow === 'Mon';
 }
 
+/** Fecha de hoy (YYYY-MM-DD) en una zona horaria concreta. */
+function fechaHoyLocal(tz, ts = Date.now()) {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(ts));
+}
+
 /**
- * Minutos trabajados a partir de las marcas de UNA persona, en orden. Igual de
- * simple que jornadaDe() en fichajes.js pero sin lo que aquí no hace falta
- * (comparar con el horario día a día): esto es un total informativo de la
- * semana, no tiene que cuadrar al segundo.
+ * Recuerda a cada empleado con el bot vinculado el turno que tiene hoy.
+ * Va en este mismo cron, la primera hora del día, porque el plan Hobby de
+ * Vercel no deja un segundo cron para mandarlo la tarde antes: no llega tan
+ * pronto como se querría, pero llega antes de que empiece el turno.
  */
-function minutosTrabajados(eventos) {
-  let entradaTs = null, descansoIni = null, restar = 0, minutos = 0;
-  for (const f of eventos) {
-    const ts = Number(f.timestamp);
-    if (f.tipo === 'entrada') {
-      entradaTs = ts; descansoIni = null; restar = 0;
-    } else if (f.tipo === 'inicio_descanso') {
-      if (entradaTs !== null) descansoIni = ts;
-    } else if (f.tipo === 'fin_descanso') {
-      if (descansoIni !== null) { restar += ts - descansoIni; descansoIni = null; }
-    } else if (f.tipo === 'salida') {
-      if (entradaTs !== null) {
-        if (descansoIni !== null) { restar += ts - descansoIni; descansoIni = null; }
-        minutos += Math.max(0, (ts - entradaTs - restar) / 60000);
-      }
-      entradaTs = null; restar = 0;
-    }
+async function avisarTurnosDeHoy(db, centro, cfg) {
+  const hoy = fechaHoyLocal(cfg.zona_horaria);
+  const r = await db.execute({
+    sql: `SELECT h.hora_entrada, h.hora_salida, h.rol_segunda, h.hora_cambio, emp.telegram_chat_id AS chat_id
+          FROM horarios h
+          JOIN empleados emp ON LOWER(TRIM(emp.nombre)) = LOWER(TRIM(h.empleado))
+          WHERE LOWER(TRIM(COALESCE(h.centro,''))) = LOWER(TRIM(?))
+            AND h.fecha = ? AND h.estado <> 'rechazado'
+            AND emp.telegram_chat_id <> ''`,
+    args: [centro, hoy],
+  });
+
+  for (const t of r.rows) {
+    let texto = `⏰ Hoy tienes turno: ${String(t.hora_entrada).slice(0, 5)}–${String(t.hora_salida).slice(0, 5)}`;
+    if (t.rol_segunda) texto += ` (partido, vuelves a las ${String(t.hora_cambio).slice(0, 5)})`;
+    await avisarEmpleado(t.chat_id, texto);
   }
-  return minutos;
 }
 
 const VERBO_TIPO = {
@@ -245,7 +251,11 @@ export default async function handler(req, res) {
     return res.status(401).json({ error: "No autorizado" });
   }
 
-  if (!hayTelegramConfigurado()) {
+  // Dos bots independientes (gerencia y empleados): que falte uno no debe
+  // impedir que el otro mande lo suyo.
+  const avisosGerencia = hayTelegramConfigurado();
+  const avisosEmpleados = hayBotEmpleadosConfigurado();
+  if (!avisosGerencia && !avisosEmpleados) {
     return res.status(200).json({ ok: true, aviso: "Telegram no configurado: nada que mandar" });
   }
 
@@ -270,13 +280,19 @@ export default async function handler(req, res) {
         const inicioAyerTs = epochDesdeLocal(ayer, cfg.inicio_jornada, cfg.zona_horaria);
         const finAyerTs = epochDesdeLocal(hoyOperativo, cfg.inicio_jornada, cfg.zona_horaria);
 
-        await enviarResumenDiario(db, centro, cfg, ayer, inicioAyerTs, finAyerTs);
+        if (avisosGerencia) {
+          await enviarResumenDiario(db, centro, cfg, ayer, inicioAyerTs, finAyerTs);
 
-        // El resumen semanal solo se manda los lunes; el cron sigue corriendo
-        // todos los días a las 06:00 UTC (§vercel.json), esto es una decisión
-        // dentro del propio handler, no un cron aparte.
-        if (esLunes(cfg.zona_horaria)) {
-          await enviarResumenSemanal(db, centro, cfg, ayer, finAyerTs);
+          // El resumen semanal solo se manda los lunes; el cron sigue
+          // corriendo todos los días a las 06:00 UTC (§vercel.json), esto es
+          // una decisión dentro del propio handler, no un cron aparte.
+          if (esLunes(cfg.zona_horaria)) {
+            await enviarResumenSemanal(db, centro, cfg, ayer, finAyerTs);
+          }
+        }
+
+        if (avisosEmpleados) {
+          await avisarTurnosDeHoy(db, centro, cfg);
         }
       } catch (error) {
         console.error(`Resumen diario falló en ${centro}:`, error);

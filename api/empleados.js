@@ -27,6 +27,8 @@ async function prepararEsquema(db) {
   try { await db.execute("ALTER TABLE empleados ADD COLUMN rol TEXT NOT NULL DEFAULT ''"); } catch {}
   // PIN para autorizar acciones en la tablet compartida (módulo de tareas).
   try { await db.execute("ALTER TABLE empleados ADD COLUMN pin_hash TEXT NOT NULL DEFAULT ''"); } catch {}
+  // Chat de Telegram vinculado (bot de empleados).
+  try { await db.execute("ALTER TABLE empleados ADD COLUMN telegram_chat_id TEXT NOT NULL DEFAULT ''"); } catch {}
   // Horario habitual (JSON por día de la semana, 1=lunes ... 7=domingo).
   try { await db.execute("ALTER TABLE empleados ADD COLUMN horario_habitual TEXT NOT NULL DEFAULT ''"); } catch {}
 
@@ -177,15 +179,17 @@ export default async function handler(req, res) {
 
         if (limpio === '') {
           // Quitar el PIN cierra además todas sus sesiones, porque el hash
-          // entra en la firma del testigo.
-          sets.push("pin_hash = ?");
+          // entra en la firma del testigo. Por lo mismo se desvincula el bot
+          // de Telegram: se vinculó con ese PIN, y sin él esa persona no
+          // debería seguir viendo su horario ni sus horas ahí.
+          sets.push("pin_hash = ?, telegram_chat_id = ''");
           args.push('');
         } else if (limpio === 'generar') {
           pinGenerado = await generarPin(db, nombre.trim());
           if (!pinGenerado) {
             return res.status(500).json({ error: "No se ha podido generar un PIN libre" });
           }
-          sets.push("pin_hash = ?");
+          sets.push("pin_hash = ?, telegram_chat_id = ''");
           args.push(hashPin(nombre.trim(), pinGenerado));
         } else if (!/^\d{4,8}$/.test(limpio)) {
           return res.status(422).json({ error: `El PIN debe tener ${PIN_DIGITOS} dígitos` });
