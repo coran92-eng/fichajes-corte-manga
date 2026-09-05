@@ -96,6 +96,46 @@ async function marcarVencidas(db, centro, fechaOperativa) {
   }
 }
 
+// Tope de tareas que se listan al decir qué queda. El texto viaja como pie de
+// foto cuando la tarea lleva evidencia, y Telegram corta el pie a 1024.
+const MAX_RESTANTES = 6;
+
+/**
+ * Cómo va la jornada: cuántas van y qué queda por hacer. Se cuelga del aviso
+ * de cada tarea completada porque una tarea suelta no dice si el turno va
+ * sobrado o va justo — que es lo que de verdad se quiere saber al leerlo.
+ */
+async function comoVaElDia(db, centro, fechaOperativa) {
+  const r = await db.execute({
+    sql: `SELECT i.estado, p.nombre, p.criticidad
+          FROM tarea_instancias i
+          JOIN tarea_plantillas p ON p.id = i.plantilla_version_id
+          WHERE LOWER(TRIM(COALESCE(i.centro,''))) = LOWER(TRIM(?))
+            AND i.fecha_operativa = ?
+          ORDER BY i.ventana_fin_ts ASC`,
+    args: [centro, fechaOperativa],
+  });
+  if (!r.rows.length) return '';
+
+  const total = r.rows.length;
+  const hechas = r.rows.filter(x => x.estado === 'COMPLETADA' || x.estado === 'COMPLETADA_TARDIA').length;
+  const restantes = r.rows.filter(x => x.estado === 'PENDIENTE' || x.estado === 'VENCIDA');
+  if (!restantes.length) return `\n🎉 Van ${hechas}/${total} — no queda ninguna.`;
+
+  // Las bloqueantes y las ya vencidas primero: si hay que cortar la lista, que
+  // lo que se pierda sea lo que menos corre prisa.
+  const orden = t => (t.estado === 'VENCIDA' ? 0 : 1) + (t.criticidad === 'BLOQUEANTE' ? 0 : 2);
+  const lineas = [...restantes].sort((a, b) => orden(a) - orden(b))
+    .slice(0, MAX_RESTANTES)
+    .map(x => `${x.estado === 'VENCIDA' ? '⏰' : '⏳'} ${escTelegram(x.nombre)}`
+      + (x.criticidad === 'BLOQUEANTE' ? ' (bloqueante)' : '')
+      + (x.estado === 'VENCIDA' ? ' — vencida' : ''));
+  const resto = restantes.length - lineas.length;
+  if (resto > 0) lineas.push(`…y ${resto} más`);
+
+  return `\nVan ${hechas}/${total} — quedan ${restantes.length}:\n${lineas.join('\n')}`;
+}
+
 async function listar(db, centro, fechaOperativa) {
   const r = await db.execute({
     sql: `SELECT i.id, i.plantilla_version_id, i.familia_id, i.centro, i.fecha_operativa,
@@ -560,7 +600,8 @@ export default async function handler(req, res) {
       const horaTexto = new Intl.DateTimeFormat('es-ES', { timeZone: 'Europe/Madrid', hour: '2-digit', minute: '2-digit' }).format(ahora);
       const texto = conEnlacePanel(
         `✅ <b>${escTelegram(t.nombre)}</b> completada por ${escTelegram(empleado)} a las ${horaTexto}`
-        + (fueraDePlazo ? ' — fuera de plazo ⚠️' : ''),
+        + (fueraDePlazo ? ' — fuera de plazo ⚠️' : '')
+        + await comoVaElDia(db, centro, t.fecha_operativa),
         centro
       );
 
