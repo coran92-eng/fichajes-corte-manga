@@ -166,6 +166,16 @@
             </div>
         </div>
 
+        <div class="bloque">
+            <h2><i data-lucide="spell-check" style="width:17px;height:17px"></i>Centros escritos de forma distinta</h2>
+            <p class="ayuda">
+                El mismo centro guardado unas veces como "Corte de Manga" y otras como
+                "corte de manga" hace que una tarea, un fichaje o una incidencia no aparezcan
+                donde deberían. Esto pone todo lo que encuentre en la forma buena.
+            </p>
+            <div id="centrosResumen"><div class="vacio">Comprobando…</div></div>
+        </div>
+
         <p class="nota-final">
             Todo lo que se hace aquí queda registrado en la auditoría con la fecha y el detalle.
         </p>
@@ -400,6 +410,88 @@
             actualizarBotonLote();
         }
 
+        const NOMBRE_TABLA = {
+            empleados: 'empleados', fichajes: 'fichajes', horarios: 'horarios',
+            solicitudes: 'solicitudes de corrección', turno_notas: 'notas de turno',
+            tarea_plantillas: 'plantillas de tareas', tarea_instancias: 'tareas del día',
+            evento_auditoria: 'auditoría', proveedores: 'proveedores', pedidos: 'pedidos',
+        };
+
+        async function cargarCentrosSucios() {
+            const cont = document.getElementById('centrosResumen');
+            cont.innerHTML = '<div class="vacio">Comprobando…</div>';
+            let datos = [];
+            try {
+                const r = await fetch('/api/mantenimiento?accion=centros-sucios', {
+                    headers: { 'X-Auth-Token': TOKEN_ADMIN },
+                });
+                if (!r.ok) throw new Error();
+                datos = await r.json();
+            } catch {
+                cont.innerHTML = '<div class="vacio">No se ha podido comprobar. Recarga la página.</div>';
+                return;
+            }
+
+            if (!datos.length) {
+                cont.innerHTML = '<div class="vacio">Todo está escrito igual. Nada que arreglar.</div>';
+                return;
+            }
+
+            const totalFilas = datos.reduce((s, t) => s + t.cambios.reduce((s2, c) => s2 + c.filas, 0), 0);
+            const detalle = datos.map(t => `
+                <div class="turno-dia" style="align-items:flex-start">
+                    <div style="flex:1">
+                        <div class="turno-dia-nombre">${esc(NOMBRE_TABLA[t.tabla] || t.tabla)}</div>
+                        <div style="font-size:13px;color:#6b7280;margin-top:4px;line-height:1.7">
+                            ${t.cambios.map(c =>
+                                `"${esc(c.actual)}" → "${esc(c.correcto)}" <span style="color:#9ca3af">(${c.filas} fila${c.filas !== 1 ? 's' : ''})</span>`
+                            ).join('<br>')}
+                        </div>
+                    </div>
+                </div>`).join('');
+
+            cont.innerHTML = `
+                ${detalle}
+                <button class="btn-ok" id="btnAplicarCentros" style="margin-top:12px">
+                    Poner en la forma buena (${totalFilas} fila${totalFilas !== 1 ? 's' : ''})
+                </button>`;
+
+            document.getElementById('btnAplicarCentros').addEventListener('click', aplicarCentros);
+        }
+
+        async function aplicarCentros() {
+            if (!confirm(
+                'Se reescribirá el nombre del centro en las filas de arriba, poniéndolo tal '
+                + 'como está dado de alta. No se borra ni se mueve nada más.\n\n¿Seguimos?'
+            )) return;
+
+            const btn = document.getElementById('btnAplicarCentros');
+            btn.disabled = true;
+            try {
+                const r = await fetch('/api/mantenimiento', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-Auth-Token': TOKEN_ADMIN },
+                    body: JSON.stringify({ accion: 'normalizar-centros' }),
+                });
+                const d = await r.json().catch(() => ({}));
+                if (!r.ok) { mostrar(d.error || 'No se ha podido aplicar', 'error'); btn.disabled = false; return; }
+
+                let texto = `✓ ${d.total} fila${d.total !== 1 ? 's' : ''} corregida${d.total !== 1 ? 's' : ''}`;
+                const nDup = d.duplicados_horarios?.length || 0;
+                if (nDup) {
+                    texto += `. Ojo: al igualar el centro, ${nDup} turno${nDup !== 1 ? 's' : ''} del cuadrante `
+                        + `${nDup !== 1 ? 'han quedado repetidos' : 'ha quedado repetido'} para el mismo día `
+                        + `— revísa${nDup !== 1 ? 'los' : 'lo'} en "Turnos del cuadrante en un día".`;
+                }
+                mostrar(texto, d.duplicados_horarios?.length ? 'info' : 'ok');
+                cargarCentrosSucios();
+                cargarAbiertos();
+            } catch {
+                mostrar('Error de conexión', 'error');
+                btn.disabled = false;
+            }
+        }
+
         async function fusionar() {
             const origen = document.getElementById('fusionOrigen').value.trim();
             const destino = document.getElementById('fusionDestino').value;
@@ -447,6 +539,7 @@
             });
             cargarEmpleados();
             cargarAbiertos();
+            cargarCentrosSucios();
 
             const hoy = new Date();
             const pad = n => String(n).padStart(2, '0');
