@@ -294,6 +294,59 @@ export async function getCentroCfg(db, centro) {
   };
 }
 
+/**
+ * Forma canónica del nombre de un centro: la que está dada de alta en
+ * centros_cfg.
+ *
+ * El centro viaja como texto libre desde el cliente y llega escrito distinto
+ * según de dónde salga (la dirección, el selector, lo que se guardó en el
+ * móvil hace meses). Guardar cada variante tal cual es lo que ha hecho que una
+ * tarea creada como "corte de manga" no aparezca al mirar "Corte de Manga".
+ *
+ * A diferencia de getCentroCfg, esto NO da de alta el centro si no existe:
+ * solo traduce. Un centro que no está dado de alta se devuelve limpio de
+ * espacios, que es lo mejor que se puede decir de él.
+ */
+export async function centroCanonico(db, centro) {
+  const limpio = String(centro || '').trim();
+  if (!limpio) return '';
+  try {
+    const r = await db.execute({
+      sql: "SELECT centro FROM centros_cfg WHERE LOWER(TRIM(centro)) = LOWER(TRIM(?)) LIMIT 1",
+      args: [limpio],
+    });
+    if (r.rows.length) return r.rows[0].centro;
+  } catch {}
+  return limpio;
+}
+
+/**
+ * El centro de una acción, tomando como referencia al empleado: cada persona
+ * tiene su centro asignado en la ficha, y esa es la fuente de verdad para
+ * saber dónde trabaja.
+ *
+ * Si lo que manda el cliente es ese mismo centro escrito de otra forma, gana
+ * el de la ficha. Si es OTRO centro distinto de verdad —alguien cubriendo un
+ * turno en otro local—, se respeta lo que manda el cliente: forzar el suyo
+ * guardaría el fichaje en el sitio equivocado sin decir nada.
+ */
+export async function centroDeEmpleado(db, empleado, centroSugerido = '') {
+  const pedido = await centroCanonico(db, centroSugerido);
+
+  let suyo = '';
+  try {
+    const r = await db.execute({
+      sql: "SELECT centro FROM empleados WHERE LOWER(TRIM(nombre)) = LOWER(TRIM(?)) LIMIT 1",
+      args: [String(empleado || '').trim()],
+    });
+    if (r.rows.length) suyo = await centroCanonico(db, r.rows[0].centro);
+  } catch {}
+
+  if (!suyo) return pedido;
+  if (!pedido) return suyo;
+  return pedido.trim().toLowerCase() === suyo.trim().toLowerCase() ? suyo : pedido;
+}
+
 // ── Recurrencia ───────────────────────────────────────────────
 /**
  * ¿Toca esta plantilla en esta fecha operativa?
