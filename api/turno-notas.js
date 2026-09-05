@@ -1,7 +1,7 @@
 import { getDbClient } from "./_db.js";
 import {
   initSchema, getCentroCfg, fechaOperativaDe, auditar, hashArchivo,
-  esEncargadoOSuperior,
+  esEncargadoOSuperior, centroDeEmpleado, centroCanonico,
 } from "./_tareas-lib.js";
 import { avisarTelegram, escTelegram, conEnlacePanel } from "./_telegram.js";
 
@@ -106,7 +106,7 @@ export default async function handler(req, res) {
                      resuelto_por, resuelto_en, resolucion, hash_sha256, creado_en,
                      CASE WHEN foto_b64 IS NULL THEN 0 ELSE 1 END AS tiene_foto
               FROM turno_notas
-              WHERE centro = ? AND tipo = 'nota' AND fecha_operativa >= date(?, ?)
+              WHERE LOWER(TRIM(COALESCE(centro,''))) = LOWER(TRIM(?)) AND tipo = 'nota' AND fecha_operativa >= date(?, ?)
                 AND (COALESCE(visibilidad,'equipo') = 'equipo' OR ? = 1)
               ORDER BY creado_en DESC LIMIT 40`,
         args: [centro, fechaOperativa, `-${dias} day`, verTodo],
@@ -120,7 +120,7 @@ export default async function handler(req, res) {
                      resuelto_por, resuelto_en, resolucion, hash_sha256, creado_en,
                      CASE WHEN foto_b64 IS NULL THEN 0 ELSE 1 END AS tiene_foto
               FROM turno_notas
-              WHERE centro = ? AND tipo IN ('incidencia','falta')
+              WHERE LOWER(TRIM(COALESCE(centro,''))) = LOWER(TRIM(?)) AND tipo IN ('incidencia','falta')
                 AND (estado IN ('abierta','en_curso') OR fecha_operativa = ?)
                 AND (COALESCE(visibilidad,'equipo') = 'equipo' OR ? = 1)
               ORDER BY CASE prioridad WHEN 'alta' THEN 0 WHEN 'normal' THEN 1 ELSE 2 END,
@@ -169,7 +169,14 @@ export default async function handler(req, res) {
         return res.status(422).json({ error: "La foto es demasiado grande" });
       }
 
-      const cfg = await getCentroCfg(db, centro);
+      // El centro se resuelve contra la ficha del autor: si no hay autor no
+      // hay ficha a la que acudir, y se cae en solo traducir a la forma dada
+      // de alta (mejor que guardar la variante cruda que llegó del cliente).
+      const centroResuelto = b.autor
+        ? await centroDeEmpleado(db, b.autor, centro)
+        : await centroCanonico(db, centro);
+
+      const cfg = await getCentroCfg(db, centroResuelto);
       const fechaOperativa = fechaOperativaDe(Date.now(), cfg);
       const prioridad = PRIORIDADES.includes(b.prioridad) ? b.prioridad : 'normal';
 
@@ -178,7 +185,7 @@ export default async function handler(req, res) {
               (centro, fecha_operativa, tipo, texto, autor, prioridad, estado,
                foto_b64, hash_sha256, device_id, creado_en)
               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        args: [centro, fechaOperativa, tipo, texto, b.autor || '', prioridad,
+        args: [centroResuelto, fechaOperativa, tipo, texto, b.autor || '', prioridad,
                tipo === 'nota' ? '' : 'abierta',
                b.foto_b64 || null, b.foto_b64 ? hashArchivo(b.foto_b64) : '',
                b.device_id || '', Date.now()],
@@ -188,7 +195,7 @@ export default async function handler(req, res) {
         tipo_evento: tipo === 'incidencia' ? 'INCIDENCIA_ABIERTA'
                    : tipo === 'falta' ? 'FALTA_PRODUCTO' : 'NOTA_TURNO',
         entidad: 'turno_notas', entidad_id: r.lastInsertRowid?.toString(),
-        empleado: b.autor || '', centro, device_id: b.device_id,
+        empleado: b.autor || '', centro: centroResuelto, device_id: b.device_id,
         payload: { texto: texto.slice(0, 200), prioridad },
       });
 
@@ -199,8 +206,8 @@ export default async function handler(req, res) {
         const emoji = tipo === 'incidencia' ? '🔧' : '📦';
         const titulo = tipo === 'incidencia' ? 'Nueva incidencia' : 'Se ha acabado algo';
         await avisarTelegram(conEnlacePanel(
-          `${emoji} ${titulo} en ${escTelegram(centro)}: ${escTelegram(texto)}.\n(${escTelegram(b.autor || 'Sin autor')})`,
-          centro
+          `${emoji} ${titulo} en ${escTelegram(centroResuelto)}: ${escTelegram(texto)}.\n(${escTelegram(b.autor || 'Sin autor')})`,
+          centroResuelto
         ));
       }
 

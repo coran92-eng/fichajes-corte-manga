@@ -3,7 +3,7 @@ import {
   initSchema, getCentroCfg, esRedAutorizada, ipDeReq, huellaRed, auditar,
   emitirTokenQr, validarTokenQr, hayQrConfigurado, exigirQr,
   idDispositivo, esEncargadoOSuperior, verificarPin,
-  esDispositivoConfianza, hayDispositivosDeConfianza,
+  esDispositivoConfianza, hayDispositivosDeConfianza, centroDeEmpleado,
 } from "./_tareas-lib.js";
 import { avisarTelegram, escTelegram, conEnlacePanel } from "./_telegram.js";
 
@@ -302,9 +302,11 @@ async function avisarDispositivoCompartido(db, req, cfg, { empleado, centro, dev
   if (!device_id || esDispositivoConfianza(req, cfg)) return;
 
   try {
+    // Comparación normalizada: "Albert" y "albert" son la misma persona
+    // escrita distinto, no un móvil compartido entre dos personas.
     const otro = await db.execute({
       sql: `SELECT DISTINCT empleado FROM fichajes
-            WHERE device_id = ? AND empleado <> ? AND id < ?
+            WHERE device_id = ? AND LOWER(TRIM(empleado)) <> LOWER(TRIM(?)) AND id < ?
             LIMIT 1`,
       args: [device_id, empleado, id_actual],
     });
@@ -316,7 +318,7 @@ async function avisarDispositivoCompartido(db, req, cfg, { empleado, centro, dev
     // sabemos que sí, es quien acabamos de encontrar). Si es así, ya se avisó
     // en su momento: no repetirlo en cada fichaje sucesivo del día.
     const parejaYaFormada = await db.execute({
-      sql: "SELECT 1 FROM fichajes WHERE device_id = ? AND empleado = ? AND id < ? LIMIT 1",
+      sql: "SELECT 1 FROM fichajes WHERE device_id = ? AND LOWER(TRIM(empleado)) = LOWER(TRIM(?)) AND id < ? LIMIT 1",
       args: [device_id, empleado, id_actual],
     });
     if (parejaYaFormada.rows.length) return;
@@ -399,7 +401,7 @@ async function resumenPanel(db, { centro, desde, hasta }) {
   try {
     cuadrante = await db.execute({
       sql: `SELECT empleado, fecha, hora_entrada, hora_salida FROM horarios
-            WHERE fecha >= ? AND fecha <= ? AND centro = ?
+            WHERE fecha >= ? AND fecha <= ? AND LOWER(TRIM(COALESCE(centro,''))) = LOWER(TRIM(?))
               AND LOWER(TRIM(COALESCE(estado,''))) <> 'rechazado'
             LIMIT 3000`,
       args: [fDesde, fHasta, centro || ''],
@@ -559,7 +561,7 @@ export default async function handler(req, res) {
     }
     else if (req.method === "POST") {
       const {
-        empleado, tipo, fecha, hora, timestamp, centro = '', hora_prevista = '',
+        empleado, tipo, fecha, hora, timestamp, centro: centroPedido = '', hora_prevista = '',
         password_responsable = '', motivo = '', qr = '', pin = '',
       } = req.body;
 
@@ -572,7 +574,10 @@ export default async function handler(req, res) {
       // es una decisión, no un requisito para que la app funcione.
       // Un fichaje sin centro no es válido: no se sabría a qué local pertenece,
       // y además se saltaría el código del bar, que va firmado por centro.
-      if (!centro && hayQrConfigurado()) {
+      // Se comprueba sobre lo que mandó el cliente, no sobre el resuelto: si no
+      // ha mandado nada no hay nada que resolver, y el mensaje de error sigue
+      // hablando de lo que faltó en la petición.
+      if (!centroPedido && hayQrConfigurado()) {
         return res.status(400).json({ error: "Falta el centro del fichaje" });
       }
 
@@ -580,9 +585,15 @@ export default async function handler(req, res) {
       let sinPinAutorizado = false;
       let ventanaQrUsada = null;
       let cfg = null;
+      // La ficha del empleado manda sobre lo que diga el cliente (§ centroDeEmpleado):
+      // si llega igual pero mal escrito gana la ficha, y así el fichaje, la
+      // auditoría y el aviso de Telegram quedan todos bajo el mismo nombre de
+      // centro que ya usa el resto de la app.
+      let centro = centroPedido;
 
-      if (centro) {
+      if (centroPedido) {
         await initSchema(db);
+        centro = await centroDeEmpleado(db, empleado, centroPedido);
         cfg = await getCentroCfg(db, centro);
         const red = esRedAutorizada(req, cfg);
 
@@ -611,6 +622,13 @@ export default async function handler(req, res) {
         // Y mientras no haya ningún aparato de confianza, no se exige nada:
         // nadie está enseñando el código todavía (ver `exigirQr`).
         if (exigirQr(req, cfg)) {
+          // Se valida contra el centro ya resuelto, no contra lo que mandó el
+          // cliente tal cual. No cambia la firma: firmaQr ya normaliza mayúsculas
+          // y espacios antes de firmar, y centroDeEmpleado nunca cambia QUÉ
+          // centro es, solo cómo se escribe (o, si de verdad es otro local
+          // -alguien cubriendo turno-, mantiene ese otro nombre tal cual lo pidió
+          // el cliente). El código que muestra el iPad se firma igual, así que un
+          // token válido antes lo sigue siendo ahora.
           const v = validarTokenQr(centro, qr);
           if (!v.ok) {
             return res.status(403).json({

@@ -1,7 +1,7 @@
 import { getDbClient } from "./_db.js";
 import {
   hashPin, esEncargadoOSuperior, pinYaEnUso, auditar, PIN_DIGITOS,
-  guardarPinAdmin, hayPinAdmin, esPinAdmin, nivelDesdeReq,
+  guardarPinAdmin, hayPinAdmin, esPinAdmin, nivelDesdeReq, centroCanonico,
 } from "./_tareas-lib.js";
 import crypto from "node:crypto";
 
@@ -146,9 +146,12 @@ export default async function handler(req, res) {
       if (!nombre || !nombre.trim()) {
         return res.status(400).json({ error: "Nombre requerido" });
       }
+      // Esta ficha es de donde el resto de la app saca a qué centro pertenece
+      // cada persona, así que aquí el nombre del centro tiene que quedar en su
+      // forma buena: lo que se guarde mal aquí se propaga a todo lo demás.
       await db.execute({
         sql: "INSERT OR IGNORE INTO empleados (nombre, centro, rol) VALUES (?, ?, ?)",
-        args: [nombre.trim(), centro, rol]
+        args: [nombre.trim(), await centroCanonico(db, centro), rol]
       });
       return res.status(201).json({ success: true });
     }
@@ -163,7 +166,7 @@ export default async function handler(req, res) {
       // Actualiza solo los campos presentes (para permitir cambiar rol sin tocar centro y viceversa)
       const sets = [];
       const args = [];
-      if (typeof centro === 'string') { sets.push("centro = ?"); args.push(centro); }
+      if (typeof centro === 'string') { sets.push("centro = ?"); args.push(await centroCanonico(db, centro)); }
       if (typeof rol === 'string')    { sets.push("rol = ?");    args.push(rol); }
 
       // El PIN lo genera el servidor y se enseña UNA vez: como se guarda

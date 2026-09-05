@@ -1,100 +1,16 @@
 import { getDbClient } from "./_db.js";
 import {
-  initSchema, getCentroCfg, fechaOperativaDe, resolverVentana, tocaEnFecha,
+  initSchema, getCentroCfg, fechaOperativaDe,
   verificarPin, turnoAbierto, estaEnDescanso, auditar, esEncargadoOSuperior,
   hashArchivo, purgarFotosCaducadas, RAFAGA_N, RAFAGA_MIN, HASH_LOOKBACK,
   validarTokenQr, esDispositivoConfianza, hayQrConfigurado,
-  quienEstaDentro, esDelRol,
+  quienEstaDentro, esDelRol, generarInstancias, marcarVencidas,
 } from "./_tareas-lib.js";
 import { avisarTelegram, avisarTelegramConFoto, escTelegram, conEnlacePanel } from "./_telegram.js";
 
 // Tope defensivo del tamaño de foto que aceptamos (el cliente reescala antes
 // de enviar). Evita reventar la fila de la base de datos.
 const MAX_FOTO_B64 = 700 * 1024;
-
-/** Genera las instancias del día si no existen (§5, generación perezosa). */
-async function generarInstancias(db, centro, fechaOperativa, cfg) {
-  const plantillas = await db.execute({
-    sql: `SELECT * FROM tarea_plantillas
-          WHERE vigente_hasta = '' AND activa = 1
-            AND (LOWER(TRIM(COALESCE(centro,''))) = LOWER(TRIM(?)) OR TRIM(COALESCE(centro,'')) = '')`,
-    args: [centro],
-  });
-
-  let creadas = 0;
-  for (const p of plantillas.rows) {
-    if (!tocaEnFecha(p.recurrencia, fechaOperativa)) continue;
-
-    const { inicioTs, finTs } = resolverVentana(fechaOperativa, p.ventana_inicio, p.ventana_fin, cfg);
-    // INSERT OR IGNORE + índice único ⇒ idempotente aunque se ejecute dos veces.
-    const r = await db.execute({
-      sql: `INSERT OR IGNORE INTO tarea_instancias
-            (plantilla_version_id, familia_id, centro, fecha_operativa,
-             ventana_inicio_ts, ventana_fin_ts, tolerancia_min, estado,
-             rol_responsable, origen, creado_en)
-            VALUES (?, ?, ?, ?, ?, ?, ?, 'PENDIENTE', ?, 'RECURRENTE', ?)`,
-      args: [p.id, p.familia_id, centro, fechaOperativa, inicioTs, finTs,
-             Number(p.tolerancia_min || 30), p.rol_responsable, Date.now()],
-    });
-    if (r.rowsAffected) creadas++;
-  }
-  return creadas;
-}
-
-/**
- * Marca como VENCIDA lo que pasó de ventana + tolerancia (§4.4, automático),
- * y avisa por Telegram de las que acaban de cruzar esa línea.
- *
- * El aviso sale una sola vez por tarea sin necesitar ninguna marca extra: se
- * busca ANTES de actualizar quién sigue en PENDIENTE y ya se ha pasado, se
- * cambia su estado, y solo esas se avisan. La próxima vez que se llame (esto
- * corre en cada visita a la pantalla de tareas) esas filas ya no están en
- * PENDIENTE, así que no vuelven a salir en la búsqueda ni se avisan dos veces.
- */
-async function marcarVencidas(db, centro, fechaOperativa) {
-  const vencidas = await db.execute({
-    sql: `SELECT i.id, p.nombre, p.criticidad, p.rol_responsable
-          FROM tarea_instancias i
-          JOIN tarea_plantillas p ON p.id = i.plantilla_version_id
-          WHERE LOWER(TRIM(COALESCE(i.centro,''))) = LOWER(TRIM(?))
-            AND i.fecha_operativa = ? AND i.estado = 'PENDIENTE'
-            AND (i.ventana_fin_ts + i.tolerancia_min * 60000) < ?`,
-    args: [centro, fechaOperativa, Date.now()],
-  });
-  if (!vencidas.rows.length) return;
-
-  const ids = vencidas.rows.map(r => r.id);
-  await db.execute({
-    sql: `UPDATE tarea_instancias SET estado = 'VENCIDA' WHERE id IN (${ids.map(() => '?').join(',')})`,
-    args: ids,
-  });
-
-  // Una sola consulta para todas las tareas vencidas de esta pasada, no una
-  // por tarea: quién está dentro no cambia entre una y otra.
-  const dentro = await quienEstaDentro(db, centro);
-
-  for (const t of vencidas.rows) {
-    const responsables = dentro.filter(p => esDelRol(t.rol_responsable, p.rol));
-    const lineaDentro = !dentro.length
-      ? 'Nadie fichado dentro ahora mismo.'
-      : responsables.length
-        ? `En el bar ahora mismo, de ${escTelegram((t.rol_responsable || '').toLowerCase())}: `
-          + responsables.map(p => escTelegram(p.nombre)).join(', ')
-        : `Nadie de ${escTelegram((t.rol_responsable || '').toLowerCase())} está en el bar ahora mismo `
-          + `(sí: ${dentro.map(p => escTelegram(p.nombre)).join(', ')}).`;
-
-    // Botón para resolverla sin entrar en el panel: útil para lo que de
-    // verdad no aplica hoy (cerrado por vacaciones, proveedor que no vino...).
-    await avisarTelegram(conEnlacePanel(
-      `⏰ <b>${escTelegram(t.nombre)}</b> se ha pasado de plazo sin hacerse`
-      + `${t.criticidad === 'BLOQUEANTE' ? ' — <b>bloqueante</b>' : ''} en ${escTelegram(centro)}.\n`
-      + lineaDentro,
-      centro
-    ), {
-      reply_markup: { inline_keyboard: [[{ text: '🚫 Marcar como no aplica', callback_data: `no_aplica:${t.id}` }]] },
-    });
-  }
-}
 
 // Tope de tareas que se listan al decir qué queda. El texto viaja como pie de
 // foto cuando la tarea lleva evidencia, y Telegram corta el pie a 1024.
@@ -541,7 +457,9 @@ export default async function handler(req, res) {
     const desdeRafaga = ahora - RAFAGA_MIN * 60000;
     const recientes = await db.execute({
       sql: `SELECT id FROM tarea_instancias
-            WHERE completada_por = ? AND centro = ? AND completada_ts_servidor >= ?`,
+            WHERE LOWER(TRIM(COALESCE(completada_por,''))) = LOWER(TRIM(?))
+              AND LOWER(TRIM(COALESCE(centro,''))) = LOWER(TRIM(?))
+              AND completada_ts_servidor >= ?`,
       args: [empleado, centro, desdeRafaga],
     });
     const esRafaga = recientes.rows.length + 1 > RAFAGA_N;
@@ -561,7 +479,9 @@ export default async function handler(req, res) {
       // Marca también las de la misma ráfaga para que el encargado las vea juntas.
       await db.execute({
         sql: `UPDATE tarea_instancias SET flag_rafaga = 1
-              WHERE completada_por = ? AND centro = ? AND completada_ts_servidor >= ?`,
+              WHERE LOWER(TRIM(COALESCE(completada_por,''))) = LOWER(TRIM(?))
+                AND LOWER(TRIM(COALESCE(centro,''))) = LOWER(TRIM(?))
+                AND completada_ts_servidor >= ?`,
         args: [empleado, centro, desdeRafaga],
       });
       await auditar(db, req, {

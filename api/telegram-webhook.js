@@ -18,7 +18,7 @@
 import { getDbClient } from "./_db.js";
 import {
   initSchema, getCentroCfg, fechaOperativaDe, epochDesdeLocal, auditar,
-  quienEstaDentro, esDelRol,
+  quienEstaDentro, esDelRol, generarInstancias, marcarVencidas,
 } from "./_tareas-lib.js";
 import {
   avisarTelegram, escTelegram, hayTelegramConfigurado,
@@ -84,6 +84,9 @@ function comandoDe(texto) {
   return primera.replace(/@\w+$/, '').toLowerCase();
 }
 
+/** Un texto por centro: Telegram corta los mensajes a 4096 caracteres, y
+ * juntar todos los centros en uno solo hacía que a partir de dos o tres el
+ * mensaje entero se perdiera. */
 async function resumenHoy() {
   const db = getDbClient();
   await initSchema(db);
@@ -95,6 +98,13 @@ async function resumenHoy() {
     const cfg = await getCentroCfg(db, centro);
     const hoy = fechaOperativaDe(Date.now(), cfg);
     const inicioHoyTs = epochDesdeLocal(hoy, cfg.inicio_jornada, cfg.zona_horaria);
+
+    // Las tareas del día se creaban solo al abrir la pantalla de tareas, así
+    // que si nadie había entrado en la app todavía, /hoy contestaba que no
+    // había ninguna dada de alta y una tarea pasada de plazo no se detectaba
+    // ni se avisaba. Preguntar por el día lo pone al día.
+    await generarInstancias(db, centro, hoy, cfg);
+    await marcarVencidas(db, centro, hoy);
 
     const r = await db.execute({
       sql: `SELECT i.estado, i.completada_por, i.motivo_no_aplica,
@@ -143,15 +153,22 @@ async function resumenHoy() {
     bloques.push(lineas.join('\n\n'));
   }
 
-  return bloques.length ? bloques.join('\n\n') : 'Ningún centro tiene tareas dadas de alta para hoy.';
+  return bloques;
 }
 
 async function manejarMensaje(message) {
   if (!esDelDueno(message.chat?.id)) return;
   if (comandoDe(message.text) !== '/hoy') return;
 
-  const texto = await resumenHoy();
-  await avisarTelegram(texto);
+  const bloques = await resumenHoy();
+  // Aunque no haya nada que contar hay que contestar algo: si el dueño escribe
+  // /hoy y no le llega nada, no sabe si es que no hay tareas o si el bot está
+  // roto.
+  if (!bloques.length) {
+    await avisarTelegram('Ningún centro tiene tareas ni fichajes para hoy todavía.');
+    return;
+  }
+  for (const bloque of bloques) await avisarTelegram(bloque);
 }
 
 /**
