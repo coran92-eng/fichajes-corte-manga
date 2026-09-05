@@ -45,6 +45,22 @@ export function escTelegram(s) {
 }
 
 /**
+ * Teclado fijo con lo que hoy se puede pedir al bot, para no tener que
+ * escribir el comando. A diferencia del bot de empleados, aquí no hay un
+ * paso de "vincular" donde mandarlo la primera vez —el dueño es un chat fijo,
+ * no alguien que se da de alta—, así que se cuelga de los dos sitios donde ya
+ * se le escribe de todas formas: la respuesta a /hoy y el resumen diario del
+ * cron, que le llega solo cada mañana sin que el dueño tenga que hacer nada.
+ * Vive aquí (no en telegram-webhook.js ni en aviso-diario.js) porque lo usan
+ * las dos rutas y no hay que duplicarlo entre ellas.
+ */
+export const TECLADO_DUENO = {
+  keyboard: [['📋 Resumen de hoy']],
+  resize_keyboard: true,
+  is_persistent: true,
+};
+
+/**
  * Bajo nivel: llama a un método cualquiera de la Bot API
  * (https://core.telegram.org/bots/api#available-methods) sin lanzar si algo
  * falla. Devuelve el JSON que responde Telegram, o null si no se pudo llamar

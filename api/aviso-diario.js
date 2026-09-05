@@ -2,7 +2,7 @@ import { getDbClient } from "./_db.js";
 import {
   initSchema, getCentroCfg, fechaOperativaDe, epochDesdeLocal, minutosDeHora, minutosTrabajados,
 } from "./_tareas-lib.js";
-import { avisarTelegram, escTelegram, hayTelegramConfigurado, conEnlacePanel } from "./_telegram.js";
+import { avisarTelegram, escTelegram, hayTelegramConfigurado, conEnlacePanel, TECLADO_DUENO } from "./_telegram.js";
 import { avisarEmpleado, hayBotEmpleadosConfigurado } from "./_telegram-empleados.js";
 
 const DIA_MS = 24 * 60 * 60 * 1000;
@@ -162,7 +162,11 @@ async function enviarResumenDiario(db, centro, cfg, ayer, inicioAyerTs, finAyerT
     lineas.push(`🚫 No fichó entrada aunque tenía horario: ${escTelegram(h.empleado)} (previsto ${String(h.hora_entrada).slice(0, 5)}–${String(h.hora_salida).slice(0, 5)})`);
   }
 
-  await avisarTelegram(conEnlacePanel(lineas.join('\n'), centro));
+  // El teclado de comandos va también aquí: es el mensaje que llega solo cada
+  // mañana, así que es donde el dueño lo ve aparecer sin tener que escribir
+  // nada primero (a diferencia del bot de empleados, aquí no hay un paso de
+  // "vincular" del que colgarlo).
+  await avisarTelegram(conEnlacePanel(lineas.join('\n'), centro), { reply_markup: TECLADO_DUENO });
 }
 
 /** Resumen de los últimos 7 días (horas + tareas + puntualidad), solo los lunes. */
@@ -236,7 +240,7 @@ async function enviarResumenSemanal(db, centro, cfg, ayer, finSemanaTs) {
     lineas.push(`🎯 ${puntuales} entradas puntuales, ${tardePuntualidad} tarde`);
   }
 
-  await avisarTelegram(conEnlacePanel(lineas.join('\n'), centro));
+  await avisarTelegram(conEnlacePanel(lineas.join('\n'), centro), { reply_markup: TECLADO_DUENO });
 }
 
 /**
