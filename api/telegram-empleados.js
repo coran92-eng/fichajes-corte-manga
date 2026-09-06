@@ -18,19 +18,29 @@
  *
  * Comandos, una vez vinculado (o los botones fijos de abajo del chat, que
  * mandan lo mismo sin tener que escribirlo):
- *   /horario → sus próximos turnos.
- *   /horas   → horas trabajadas esta semana y este mes.
- *   /tareas  → tareas de hoy de su rol en su centro.
- *   /salir   → desvincular esta conversación.
+ *   /horario   → sus próximos turnos.
+ *   /horas     → horas trabajadas esta semana y este mes.
+ *   /tareas    → tareas de hoy de su rol, con botones para completar las que
+ *                se pueden completar sin estar delante del código del bar.
+ *   /corregir  → pedir corregir un fichaje: AAAA-MM-DD tipo HH:MM motivo.
+ *   /incidencia, /falta → dejar aviso de algo roto o agotado.
+ *   /salir     → desvincular esta conversación.
+ *
+ * Completar tareas por Telegram: SOLO las de tipo CHECK, NUMERO o TEXTO. Las
+ * que llevan foto siguen exigiendo el código del bar (§ tareas.js) porque es
+ * la única prueba de que quien la hace está delante — eso no se puede
+ * replicar en un chat, así que no se intenta; se avisa de que hay que abrir
+ * la app. Además, cualquier tarea —lleve foto o no— exige turno abierto: no
+ * se puede completar nada sin haber fichado la entrada, igual que en la app.
  */
 import { getDbClient } from "./_db.js";
 import {
   initSchema, getCentroCfg, fechaOperativaDe, epochDesdeLocal, auditar,
   identificarPorPin, identificarPorTelegramChatId, vincularTelegram, desvincularTelegram,
-  minutosTrabajados, esDelRol, generarInstancias, marcarVencidas,
+  minutosTrabajados, esDelRol, generarInstancias, marcarVencidas, turnoAbierto,
 } from "./_tareas-lib.js";
-import { avisarEmpleado, hayBotEmpleadosConfigurado } from "./_telegram-empleados.js";
-import { escTelegram } from "./_telegram.js";
+import { avisarEmpleado, hayBotEmpleadosConfigurado, responderCallbackEmpleado } from "./_telegram-empleados.js";
+import { avisarTelegram, escTelegram, conEnlacePanel } from "./_telegram.js";
 
 // Mismo criterio que el tope de intentos de PIN de la app (§ auth.js): sin
 // esto, un PIN de 6 dígitos tampoco vale de mucho.
@@ -44,14 +54,19 @@ const EMOJI_ESTADO = {
 const AYUDA_TEXTO =
   '/horario — tus próximos turnos\n' +
   '/horas — las horas que llevas esta semana y este mes\n' +
-  '/tareas — las tareas de hoy de tu turno\n' +
+  '/tareas — las de hoy de tu turno, con botones para completar las que no llevan foto\n' +
+  '/corregir AAAA-MM-DD tipo HH:MM motivo — pedir corregir un fichaje\n' +
+  '   (tipo: entrada, salida, inicio_descanso o fin_descanso)\n' +
+  '/incidencia texto — avisar de algo roto o averiado\n' +
+  '/falta texto — avisar de que se ha acabado algo\n' +
   '/salir — desvincular esta conversación';
 
 // Botones fijos debajo del chat, para no tener que escribir el comando. Es
 // un teclado normal de Telegram (no botones inline sobre un mensaje): al
 // tocar uno, Telegram manda su texto tal cual, como si el empleado lo hubiera
 // escrito — por eso la clave de este mapa tiene que ser exactamente la
-// etiqueta del botón.
+// etiqueta del botón. /corregir, /incidencia y /falta se quedan fuera del
+// teclado fijo porque necesitan escribir algo detrás del comando.
 const BOTON_A_COMANDO = {
   '📅 Mi horario': '/horario',
   '🕐 Mis horas': '/horas',
@@ -77,6 +92,13 @@ async function auditarSuave(db, req, datos) {
 function comandoDe(texto) {
   const primera = String(texto || '').trim().split(/\s+/)[0] || '';
   return primera.replace(/@\w+$/, '').toLowerCase();
+}
+
+/** Todo lo que va después de la primera palabra, tal cual (sin recortar espacios internos). */
+function argumentosDe(texto) {
+  const limpio = String(texto || '').trim();
+  const i = limpio.indexOf(' ');
+  return i === -1 ? '' : limpio.slice(i + 1);
 }
 
 async function fallosPinRecientes(db, chatId) {
@@ -240,6 +262,21 @@ async function responderHoras(db, empleado, chatId, cfg) {
   await avisarEmpleado(chatId, `🕐 <b>Tus horas</b>\nEsta semana: ${horas(minSemana)} h\nEste mes: ${horas(minMes)} h`);
 }
 
+/** Nombre de tarea recortado para que quepa como etiqueta de botón (máx. 64 caracteres en Telegram). */
+function nombreParaBoton(nombre) {
+  const n = String(nombre || '');
+  return n.length > 35 ? `${n.slice(0, 32)}…` : n;
+}
+
+function lineaTareaListado(t) {
+  const emoji = EMOJI_ESTADO[t.estado] || '•';
+  let linea = `${emoji} ${escTelegram(t.nombre)}${t.criticidad === 'BLOQUEANTE' ? ' (bloqueante)' : ''}`;
+  const pendiente = t.estado === 'PENDIENTE' || t.estado === 'VENCIDA';
+  const llevaFoto = t.tipo_evidencia === 'FOTO' || t.tipo_evidencia === 'FOTO+NUMERO';
+  if (pendiente && llevaFoto) linea += ' — requiere estar en el bar, complétala desde la app';
+  return linea;
+}
+
 async function responderTareas(db, empleado, chatId, cfg) {
   const hoy = fechaOperativaDe(Date.now(), cfg);
   // Igual que /hoy del bot de gerencia: si nadie ha abierto la app todavía,
@@ -248,7 +285,7 @@ async function responderTareas(db, empleado, chatId, cfg) {
   await marcarVencidas(db, empleado.centro, hoy);
 
   const r = await db.execute({
-    sql: `SELECT i.estado, p.nombre, p.criticidad, p.rol_responsable
+    sql: `SELECT i.id, i.estado, p.nombre, p.criticidad, p.rol_responsable, p.tipo_evidencia
           FROM tarea_instancias i
           JOIN tarea_plantillas p ON p.id = i.plantilla_version_id
           WHERE LOWER(TRIM(COALESCE(i.centro,''))) = LOWER(TRIM(?))
@@ -264,10 +301,22 @@ async function responderTareas(db, empleado, chatId, cfg) {
   }
 
   const hechas = mias.filter(t => t.estado === 'COMPLETADA' || t.estado === 'COMPLETADA_TARDIA').length;
-  const lineas = mias.map(t =>
-    `${EMOJI_ESTADO[t.estado] || '•'} ${escTelegram(t.nombre)}${t.criticidad === 'BLOQUEANTE' ? ' (bloqueante)' : ''}`
-  );
-  await avisarEmpleado(chatId, `📋 <b>Tareas de hoy</b> (${hechas}/${mias.length} hechas)\n${lineas.join('\n')}`);
+  const lineas = mias.map(lineaTareaListado);
+
+  // Botón por tarea completable sin foto — las que llevan foto no lo tienen,
+  // porque completarlas exige el código del bar y eso no se puede hacer
+  // desde un chat.
+  const botones = [];
+  for (const t of mias) {
+    if (t.estado !== 'PENDIENTE' && t.estado !== 'VENCIDA') continue;
+    const etiqueta = nombreParaBoton(t.nombre);
+    if (t.tipo_evidencia === 'CHECK') botones.push([{ text: `✅ ${etiqueta}`, callback_data: `tgcompletar:${t.id}` }]);
+    else if (t.tipo_evidencia === 'NUMERO') botones.push([{ text: `✏️ ${etiqueta}`, callback_data: `tgnumero:${t.id}` }]);
+    else if (t.tipo_evidencia === 'TEXTO') botones.push([{ text: `✏️ ${etiqueta}`, callback_data: `tgtexto:${t.id}` }]);
+  }
+
+  const texto = `📋 <b>Tareas de hoy</b> (${hechas}/${mias.length} hechas)\n${lineas.join('\n')}`;
+  await avisarEmpleado(chatId, texto, botones.length ? { reply_markup: { inline_keyboard: botones } } : {});
 }
 
 async function desvincular(db, req, empleado, chatId) {
@@ -281,6 +330,275 @@ async function desvincular(db, req, empleado, chatId) {
     { reply_markup: { remove_keyboard: true } }
   );
 }
+
+// ── Completar tareas sin foto desde el chat ───────────────────
+// Un pendiente por chat (no hace falta más: un empleado hace una cosa cada
+// vez). Vive en su propia tabla, no en _tareas-lib.js, porque es un detalle
+// de este bot, no algo que necesite ninguna otra ruta.
+let pendientesListo = false;
+async function initPendientes(db) {
+  if (pendientesListo) return;
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS telegram_tarea_pendiente (
+      chat_id TEXT PRIMARY KEY,
+      instancia_id INTEGER NOT NULL,
+      tipo TEXT NOT NULL,
+      creado_en INTEGER NOT NULL
+    )
+  `);
+  pendientesListo = true;
+}
+
+async function guardarPendiente(db, chatId, instanciaId, tipo) {
+  await initPendientes(db);
+  await db.execute({
+    sql: `INSERT INTO telegram_tarea_pendiente (chat_id, instancia_id, tipo, creado_en) VALUES (?, ?, ?, ?)
+          ON CONFLICT(chat_id) DO UPDATE SET instancia_id = excluded.instancia_id, tipo = excluded.tipo, creado_en = excluded.creado_en`,
+    args: [String(chatId), instanciaId, tipo, Date.now()],
+  });
+}
+
+async function limpiarPendiente(db, chatId) {
+  await initPendientes(db);
+  await db.execute({ sql: `DELETE FROM telegram_tarea_pendiente WHERE chat_id = ?`, args: [String(chatId)] });
+}
+
+/**
+ * Completa una tarea sin foto (CHECK/NUMERO/TEXTO), con las mismas reglas
+ * que tareas.js: no se puede repetir, no se puede si está marcada No aplica,
+ * y hace falta turno abierto —igual que en la app, no distingue si el móvil
+ * es el del bar o el propio—. No repite la detección de ráfaga de tareas.js
+ * (§8.3): aquí es un aviso informativo para revisar después, no una regla
+ * que tuviera que bloquear nada, así que se deja fuera para no duplicar esa
+ * lógica en dos sitios.
+ */
+async function completarTarea(db, req, empleado, instanciaId, extra = {}) {
+  const insR = await db.execute({
+    sql: `SELECT i.*, p.nombre, p.tipo_evidencia, p.evidencia_config, p.criticidad, p.rol_responsable
+          FROM tarea_instancias i
+          JOIN tarea_plantillas p ON p.id = i.plantilla_version_id
+          WHERE i.id = ?`,
+    args: [instanciaId],
+  });
+  if (!insR.rows.length) return { error: 'Esa tarea ya no existe.' };
+  const t = insR.rows[0];
+
+  if (t.tipo_evidencia === 'FOTO' || t.tipo_evidencia === 'FOTO+NUMERO') {
+    return { error: 'Esta tarea lleva foto: hace falta el código del bar, complétala desde la app.' };
+  }
+  if (t.estado === 'COMPLETADA' || t.estado === 'COMPLETADA_TARDIA') return { error: 'Esa tarea ya estaba completada.' };
+  if (t.estado === 'NO_APLICA') return { error: 'Esa tarea está marcada como no aplica.' };
+
+  const centro = t.centro || empleado.centro || '';
+  const abierto = await turnoAbierto(db, empleado.nombre, centro);
+  if (!abierto) return { error: 'Tienes que fichar tu entrada antes de poder completar tareas.' };
+
+  const ahora = Date.now();
+  const inicioTs = Number(t.ventana_inicio_ts);
+  const finTs = Number(t.ventana_fin_ts);
+  const limite = finTs + Number(t.tolerancia_min || 30) * 60000;
+  let estadoFinal = 'COMPLETADA';
+  let fueraDePlazo = false;
+  if (ahora < inicioTs) fueraDePlazo = true;
+  else if (ahora > limite) { fueraDePlazo = true; estadoFinal = 'COMPLETADA_TARDIA'; }
+  else if (ahora > finTs) fueraDePlazo = true;
+
+  let evidenciaId = null;
+  if (t.tipo_evidencia === 'NUMERO') {
+    if (extra.valor_numerico === undefined) return { error: 'Esta tarea necesita un número.' };
+    const v = Number(extra.valor_numerico);
+    if (Number.isNaN(v)) return { error: 'Eso no parece un número válido.' };
+    let cfg = {};
+    try { cfg = JSON.parse(t.evidencia_config || '{}'); } catch {}
+    const fueraRango = (cfg.min !== undefined && v < Number(cfg.min)) || (cfg.max !== undefined && v > Number(cfg.max));
+    const ev = await db.execute({
+      sql: `INSERT INTO evidencias
+            (tarea_instancia_id, familia_id, tipo, valor_numerico, unidad, texto, origen_captura, sospechosa, device_id, ts_servidor, metadatos)
+            VALUES (?, ?, 'NUMERO', ?, ?, '', 'telegram', 0, ?, ?, ?)`,
+      args: [instanciaId, t.familia_id, v, cfg.unidad || '', `tg:${empleado.nombre}`, ahora, JSON.stringify({ fuera_rango: !!fueraRango })],
+    });
+    evidenciaId = Number(ev.lastInsertRowid);
+    if (fueraRango) {
+      await auditar(db, req, {
+        tipo_evento: 'VALOR_FUERA_DE_RANGO', entidad: 'tarea_instancias', entidad_id: instanciaId,
+        empleado: empleado.nombre, centro, payload: { valor: v, config: t.evidencia_config, tarea: t.nombre },
+      });
+    }
+  } else if (t.tipo_evidencia === 'TEXTO') {
+    const texto = String(extra.texto || '').trim();
+    if (!texto) return { error: 'Esta tarea necesita una anotación.' };
+    const ev = await db.execute({
+      sql: `INSERT INTO evidencias
+            (tarea_instancia_id, familia_id, tipo, texto, origen_captura, sospechosa, device_id, ts_servidor, metadatos)
+            VALUES (?, ?, 'TEXTO', ?, 'telegram', 0, ?, ?, '{}')`,
+      args: [instanciaId, t.familia_id, texto, `tg:${empleado.nombre}`, ahora],
+    });
+    evidenciaId = Number(ev.lastInsertRowid);
+  }
+
+  await db.execute({
+    sql: `UPDATE tarea_instancias
+          SET estado = ?, completada_por = ?, completada_ts_servidor = ?, fuera_de_plazo = ?, evidencia_id = ?
+          WHERE id = ?`,
+    args: [estadoFinal, empleado.nombre, ahora, fueraDePlazo ? 1 : 0, evidenciaId, instanciaId],
+  });
+
+  await auditar(db, req, {
+    tipo_evento: 'TAREA_COMPLETADA', entidad: 'tarea_instancias', entidad_id: instanciaId,
+    empleado: empleado.nombre, centro,
+    payload: { estado: estadoFinal, tarea: t.nombre, fuera_de_plazo: fueraDePlazo, rol_tarea: t.rol_responsable, origen_ui: 'telegram' },
+  });
+
+  // Mismo aviso al dueño que si se hubiera completado desde la app: el canal
+  // de origen no debería cambiar lo que él ve.
+  const horaTexto = new Intl.DateTimeFormat('es-ES', { timeZone: 'Europe/Madrid', hour: '2-digit', minute: '2-digit' }).format(ahora);
+  await avisarTelegram(conEnlacePanel(
+    `✅ <b>${escTelegram(t.nombre)}</b> completada por ${escTelegram(empleado.nombre)} a las ${horaTexto} (por Telegram)`
+    + (fueraDePlazo ? ' — fuera de plazo ⚠️' : ''),
+    centro
+  ));
+
+  return { ok: true, estado: estadoFinal, nombre: t.nombre };
+}
+
+async function intentarCompletarPendiente(db, req, empleado, chatId, texto) {
+  await initPendientes(db);
+  const p = await db.execute({ sql: `SELECT instancia_id, tipo FROM telegram_tarea_pendiente WHERE chat_id = ?`, args: [String(chatId)] });
+  if (!p.rows.length) return false;
+
+  const { instancia_id, tipo } = p.rows[0];
+  await limpiarPendiente(db, chatId);
+  const extra = tipo === 'numero' ? { valor_numerico: texto.trim().replace(',', '.') } : { texto };
+  const r = await completarTarea(db, req, empleado, instancia_id, extra);
+  await avisarEmpleado(chatId, r.error ? `❌ ${r.error}` : `✅ <b>${escTelegram(r.nombre)}</b> registrada.`);
+  return true;
+}
+
+// ── Solicitud de corrección de fichaje desde el chat ──────────
+const TIPOS_FICHAJE_CORREGIR = ['entrada', 'salida', 'inicio_descanso', 'fin_descanso'];
+
+async function initSolicitudes(db) {
+  // Copia exacta del esquema de api/solicitudes.js: cualquiera de las dos
+  // rutas puede ser la primera en tocar esta tabla.
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS solicitudes (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      empleado TEXT NOT NULL,
+      centro TEXT NOT NULL DEFAULT '',
+      tipo_solicitud TEXT NOT NULL,
+      fichaje_id INTEGER,
+      tipo_fichaje TEXT NOT NULL,
+      fecha TEXT NOT NULL,
+      hora_original TEXT NOT NULL DEFAULT '',
+      hora_propuesta TEXT NOT NULL DEFAULT '',
+      motivo TEXT NOT NULL,
+      estado TEXT NOT NULL DEFAULT 'pendiente',
+      nota_admin TEXT NOT NULL DEFAULT '',
+      creado_en INTEGER NOT NULL,
+      resuelto_en INTEGER
+    )
+  `);
+}
+
+async function crearSolicitudCorreccion(db, req, empleado, chatId, argumentos) {
+  const partes = argumentos.trim().split(/\s+/).filter(Boolean);
+  const usoTexto =
+    'Formato: /corregir AAAA-MM-DD tipo HH:MM motivo\n' +
+    'Tipo puede ser: entrada, salida, inicio_descanso o fin_descanso.\n' +
+    'Ejemplo: /corregir 2026-09-05 salida 14:30 se me olvidó fichar la salida';
+
+  if (partes.length < 4) { await avisarEmpleado(chatId, usoTexto); return; }
+  const [fecha, tipoFichaje, hora, ...restoMotivo] = partes;
+  const motivo = restoMotivo.join(' ').trim();
+
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(fecha)) { await avisarEmpleado(chatId, `❌ La fecha debe ser AAAA-MM-DD.\n\n${usoTexto}`); return; }
+  if (!TIPOS_FICHAJE_CORREGIR.includes(tipoFichaje)) {
+    await avisarEmpleado(chatId, `❌ El tipo debe ser uno de: ${TIPOS_FICHAJE_CORREGIR.join(', ')}.\n\n${usoTexto}`);
+    return;
+  }
+  if (!/^\d{1,2}:\d{2}$/.test(hora)) { await avisarEmpleado(chatId, `❌ La hora debe ser HH:MM.\n\n${usoTexto}`); return; }
+  if (!motivo) { await avisarEmpleado(chatId, `❌ Falta el motivo.\n\n${usoTexto}`); return; }
+
+  await initSolicitudes(db);
+  const centro = empleado.centro || '';
+  const r = await db.execute({
+    sql: `INSERT INTO solicitudes (empleado, centro, tipo_solicitud, tipo_fichaje, fecha, hora_propuesta, motivo, estado, creado_en)
+          VALUES (?, ?, 'modificar', ?, ?, ?, ?, 'pendiente', ?)`,
+    args: [empleado.nombre, centro, tipoFichaje, fecha, `${hora}:00`, motivo, Date.now()],
+  });
+
+  await auditar(db, req, {
+    tipo_evento: 'SOLICITUD_CREADA', entidad: 'solicitudes', entidad_id: r.lastInsertRowid?.toString(),
+    empleado: empleado.nombre, centro, payload: { tipo_fichaje: tipoFichaje, fecha, hora_propuesta: hora, origen: 'telegram' },
+  });
+
+  await avisarTelegram(conEnlacePanel(
+    `✏️ <b>${escTelegram(empleado.nombre)}</b> ha pedido corregir su ${escTelegram(tipoFichaje.replace(/_/g, ' '))} `
+    + `del ${fecha} a las ${escTelegram(hora)} (por Telegram).\nMotivo: ${escTelegram(motivo)}`,
+    centro
+  ));
+  await avisarEmpleado(chatId, '✅ Solicitud enviada. Te aviso en cuanto se resuelva.');
+}
+
+// ── Incidencias y faltas desde el chat ─────────────────────────
+async function initTurnoNotas(db) {
+  // Copia exacta del esquema de api/turno-notas.js, por la misma razón que
+  // initSolicitudes: cualquiera de las dos rutas puede llegar primero.
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS turno_notas (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      centro TEXT NOT NULL DEFAULT '',
+      fecha_operativa TEXT NOT NULL,
+      tipo TEXT NOT NULL DEFAULT 'nota',
+      texto TEXT NOT NULL,
+      autor TEXT NOT NULL DEFAULT '',
+      prioridad TEXT NOT NULL DEFAULT 'normal',
+      estado TEXT NOT NULL DEFAULT '',
+      resuelto_por TEXT NOT NULL DEFAULT '',
+      resuelto_en INTEGER,
+      resolucion TEXT NOT NULL DEFAULT '',
+      foto_b64 TEXT,
+      hash_sha256 TEXT NOT NULL DEFAULT '',
+      device_id TEXT NOT NULL DEFAULT '',
+      creado_en INTEGER NOT NULL
+    )
+  `);
+}
+
+async function crearNotaTurno(db, req, empleado, cfg, chatId, tipo, argumentos) {
+  const texto = String(argumentos || '').trim();
+  const ejemplo = tipo === 'incidencia'
+    ? 'Ejemplo: /incidencia se ha roto el grifo de la barra'
+    : 'Ejemplo: /falta hielo';
+  if (!texto) { await avisarEmpleado(chatId, `Escribe qué pasa después del comando.\n${ejemplo}`); return; }
+  if (texto.length > 1000) { await avisarEmpleado(chatId, '❌ Ese texto es demasiado largo.'); return; }
+
+  await initTurnoNotas(db);
+  const centro = empleado.centro || '';
+  const fechaOperativa = fechaOperativaDe(Date.now(), cfg);
+
+  const r = await db.execute({
+    sql: `INSERT INTO turno_notas (centro, fecha_operativa, tipo, texto, autor, prioridad, estado, creado_en)
+          VALUES (?, ?, ?, ?, ?, 'normal', 'abierta', ?)`,
+    args: [centro, fechaOperativa, tipo, texto, empleado.nombre, Date.now()],
+  });
+
+  await auditar(db, req, {
+    tipo_evento: tipo === 'incidencia' ? 'INCIDENCIA_ABIERTA' : 'FALTA_PRODUCTO',
+    entidad: 'turno_notas', entidad_id: r.lastInsertRowid?.toString(),
+    empleado: empleado.nombre, centro, payload: { texto: texto.slice(0, 200), origen: 'telegram' },
+  });
+
+  const emoji = tipo === 'incidencia' ? '🔧' : '📦';
+  const titulo = tipo === 'incidencia' ? 'Nueva incidencia' : 'Se ha acabado algo';
+  await avisarTelegram(conEnlacePanel(
+    `${emoji} ${titulo} en ${escTelegram(centro)}: ${escTelegram(texto)} (por Telegram).\n(${escTelegram(empleado.nombre)})`,
+    centro
+  ));
+  await avisarEmpleado(chatId, '✅ Anotado. Gracias.');
+}
+
+// ── Dispatch ────────────────────────────────────────────────────
 
 async function manejarMensaje(db, req, message) {
   const chatId = message.chat?.id;
@@ -298,9 +616,24 @@ async function manejarMensaje(db, req, message) {
     return;
   }
 
+  const esBoton = !!BOTON_A_COMANDO[texto];
+  const esComando = texto.startsWith('/');
+
+  // Si había una tarea de NUMERO o TEXTO esperando respuesta, cualquier texto
+  // normal se interpreta como esa respuesta — salvo que sea justo un comando
+  // o un botón, que se entiende como que la persona ha cambiado de tema.
+  if (!esBoton && !esComando) {
+    const atendido = await intentarCompletarPendiente(db, req, empleado, chatId, texto);
+    if (atendido) return;
+  } else {
+    await limpiarPendiente(db, chatId);
+  }
+
   // Un botón del teclado manda su etiqueta tal cual, como si se hubiera
   // escrito el comando a mano.
   const comando = BOTON_A_COMANDO[texto] || comandoDe(texto);
+  const argumentos = argumentosDe(texto);
+
   if (comando === '/salir') return desvincular(db, req, empleado, chatId);
   if (comando === '/ayuda' || comando === '/start') return enviarAyuda(chatId, empleado);
 
@@ -308,8 +641,43 @@ async function manejarMensaje(db, req, message) {
   if (comando === '/horario') return responderHorario(db, empleado, chatId);
   if (comando === '/horas') return responderHoras(db, empleado, chatId, cfg);
   if (comando === '/tareas') return responderTareas(db, empleado, chatId, cfg);
+  if (comando === '/corregir') return crearSolicitudCorreccion(db, req, empleado, chatId, argumentos);
+  if (comando === '/incidencia') return crearNotaTurno(db, req, empleado, cfg, chatId, 'incidencia', argumentos);
+  if (comando === '/falta') return crearNotaTurno(db, req, empleado, cfg, chatId, 'falta', argumentos);
 
   return enviarAyuda(chatId, empleado);
+}
+
+async function manejarCallback(db, req, callbackQuery) {
+  const chatId = callbackQuery.message?.chat?.id;
+  if (chatId === undefined || chatId === null) return;
+
+  const empleado = await identificarPorTelegramChatId(db, chatId);
+  if (!empleado) {
+    await responderCallbackEmpleado(callbackQuery.id, 'Vincúlate primero escribiendo tu PIN.');
+    return;
+  }
+
+  const datos = String(callbackQuery.data || '');
+  const [accion, idTexto] = datos.split(':');
+  const instanciaId = Number(idTexto);
+  if (!Number.isFinite(instanciaId)) {
+    await responderCallbackEmpleado(callbackQuery.id);
+    return;
+  }
+
+  if (accion === 'tgcompletar') {
+    const r = await completarTarea(db, req, empleado, instanciaId, {});
+    await responderCallbackEmpleado(callbackQuery.id, r.error ? `❌ ${r.error}` : '✅ Hecho');
+    return;
+  }
+  if (accion === 'tgnumero' || accion === 'tgtexto') {
+    await guardarPendiente(db, chatId, instanciaId, accion === 'tgnumero' ? 'numero' : 'texto');
+    await responderCallbackEmpleado(callbackQuery.id, accion === 'tgnumero' ? 'Mándame el número' : 'Mándame el texto');
+    await avisarEmpleado(chatId, accion === 'tgnumero' ? '✏️ Escribe el número para esa tarea.' : '✏️ Escribe la anotación para esa tarea.');
+    return;
+  }
+  await responderCallbackEmpleado(callbackQuery.id);
 }
 
 export default async function handler(req, res) {
@@ -332,7 +700,8 @@ export default async function handler(req, res) {
 
   const update = req.body || {};
   try {
-    if (update.message?.text) await manejarMensaje(db, req, update.message);
+    if (update.callback_query) await manejarCallback(db, req, update.callback_query);
+    else if (update.message?.text) await manejarMensaje(db, req, update.message);
     // Siempre 200: Telegram reintenta el mismo update si no responde rápido.
     return res.status(200).json({ ok: true });
   } catch (error) {
