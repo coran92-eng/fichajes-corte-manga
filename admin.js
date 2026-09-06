@@ -273,8 +273,72 @@ window.cargarEstadoRed = async function() {
                 ${d.dispositivos.length > 1
                     ? `<div style="font-size:12px;color:#9ca3af;margin-top:8px">${d.dispositivos.length} aparatos de confianza en este centro.</div>` : ''}
             </div>`;
+
+        // ── Fichar por Telegram, compartiendo ubicación ──
+        const ubiTxt = d.ubicacion_configurada
+            ? `<span style="color:#059669">✓ Activado. Radio: ${d.radio_fichaje_m} m.</span>`
+            : '<span style="color:#6b7280">Desactivado: el equipo no puede fichar por Telegram todavía.</span>';
+        lista.innerHTML += `
+            <div style="margin-top:16px;padding-top:14px;border-top:1px solid #e5e7eb">
+                <div style="font-size:12px;font-weight:700;color:#6b7280;margin-bottom:5px">FICHAR POR TELEGRAM (UBICACIÓN)</div>
+                <div style="font-size:13px;line-height:1.5;margin-bottom:10px">${ubiTxt}</div>
+                <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+                    <label style="font-size:12px;color:#6b7280">Radio (m)
+                        <input type="number" id="radioFichajeTelegram" min="20" max="1000" value="${d.radio_fichaje_m}"
+                               style="width:70px;padding:4px 6px;border:1px solid #d1d5db;border-radius:6px;font-size:12px">
+                    </label>
+                    <button type="button" onclick="window.marcarUbicacionCentro()"
+                            style="border:none;background:#7c3aed;color:white;border-radius:6px;padding:6px 12px;font-size:12px;cursor:pointer;font-weight:600">
+                        Usar mi ubicación actual como la del local
+                    </button>
+                    ${d.ubicacion_configurada
+                        ? `<button type="button" onclick="window.quitarUbicacionCentro()" style="border:1px solid #fca5a5;background:none;color:#b91c1c;border-radius:6px;padding:6px 12px;font-size:12px;cursor:pointer;font-weight:600">Desactivar</button>`
+                        : ''}
+                </div>
+                <div style="font-size:12px;color:#9ca3af;margin-top:6px">Hazlo estando dentro del local: la ubicación que compartas ahora es la que se usará para comparar la de cada fichaje por Telegram.</div>
+            </div>`;
     } catch {
         estado.textContent = 'No se pudo comprobar la red';
+    }
+};
+
+window.marcarUbicacionCentro = function() {
+    const centro = document.getElementById('redCentro').value;
+    if (!navigator.geolocation) { mostrarMensaje('✗ Este navegador no puede obtener la ubicación', 'error'); return; }
+    const radio = Number(document.getElementById('radioFichajeTelegram')?.value || 150);
+    mostrarMensaje('Obteniendo tu ubicación...', 'info');
+    navigator.geolocation.getCurrentPosition(async (pos) => {
+        try {
+            const res = await fetch(`/api/red-local?recurso=ubicacion&centro=${encodeURIComponent(centro)}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'X-Auth-Token': tokenAdmin() },
+                body: JSON.stringify({ lat: pos.coords.latitude, lng: pos.coords.longitude, radio_m: radio }),
+            });
+            if (siNoAutorizado(res, 'login.html')) return;
+            const d = await res.json().catch(() => ({}));
+            if (!res.ok) { mostrarMensaje(`✗ ${d.error || 'No se ha podido guardar'}`, 'error'); return; }
+            mostrarMensaje('✓ Ubicación del local guardada', 'success');
+            window.cargarEstadoRed();
+        } catch {
+            mostrarMensaje('✗ Error de conexión', 'error');
+        }
+    }, () => {
+        mostrarMensaje('✗ No se ha podido obtener tu ubicación. Revisa los permisos del navegador.', 'error');
+    }, { enableHighAccuracy: true, timeout: 10000 });
+};
+
+window.quitarUbicacionCentro = async function() {
+    const centro = document.getElementById('redCentro').value;
+    if (!confirm('¿Desactivar el fichaje por Telegram para este centro?')) return;
+    try {
+        const res = await fetch(`/api/red-local?recurso=ubicacion&centro=${encodeURIComponent(centro)}`, {
+            method: 'DELETE', headers: { 'X-Auth-Token': tokenAdmin() },
+        });
+        if (siNoAutorizado(res, 'login.html')) return;
+        mostrarMensaje('Fichaje por Telegram desactivado', 'success');
+        window.cargarEstadoRed();
+    } catch {
+        mostrarMensaje('✗ Error de conexión', 'error');
     }
 };
 

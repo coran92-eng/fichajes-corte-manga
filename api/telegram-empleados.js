@@ -22,6 +22,7 @@
  *   /horas     → horas trabajadas esta semana y este mes.
  *   /tareas    → tareas de hoy de su rol, con botones para completar las que
  *                se pueden completar sin estar delante del código del bar.
+ *   /fichar    → fichar compartiendo ubicación, si el centro lo tiene activado.
  *   /corregir  → pedir corregir un fichaje: AAAA-MM-DD tipo HH:MM motivo.
  *   /incidencia, /falta → dejar aviso de algo roto o agotado.
  *   /salir     → desvincular esta conversación.
@@ -32,12 +33,23 @@
  * replicar en un chat, así que no se intenta; se avisa de que hay que abrir
  * la app. Además, cualquier tarea —lleve foto o no— exige turno abierto: no
  * se puede completar nada sin haber fichado la entrada, igual que en la app.
+ *
+ * Fichar por Telegram (/fichar): solo si gerencia ha activado la ubicación
+ * del centro (panel → Redes y dispositivos). Se compara la ubicación que
+ * comparte el empleado contra la del local con la fórmula de Haversine; si
+ * queda fuera del radio configurado, o si el mensaje de ubicación viene
+ * reenviado (no compartido en el momento), no se registra nada. Es un
+ * modelo de confianza DISTINTO al de la app (red del bar + código QR
+ * rotatorio): más cómodo, pero también falsificable con apps de ubicación
+ * falsa — es la decisión que se tomó conscientemente al activarlo, no un
+ * descuido.
  */
 import { getDbClient } from "./_db.js";
 import {
   initSchema, getCentroCfg, fechaOperativaDe, epochDesdeLocal, auditar,
   identificarPorPin, identificarPorTelegramChatId, vincularTelegram, desvincularTelegram,
-  minutosTrabajados, esDelRol, generarInstancias, marcarVencidas, turnoAbierto,
+  minutosTrabajados, esDelRol, generarInstancias, marcarVencidas, turnoAbierto, estaEnDescanso,
+  hayUbicacionConfigurada, distanciaMetros,
 } from "./_tareas-lib.js";
 import { avisarEmpleado, hayBotEmpleadosConfigurado, responderCallbackEmpleado } from "./_telegram-empleados.js";
 import { avisarTelegram, escTelegram, conEnlacePanel } from "./_telegram.js";
@@ -55,6 +67,7 @@ const AYUDA_TEXTO =
   '/horario — tus próximos turnos\n' +
   '/horas — las horas que llevas esta semana y este mes\n' +
   '/tareas — las de hoy de tu turno, con botones para completar las que no llevan foto\n' +
+  '/fichar — fichar compartiendo tu ubicación (si tu centro lo tiene activado)\n' +
   '/corregir AAAA-MM-DD tipo HH:MM motivo — pedir corregir un fichaje\n' +
   '   (tipo: entrada, salida, inicio_descanso o fin_descanso)\n' +
   '/incidencia texto — avisar de algo roto o averiado\n' +
@@ -71,13 +84,15 @@ const BOTON_A_COMANDO = {
   '📅 Mi horario': '/horario',
   '🕐 Mis horas': '/horas',
   '📋 Tareas de hoy': '/tareas',
+  '📍 Fichar': '/fichar',
   '🚪 Salir': '/salir',
 };
 
 const TECLADO_PRINCIPAL = {
   keyboard: [
     ['📅 Mi horario', '🕐 Mis horas'],
-    ['📋 Tareas de hoy', '🚪 Salir'],
+    ['📋 Tareas de hoy', '📍 Fichar'],
+    ['🚪 Salir'],
   ],
   resize_keyboard: true, // botones del tamaño del texto, no ocupando media pantalla
   is_persistent: true,   // se queda puesto; no hace falta reabrirlo en cada mensaje
@@ -474,6 +489,168 @@ async function intentarCompletarPendiente(db, req, empleado, chatId, texto) {
   return true;
 }
 
+// ── Fichar compartiendo ubicación ──────────────────────────────
+const VERBO_FICHAJE_LARGO = {
+  entrada: 'tu entrada', salida: 'tu salida',
+  inicio_descanso: 'el inicio de tu descanso', fin_descanso: 'la vuelta de tu descanso',
+};
+
+let fichajePendienteListo = false;
+async function initFichajePendiente(db) {
+  if (fichajePendienteListo) return;
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS telegram_fichaje_pendiente (
+      chat_id TEXT PRIMARY KEY,
+      tipo TEXT NOT NULL,
+      creado_en INTEGER NOT NULL
+    )
+  `);
+  fichajePendienteListo = true;
+}
+
+async function guardarFichajePendiente(db, chatId, tipo) {
+  await initFichajePendiente(db);
+  await db.execute({
+    sql: `INSERT INTO telegram_fichaje_pendiente (chat_id, tipo, creado_en) VALUES (?, ?, ?)
+          ON CONFLICT(chat_id) DO UPDATE SET tipo = excluded.tipo, creado_en = excluded.creado_en`,
+    args: [String(chatId), tipo, Date.now()],
+  });
+}
+
+async function limpiarFichajePendiente(db, chatId) {
+  await initFichajePendiente(db);
+  await db.execute({ sql: `DELETE FROM telegram_fichaje_pendiente WHERE chat_id = ?`, args: [String(chatId)] });
+}
+
+/** "10/09/2026" y "14:32:07" en la zona horaria del centro. */
+function fechaYHoraLocal(ts, tz) {
+  const fecha = new Intl.DateTimeFormat('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(ts));
+  const hora = new Intl.DateTimeFormat('en-GB', { timeZone: tz, hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }).format(new Date(ts));
+  return { fecha, hora };
+}
+
+/**
+ * Qué se puede fichar ahora mismo, según el último movimiento: sin turno
+ * abierto solo cabe la entrada; con turno abierto y sin descanso, salida o
+ * empezar el descanso; en descanso, solo volver de él. Mismas reglas que ya
+ * sigue la app, para no permitir aquí una secuencia que allí no se aceptaría.
+ */
+async function opcionesDeFichaje(db, empleado, centro) {
+  const abierto = await turnoAbierto(db, empleado.nombre, centro);
+  if (!abierto) return ['entrada'];
+  const enDescanso = await estaEnDescanso(db, empleado.nombre, centro);
+  return enDescanso ? ['fin_descanso'] : ['salida', 'inicio_descanso'];
+}
+
+async function iniciarFichaje(db, empleado, chatId, cfg) {
+  if (!hayUbicacionConfigurada(cfg)) {
+    await avisarEmpleado(chatId, 'El fichaje por Telegram no está activado para tu centro todavía. Sigue fichando desde el móvil o el iPad del bar.');
+    return;
+  }
+  const centro = cfg.centro || empleado.centro || '';
+  const opciones = await opcionesDeFichaje(db, empleado, centro);
+
+  if (opciones.length === 1) {
+    await guardarFichajePendiente(db, chatId, opciones[0]);
+    await avisarEmpleado(chatId,
+      `📍 Para fichar ${VERBO_FICHAJE_LARGO[opciones[0]]}, comparte tu ubicación: toca el clip 📎 → Ubicación → Enviar mi ubicación actual.`
+    );
+    return;
+  }
+
+  const ETIQUETA = { salida: '🔴 Salida', inicio_descanso: '☕ Iniciar descanso' };
+  await avisarEmpleado(chatId, '¿Qué quieres fichar?', {
+    reply_markup: { inline_keyboard: [opciones.map(t => ({ text: ETIQUETA[t], callback_data: `tgfichar:${t}` }))] },
+  });
+}
+
+async function pedirUbicacionParaFichaje(db, chatId, tipo) {
+  await guardarFichajePendiente(db, chatId, tipo);
+  await avisarEmpleado(chatId,
+    `📍 Para fichar ${VERBO_FICHAJE_LARGO[tipo]}, comparte tu ubicación: toca el clip 📎 → Ubicación → Enviar mi ubicación actual.`
+  );
+}
+
+/**
+ * Registra el fichaje si la ubicación compartida cae dentro del radio del
+ * centro. No es la app: aquí no hay red del bar ni código QR que demuestren
+ * presencia, así que esta comprobación ES la prueba de presencia — de ahí
+ * que se rechacen sin contemplaciones las ubicaciones reenviadas (alguien
+ * podría reenviarse a sí mismo una ubicación de otro momento) y las que
+ * caen fuera del radio, sin margen de duda.
+ */
+async function ficharPorUbicacion(db, req, empleado, chatId, message) {
+  await initFichajePendiente(db);
+  const p = await db.execute({ sql: `SELECT tipo FROM telegram_fichaje_pendiente WHERE chat_id = ?`, args: [String(chatId)] });
+  if (!p.rows.length) {
+    await avisarEmpleado(chatId, 'No te había pedido ninguna ubicación. Escribe /fichar primero.');
+    return;
+  }
+  const tipo = p.rows[0].tipo;
+
+  if (message.forward_date || message.forward_origin || message.forward_from) {
+    await avisarEmpleado(chatId, '❌ Esa ubicación viene reenviada, no compartida ahora mismo. No se ha registrado el fichaje.');
+    return;
+  }
+
+  const centro = empleado.centro || '';
+  const cfg = await getCentroCfg(db, centro);
+  if (!hayUbicacionConfigurada(cfg)) {
+    await limpiarFichajePendiente(db, chatId);
+    await avisarEmpleado(chatId, 'El fichaje por Telegram ya no está activado para tu centro.');
+    return;
+  }
+
+  const distancia = distanciaMetros(
+    message.location.latitude, message.location.longitude,
+    Number(cfg.ubicacion_lat), Number(cfg.ubicacion_lng)
+  );
+  if (distancia > cfg.radio_fichaje_m) {
+    // No se limpia el pendiente: puede ser un GPS impreciso momentáneo, y
+    // tiene sentido dejar que lo intente otra vez sin repetir /fichar.
+    await avisarEmpleado(chatId, `❌ Estás a ${Math.round(distancia)} m del local (máximo ${cfg.radio_fichaje_m} m). No se ha registrado el fichaje.`);
+    return;
+  }
+
+  // Puede que el estado haya cambiado entre /fichar y ahora (otro fichaje de
+  // por medio, o dos toques seguidos): se revalida antes de escribir nada.
+  const vigentes = await opcionesDeFichaje(db, empleado, centro);
+  if (!vigentes.includes(tipo)) {
+    await limpiarFichajePendiente(db, chatId);
+    await avisarEmpleado(chatId, 'Eso ya no encaja con tu turno actual. Escribe /fichar de nuevo.');
+    return;
+  }
+
+  await limpiarFichajePendiente(db, chatId);
+
+  const ahora = Date.now();
+  const { fecha, hora } = fechaYHoraLocal(ahora, cfg.zona_horaria);
+  const distanciaRedondeada = Math.round(distancia);
+  const result = await db.execute({
+    sql: `INSERT INTO fichajes (empleado, tipo, fecha, hora, timestamp, centro, device_id, motivo)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    args: [
+      empleado.nombre, tipo, fecha, hora, ahora, centro, `tg:${chatId}`,
+      `Fichado por Telegram compartiendo ubicación (a ${distanciaRedondeada} m del local).`,
+    ],
+  });
+
+  await auditar(db, req, {
+    tipo_evento: 'FICHAJE_POR_TELEGRAM', entidad: 'fichajes', entidad_id: result.lastInsertRowid?.toString(),
+    empleado: empleado.nombre, centro, device_id: `tg:${chatId}`,
+    payload: { tipo, distancia_m: distanciaRedondeada },
+  });
+
+  await avisarEmpleado(chatId, `✅ Registrado: ${VERBO_FICHAJE_LARGO[tipo]} a las ${hora.slice(0, 5)}.`);
+
+  const VERBO_CORTO = { entrada: 'entrada', salida: 'salida', inicio_descanso: 'inicio de descanso', fin_descanso: 'vuelta de descanso' };
+  await avisarTelegram(conEnlacePanel(
+    `📍 <b>${escTelegram(empleado.nombre)}</b> ha fichado su ${VERBO_CORTO[tipo]} a las ${hora.slice(0, 5)} por Telegram `
+    + `(a ${distanciaRedondeada} m del local).`,
+    centro
+  ));
+}
+
 // ── Solicitud de corrección de fichaje desde el chat ──────────
 const TIPOS_FICHAJE_CORREGIR = ['entrada', 'salida', 'inicio_descanso', 'fin_descanso'];
 
@@ -627,6 +804,7 @@ async function manejarMensaje(db, req, message) {
     if (atendido) return;
   } else {
     await limpiarPendiente(db, chatId);
+    await limpiarFichajePendiente(db, chatId);
   }
 
   // Un botón del teclado manda su etiqueta tal cual, como si se hubiera
@@ -644,6 +822,7 @@ async function manejarMensaje(db, req, message) {
   if (comando === '/corregir') return crearSolicitudCorreccion(db, req, empleado, chatId, argumentos);
   if (comando === '/incidencia') return crearNotaTurno(db, req, empleado, cfg, chatId, 'incidencia', argumentos);
   if (comando === '/falta') return crearNotaTurno(db, req, empleado, cfg, chatId, 'falta', argumentos);
+  if (comando === '/fichar') return iniciarFichaje(db, empleado, chatId, cfg);
 
   return enviarAyuda(chatId, empleado);
 }
@@ -660,6 +839,13 @@ async function manejarCallback(db, req, callbackQuery) {
 
   const datos = String(callbackQuery.data || '');
   const [accion, idTexto] = datos.split(':');
+
+  if (accion === 'tgfichar') {
+    await responderCallbackEmpleado(callbackQuery.id);
+    await pedirUbicacionParaFichaje(db, chatId, idTexto);
+    return;
+  }
+
   const instanciaId = Number(idTexto);
   if (!Number.isFinite(instanciaId)) {
     await responderCallbackEmpleado(callbackQuery.id);
@@ -678,6 +864,19 @@ async function manejarCallback(db, req, callbackQuery) {
     return;
   }
   await responderCallbackEmpleado(callbackQuery.id);
+}
+
+async function manejarUbicacion(db, req, message) {
+  const chatId = message.chat?.id;
+  if (chatId === undefined || chatId === null) return;
+
+  const empleado = await identificarPorTelegramChatId(db, chatId);
+  if (!empleado) {
+    await avisarEmpleado(chatId, '👋 Para empezar, escríbeme tu PIN (el mismo que usas para fichar o para las tareas).');
+    return;
+  }
+
+  await ficharPorUbicacion(db, req, empleado, chatId, message);
 }
 
 export default async function handler(req, res) {
@@ -701,6 +900,7 @@ export default async function handler(req, res) {
   const update = req.body || {};
   try {
     if (update.callback_query) await manejarCallback(db, req, update.callback_query);
+    else if (update.message?.location) await manejarUbicacion(db, req, update.message);
     else if (update.message?.text) await manejarMensaje(db, req, update.message);
     // Siempre 200: Telegram reintenta el mismo update si no responde rápido.
     return res.status(200).json({ ok: true });
