@@ -39,6 +39,12 @@ export async function initSchema(db) {
   try { await db.execute("ALTER TABLE centros_cfg ADD COLUMN ips_autorizadas TEXT NOT NULL DEFAULT ''"); } catch {}
   // Dispositivos exentos de leer el QR: el iPad del propio bar.
   try { await db.execute("ALTER TABLE centros_cfg ADD COLUMN dispositivos_confianza TEXT NOT NULL DEFAULT ''"); } catch {}
+  // Coordenadas del local, para fichar por Telegram compartiendo ubicación.
+  // Vacío ('') = esa vía no está activada para este centro — no hay valor por
+  // defecto que tenga sentido, hay que ponerlo a propósito.
+  try { await db.execute("ALTER TABLE centros_cfg ADD COLUMN ubicacion_lat TEXT NOT NULL DEFAULT ''"); } catch {}
+  try { await db.execute("ALTER TABLE centros_cfg ADD COLUMN ubicacion_lng TEXT NOT NULL DEFAULT ''"); } catch {}
+  try { await db.execute("ALTER TABLE centros_cfg ADD COLUMN radio_fichaje_m INTEGER NOT NULL DEFAULT 150"); } catch {}
 
   // Catálogo. Editar crea una versión nueva: nunca se modifica en caliente (§4.2).
   await db.execute(`
@@ -307,7 +313,9 @@ export function resolverVentana(fechaOperativa, horaInicio, horaFin, cfg) {
 /** Configuración del centro (crea la fila por defecto la primera vez). */
 export async function getCentroCfg(db, centro) {
   const r = await db.execute({
-    sql: "SELECT centro, inicio_jornada, zona_horaria, ips_autorizadas, dispositivos_confianza FROM centros_cfg WHERE LOWER(TRIM(centro)) = LOWER(TRIM(?))",
+    sql: `SELECT centro, inicio_jornada, zona_horaria, ips_autorizadas, dispositivos_confianza,
+                 ubicacion_lat, ubicacion_lng, radio_fichaje_m
+          FROM centros_cfg WHERE LOWER(TRIM(centro)) = LOWER(TRIM(?))`,
     args: [centro || ''],
   });
   if (r.rows.length) {
@@ -318,6 +326,9 @@ export async function getCentroCfg(db, centro) {
       zona_horaria: row.zona_horaria || TZ_DEFAULT,
       ips_autorizadas: row.ips_autorizadas || '',
       dispositivos_confianza: row.dispositivos_confianza || '',
+      ubicacion_lat: row.ubicacion_lat || '',
+      ubicacion_lng: row.ubicacion_lng || '',
+      radio_fichaje_m: Number(row.radio_fichaje_m) || 150,
     };
   }
   try {
@@ -329,7 +340,28 @@ export async function getCentroCfg(db, centro) {
   return {
     centro: centro || '', inicio_jornada: INICIO_JORNADA_DEFAULT,
     zona_horaria: TZ_DEFAULT, ips_autorizadas: '', dispositivos_confianza: '',
+    ubicacion_lat: '', ubicacion_lng: '', radio_fichaje_m: 150,
   };
+}
+
+/** ¿Tiene este centro configurada su ubicación, para poder fichar por Telegram? */
+export function hayUbicacionConfigurada(cfg) {
+  return !!(cfg?.ubicacion_lat && cfg?.ubicacion_lng);
+}
+
+/**
+ * Distancia en metros entre dos coordenadas (fórmula de Haversine). Suficiente
+ * para comparar contra un radio de un centenar de metros: no hace falta más
+ * precisión que esa para saber si alguien está en el bar o no.
+ */
+export function distanciaMetros(lat1, lng1, lat2, lng2) {
+  const R = 6371000;
+  const rad = g => (g * Math.PI) / 180;
+  const dLat = rad(lat2 - lat1);
+  const dLng = rad(lng2 - lng1);
+  const a = Math.sin(dLat / 2) ** 2
+    + Math.cos(rad(lat1)) * Math.cos(rad(lat2)) * Math.sin(dLng / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
 /**

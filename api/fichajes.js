@@ -4,7 +4,7 @@ import {
   emitirTokenQr, validarTokenQr, hayQrConfigurado, exigirQr,
   idDispositivo, esEncargadoOSuperior, verificarPin,
   esDispositivoConfianza, hayDispositivosDeConfianza, centroDeEmpleado,
-  claveAdmin, claveEncargado, claveCoincide,
+  claveAdmin, claveEncargado, claveCoincide, hayUbicacionConfigurada,
 } from "./_tareas-lib.js";
 import { avisarTelegram, escTelegram, conEnlacePanel } from "./_telegram.js";
 
@@ -45,6 +45,10 @@ async function handlerRed(req, res, db) {
       es_de_confianza: esDispositivoConfianza(req, cfg),
       qr_en_uso: hayQrConfigurado() && hayDispositivosDeConfianza(cfg),
       qr_exigible: exigirQr(req, cfg),
+      ubicacion_configurada: hayUbicacionConfigurada(cfg),
+      ubicacion_lat: cfg.ubicacion_lat || '',
+      ubicacion_lng: cfg.ubicacion_lng || '',
+      radio_fichaje_m: cfg.radio_fichaje_m,
     });
   }
 
@@ -56,6 +60,42 @@ async function handlerRed(req, res, db) {
   const cfg = await getCentroCfg(db, centro);
   const actuales = listaCsv(cfg.ips_autorizadas);
   const aparatos = listaCsv(cfg.dispositivos_confianza);
+
+  // Coordenadas del local: activan el fichaje por Telegram compartiendo
+  // ubicación (§ api/telegram-empleados.js). Sin esto puesto, esa vía sigue
+  // desactivada para el centro y nada cambia respecto a como ficha hoy.
+  if (req.query.recurso === 'ubicacion') {
+    if (req.method === "POST") {
+      const lat = Number(req.body?.lat);
+      const lng = Number(req.body?.lng);
+      const radio = Number(req.body?.radio_m ?? 150);
+      if (!Number.isFinite(lat) || lat < -90 || lat > 90) return res.status(422).json({ error: "Latitud no válida" });
+      if (!Number.isFinite(lng) || lng < -180 || lng > 180) return res.status(422).json({ error: "Longitud no válida" });
+      if (!Number.isFinite(radio) || radio < 20 || radio > 1000) {
+        return res.status(422).json({ error: "El radio debe estar entre 20 y 1000 metros" });
+      }
+      await db.execute({
+        sql: `UPDATE centros_cfg SET ubicacion_lat = ?, ubicacion_lng = ?, radio_fichaje_m = ?
+              WHERE LOWER(TRIM(centro)) = LOWER(TRIM(?))`,
+        args: [String(lat), String(lng), radio, centro],
+      });
+      await auditar(db, req, {
+        tipo_evento: 'UBICACION_CENTRO_CONFIGURADA', entidad: 'centros_cfg', entidad_id: centro,
+        centro, payload: { lat, lng, radio_m: radio },
+      });
+      return res.status(200).json({ success: true, lat, lng, radio_m: radio });
+    }
+    if (req.method === "DELETE") {
+      await db.execute({
+        sql: `UPDATE centros_cfg SET ubicacion_lat = '', ubicacion_lng = '' WHERE LOWER(TRIM(centro)) = LOWER(TRIM(?))`,
+        args: [centro],
+      });
+      await auditar(db, req, {
+        tipo_evento: 'UBICACION_CENTRO_RETIRADA', entidad: 'centros_cfg', entidad_id: centro, centro,
+      });
+      return res.status(200).json({ success: true });
+    }
+  }
 
   if (req.query.recurso === 'dispositivo') {
     const id = idDispositivo(req);
