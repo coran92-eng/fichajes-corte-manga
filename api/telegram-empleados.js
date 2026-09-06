@@ -16,15 +16,20 @@
  * regenere el PIN, que también desvincula — igual que ya revoca sus sesiones
  * del móvil).
  *
- * Comandos, una vez vinculado (o los botones fijos de abajo del chat, que
- * mandan lo mismo sin tener que escribirlo):
+ * Comandos, una vez vinculado — TODOS tienen su botón fijo debajo del chat,
+ * para que se vea de un vistazo todo lo que el bot puede hacer, sin tener que
+ * conocer ni escribir ningún comando:
  *   /horario   → sus próximos turnos.
  *   /horas     → horas trabajadas esta semana y este mes.
  *   /tareas    → tareas de hoy de su rol, con botones para completar las que
  *                se pueden completar sin estar delante del código del bar.
  *   /fichar    → fichar compartiendo ubicación, si el centro lo tiene activado.
- *   /corregir  → pedir corregir un fichaje: AAAA-MM-DD tipo HH:MM motivo.
- *   /incidencia, /falta → dejar aviso de algo roto o agotado.
+ *   /corregir  → pedir corregir un fichaje: el botón abre un asistente guiado
+ *                (fecha, movimiento y hora con botones, motivo escrito) — para
+ *                quien prefiera escribirlo del tirón, se admite igual todo en
+ *                una línea: AAAA-MM-DD tipo HH:MM motivo.
+ *   /incidencia, /falta → dejar aviso de algo roto o agotado; el botón
+ *                pregunta qué pasa, o se puede escribir todo junto.
  *   /salir     → desvincular esta conversación.
  *
  * Completar tareas por Telegram: SOLO las de tipo CHECK, NUMERO o TEXTO. Las
@@ -68,23 +73,29 @@ const AYUDA_TEXTO =
   '/horas — las horas que llevas esta semana y este mes\n' +
   '/tareas — las de hoy de tu turno, con botones para completar las que no llevan foto\n' +
   '/fichar — fichar compartiendo tu ubicación (si tu centro lo tiene activado)\n' +
-  '/corregir AAAA-MM-DD tipo HH:MM motivo — pedir corregir un fichaje\n' +
-  '   (tipo: entrada, salida, inicio_descanso o fin_descanso)\n' +
-  '/incidencia texto — avisar de algo roto o averiado\n' +
-  '/falta texto — avisar de que se ha acabado algo\n' +
-  '/salir — desvincular esta conversación';
+  '/corregir — pedir corregir un fichaje (el botón te guía paso a paso)\n' +
+  '/incidencia — avisar de algo roto o averiado (el botón te pregunta qué pasa)\n' +
+  '/falta — avisar de que se ha acabado algo (el botón te pregunta qué)\n' +
+  '/salir — desvincular esta conversación\n\n' +
+  'Todo lo de arriba tiene su botón fijo debajo del chat: no hace falta escribir ni recordar nada.';
 
-// Botones fijos debajo del chat, para no tener que escribir el comando. Es
-// un teclado normal de Telegram (no botones inline sobre un mensaje): al
-// tocar uno, Telegram manda su texto tal cual, como si el empleado lo hubiera
-// escrito — por eso la clave de este mapa tiene que ser exactamente la
-// etiqueta del botón. /corregir, /incidencia y /falta se quedan fuera del
-// teclado fijo porque necesitan escribir algo detrás del comando.
+// Botones fijos debajo del chat: TODO lo que el bot sabe hacer tiene aquí su
+// botón, para que se vea de un vistazo el alcance real sin tener que conocer
+// ni un solo comando. Es un teclado normal de Telegram (no botones inline
+// sobre un mensaje): al tocar uno, Telegram manda su texto tal cual, como si
+// el empleado lo hubiera escrito — por eso la clave de este mapa tiene que
+// ser exactamente la etiqueta del botón. /corregir, /incidencia y /falta
+// tocados como botón (sin nada detrás) arrancan un asistente guiado en vez
+// de exigir escribirlo todo en una línea — ver iniciarFlujoCorregir/Nota.
 const BOTON_A_COMANDO = {
   '📅 Mi horario': '/horario',
   '🕐 Mis horas': '/horas',
   '📋 Tareas de hoy': '/tareas',
   '📍 Fichar': '/fichar',
+  '✏️ Corregir fichaje': '/corregir',
+  '🔧 Incidencia': '/incidencia',
+  '📦 Falta de producto': '/falta',
+  '❓ Ayuda': '/ayuda',
   '🚪 Salir': '/salir',
 };
 
@@ -92,7 +103,8 @@ const TECLADO_PRINCIPAL = {
   keyboard: [
     ['📅 Mi horario', '🕐 Mis horas'],
     ['📋 Tareas de hoy', '📍 Fichar'],
-    ['🚪 Salir'],
+    ['✏️ Corregir fichaje', '🔧 Incidencia', '📦 Falta de producto'],
+    ['❓ Ayuda', '🚪 Salir'],
   ],
   resize_keyboard: true, // botones del tamaño del texto, no ocupando media pantalla
   is_persistent: true,   // se queda puesto; no hace falta reabrirlo en cada mensaje
@@ -677,25 +689,8 @@ async function initSolicitudes(db) {
   `);
 }
 
-async function crearSolicitudCorreccion(db, req, empleado, chatId, argumentos) {
-  const partes = argumentos.trim().split(/\s+/).filter(Boolean);
-  const usoTexto =
-    'Formato: /corregir AAAA-MM-DD tipo HH:MM motivo\n' +
-    'Tipo puede ser: entrada, salida, inicio_descanso o fin_descanso.\n' +
-    'Ejemplo: /corregir 2026-09-05 salida 14:30 se me olvidó fichar la salida';
-
-  if (partes.length < 4) { await avisarEmpleado(chatId, usoTexto); return; }
-  const [fecha, tipoFichaje, hora, ...restoMotivo] = partes;
-  const motivo = restoMotivo.join(' ').trim();
-
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(fecha)) { await avisarEmpleado(chatId, `❌ La fecha debe ser AAAA-MM-DD.\n\n${usoTexto}`); return; }
-  if (!TIPOS_FICHAJE_CORREGIR.includes(tipoFichaje)) {
-    await avisarEmpleado(chatId, `❌ El tipo debe ser uno de: ${TIPOS_FICHAJE_CORREGIR.join(', ')}.\n\n${usoTexto}`);
-    return;
-  }
-  if (!/^\d{1,2}:\d{2}$/.test(hora)) { await avisarEmpleado(chatId, `❌ La hora debe ser HH:MM.\n\n${usoTexto}`); return; }
-  if (!motivo) { await avisarEmpleado(chatId, `❌ Falta el motivo.\n\n${usoTexto}`); return; }
-
+/** Núcleo compartido por la vía directa (una línea) y el asistente guiado. */
+async function guardarSolicitudCorreccion(db, req, empleado, chatId, fecha, tipoFichaje, hora, motivo) {
   await initSolicitudes(db);
   const centro = empleado.centro || '';
   const r = await db.execute({
@@ -715,6 +710,183 @@ async function crearSolicitudCorreccion(db, req, empleado, chatId, argumentos) {
     centro
   ));
   await avisarEmpleado(chatId, '✅ Solicitud enviada. Te aviso en cuanto se resuelva.');
+}
+
+async function crearSolicitudCorreccion(db, req, empleado, chatId, argumentos) {
+  const partes = argumentos.trim().split(/\s+/).filter(Boolean);
+  const usoTexto =
+    'Formato: /corregir AAAA-MM-DD tipo HH:MM motivo\n' +
+    'Tipo puede ser: entrada, salida, inicio_descanso o fin_descanso.\n' +
+    'Ejemplo: /corregir 2026-09-05 salida 14:30 se me olvidó fichar la salida';
+
+  if (partes.length < 4) { await avisarEmpleado(chatId, usoTexto); return; }
+  const [fecha, tipoFichaje, hora, ...restoMotivo] = partes;
+  const motivo = restoMotivo.join(' ').trim();
+
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(fecha)) { await avisarEmpleado(chatId, `❌ La fecha debe ser AAAA-MM-DD.\n\n${usoTexto}`); return; }
+  if (!TIPOS_FICHAJE_CORREGIR.includes(tipoFichaje)) {
+    await avisarEmpleado(chatId, `❌ El tipo debe ser uno de: ${TIPOS_FICHAJE_CORREGIR.join(', ')}.\n\n${usoTexto}`);
+    return;
+  }
+  if (!/^\d{1,2}:\d{2}$/.test(hora)) { await avisarEmpleado(chatId, `❌ La hora debe ser HH:MM.\n\n${usoTexto}`); return; }
+  if (!motivo) { await avisarEmpleado(chatId, `❌ Falta el motivo.\n\n${usoTexto}`); return; }
+
+  await guardarSolicitudCorreccion(db, req, empleado, chatId, fecha, tipoFichaje, hora, motivo);
+}
+
+// ── Asistente guiado: /corregir e /incidencia y /falta tocados como botón ──
+// Un chat de Telegram no tiene formularios: la alternativa a "escribe todo
+// en una línea con este formato exacto" es preguntar un dato cada vez, igual
+// que ya se hace para completar tareas NUMERO/TEXTO o para fichar por
+// ubicación. Estado en la misma línea que `telegram_tarea_pendiente` /
+// `telegram_fichaje_pendiente`: una fila por chat, se sobrescribe si se
+// vuelve a arrancar, y cualquier otra acción (comando, botón u otro asistente)
+// la cancela — ver limpiarTodosPendientes.
+let flujoPendienteListo = false;
+async function initFlujoPendiente(db) {
+  if (flujoPendienteListo) return;
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS telegram_flujo_pendiente (
+      chat_id TEXT PRIMARY KEY,
+      flujo TEXT NOT NULL,
+      paso TEXT NOT NULL,
+      datos TEXT NOT NULL DEFAULT '{}',
+      creado_en INTEGER NOT NULL
+    )
+  `);
+  flujoPendienteListo = true;
+}
+
+async function guardarFlujo(db, chatId, flujo, paso, datos) {
+  await initFlujoPendiente(db);
+  await db.execute({
+    sql: `INSERT INTO telegram_flujo_pendiente (chat_id, flujo, paso, datos, creado_en) VALUES (?, ?, ?, ?, ?)
+          ON CONFLICT(chat_id) DO UPDATE SET flujo = excluded.flujo, paso = excluded.paso, datos = excluded.datos, creado_en = excluded.creado_en`,
+    args: [String(chatId), flujo, paso, JSON.stringify(datos || {}), Date.now()],
+  });
+}
+
+async function leerFlujo(db, chatId) {
+  await initFlujoPendiente(db);
+  const r = await db.execute({ sql: `SELECT flujo, paso, datos FROM telegram_flujo_pendiente WHERE chat_id = ?`, args: [String(chatId)] });
+  if (!r.rows.length) return null;
+  let datos = {};
+  try { datos = JSON.parse(r.rows[0].datos || '{}'); } catch {}
+  return { flujo: r.rows[0].flujo, paso: r.rows[0].paso, datos };
+}
+
+async function limpiarFlujo(db, chatId) {
+  await initFlujoPendiente(db);
+  await db.execute({ sql: `DELETE FROM telegram_flujo_pendiente WHERE chat_id = ?`, args: [String(chatId)] });
+}
+
+/** Cancela cualquier otra cosa que estuviera esperando respuesta, al empezar algo nuevo. */
+async function limpiarTodosPendientes(db, chatId) {
+  await limpiarPendiente(db, chatId);
+  await limpiarFichajePendiente(db, chatId);
+  await limpiarFlujo(db, chatId);
+}
+
+async function iniciarFlujoCorregir(db, chatId) {
+  await guardarFlujo(db, chatId, 'corregir', 'fecha', {});
+  await avisarEmpleado(chatId, '📅 ¿Qué día quieres corregir? Elige un botón, o escribe la fecha en formato AAAA-MM-DD.', {
+    reply_markup: { inline_keyboard: [[
+      { text: 'Hoy', callback_data: 'tgflujo:fecha:hoy' },
+      { text: 'Ayer', callback_data: 'tgflujo:fecha:ayer' },
+    ]] },
+  });
+}
+
+async function avanzarFlujoCorregirFecha(db, chatId, fecha) {
+  await guardarFlujo(db, chatId, 'corregir', 'tipo', { fecha });
+  await avisarEmpleado(chatId, '¿Qué movimiento fue? Elige uno:', {
+    reply_markup: { inline_keyboard: [
+      [{ text: 'Entrada', callback_data: 'tgflujo:tipo:entrada' }, { text: 'Salida', callback_data: 'tgflujo:tipo:salida' }],
+      [{ text: 'Inicio descanso', callback_data: 'tgflujo:tipo:inicio_descanso' }, { text: 'Fin descanso', callback_data: 'tgflujo:tipo:fin_descanso' }],
+    ] },
+  });
+}
+
+async function avanzarFlujoCorregirTipo(db, chatId, datosPrevios, tipoFichaje) {
+  await guardarFlujo(db, chatId, 'corregir', 'hora', { ...datosPrevios, tipoFichaje });
+  await avisarEmpleado(chatId, '¿A qué hora debería estar? Escríbela en formato HH:MM.');
+}
+
+async function iniciarFlujoNota(db, chatId, tipo) {
+  await guardarFlujo(db, chatId, tipo, 'texto', {});
+  const pregunta = tipo === 'incidencia' ? '🔧 ¿Qué incidencia hay? Escríbela.' : '📦 ¿Qué se ha acabado? Escríbelo.';
+  await avisarEmpleado(chatId, pregunta);
+}
+
+/** Callback de un botón del asistente (fecha o tipo de fichaje). */
+async function avanzarFlujoCallback(db, empleado, chatId, campo, valor) {
+  const flujo = await leerFlujo(db, chatId);
+  if (!flujo || flujo.flujo !== 'corregir') return; // asistente ya cancelado o caducado: botón obsoleto, se ignora
+
+  if (campo === 'fecha' && flujo.paso === 'fecha') {
+    const cfg = await getCentroCfg(db, empleado.centro || '');
+    const ahora = fechaYHoraLocal(Date.now(), cfg.zona_horaria).fecha;
+    const ayer = fechaYHoraLocal(Date.now() - 24 * 60 * 60 * 1000, cfg.zona_horaria).fecha;
+    await avanzarFlujoCorregirFecha(db, chatId, valor === 'hoy' ? ahora : ayer);
+  } else if (campo === 'tipo' && flujo.paso === 'tipo') {
+    await avanzarFlujoCorregirTipo(db, chatId, flujo.datos, valor);
+  }
+}
+
+/**
+ * Continúa un asistente a partir de un mensaje de texto normal (no comando ni
+ * botón). Devuelve true si el mensaje era la respuesta que el asistente
+ * esperaba (para que manejarMensaje no lo trate como otra cosa).
+ */
+async function intentarContinuarFlujo(db, req, empleado, chatId, texto) {
+  const flujo = await leerFlujo(db, chatId);
+  if (!flujo) return false;
+  const valor = texto.trim();
+
+  if (flujo.flujo === 'corregir') {
+    if (flujo.paso === 'fecha') {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(valor)) {
+        await avisarEmpleado(chatId, '❌ La fecha debe ser AAAA-MM-DD (o toca Hoy/Ayer arriba).');
+        return true;
+      }
+      await avanzarFlujoCorregirFecha(db, chatId, valor);
+      return true;
+    }
+    if (flujo.paso === 'tipo') {
+      const tipoFichaje = valor.toLowerCase();
+      if (!TIPOS_FICHAJE_CORREGIR.includes(tipoFichaje)) {
+        await avisarEmpleado(chatId, `❌ El tipo debe ser uno de: ${TIPOS_FICHAJE_CORREGIR.join(', ')} (o toca uno de los botones de arriba).`);
+        return true;
+      }
+      await avanzarFlujoCorregirTipo(db, chatId, flujo.datos, tipoFichaje);
+      return true;
+    }
+    if (flujo.paso === 'hora') {
+      if (!/^\d{1,2}:\d{2}$/.test(valor)) {
+        await avisarEmpleado(chatId, '❌ La hora debe ser HH:MM.');
+        return true;
+      }
+      await guardarFlujo(db, chatId, 'corregir', 'motivo', { ...flujo.datos, hora: valor });
+      await avisarEmpleado(chatId, '¿Qué pasó? Cuéntamelo brevemente.');
+      return true;
+    }
+    if (flujo.paso === 'motivo') {
+      if (!valor) { await avisarEmpleado(chatId, '❌ Falta el motivo.'); return true; }
+      await limpiarFlujo(db, chatId);
+      const { fecha, tipoFichaje, hora } = flujo.datos;
+      await guardarSolicitudCorreccion(db, req, empleado, chatId, fecha, tipoFichaje, hora, valor);
+      return true;
+    }
+  }
+
+  if ((flujo.flujo === 'incidencia' || flujo.flujo === 'falta') && flujo.paso === 'texto') {
+    await limpiarFlujo(db, chatId);
+    const cfg = await getCentroCfg(db, empleado.centro || '');
+    await crearNotaTurno(db, req, empleado, cfg, chatId, flujo.flujo, texto);
+    return true;
+  }
+
+  return false;
 }
 
 // ── Incidencias y faltas desde el chat ─────────────────────────
@@ -796,21 +968,24 @@ async function manejarMensaje(db, req, message) {
   const esBoton = !!BOTON_A_COMANDO[texto];
   const esComando = texto.startsWith('/');
 
-  // Si había una tarea de NUMERO o TEXTO esperando respuesta, cualquier texto
-  // normal se interpreta como esa respuesta — salvo que sea justo un comando
-  // o un botón, que se entiende como que la persona ha cambiado de tema.
+  // Si había un asistente guiado o una tarea de NUMERO o TEXTO esperando
+  // respuesta, cualquier texto normal se interpreta como esa respuesta —
+  // salvo que sea justo un comando o un botón, que se entiende como que la
+  // persona ha cambiado de tema.
   if (!esBoton && !esComando) {
+    const atendidoFlujo = await intentarContinuarFlujo(db, req, empleado, chatId, texto);
+    if (atendidoFlujo) return;
     const atendido = await intentarCompletarPendiente(db, req, empleado, chatId, texto);
     if (atendido) return;
   } else {
-    await limpiarPendiente(db, chatId);
-    await limpiarFichajePendiente(db, chatId);
+    await limpiarTodosPendientes(db, chatId);
   }
 
   // Un botón del teclado manda su etiqueta tal cual, como si se hubiera
-  // escrito el comando a mano.
+  // escrito el comando a mano — pero sin nada detrás, así que no se le puede
+  // pasar como argumentos (sería la etiqueta del propio botón).
   const comando = BOTON_A_COMANDO[texto] || comandoDe(texto);
-  const argumentos = argumentosDe(texto);
+  const argumentos = esBoton ? '' : argumentosDe(texto);
 
   if (comando === '/salir') return desvincular(db, req, empleado, chatId);
   if (comando === '/ayuda' || comando === '/start') return enviarAyuda(chatId, empleado);
@@ -819,9 +994,17 @@ async function manejarMensaje(db, req, message) {
   if (comando === '/horario') return responderHorario(db, empleado, chatId);
   if (comando === '/horas') return responderHoras(db, empleado, chatId, cfg);
   if (comando === '/tareas') return responderTareas(db, empleado, chatId, cfg);
-  if (comando === '/corregir') return crearSolicitudCorreccion(db, req, empleado, chatId, argumentos);
-  if (comando === '/incidencia') return crearNotaTurno(db, req, empleado, cfg, chatId, 'incidencia', argumentos);
-  if (comando === '/falta') return crearNotaTurno(db, req, empleado, cfg, chatId, 'falta', argumentos);
+  if (comando === '/corregir') {
+    return argumentos.trim()
+      ? crearSolicitudCorreccion(db, req, empleado, chatId, argumentos)
+      : iniciarFlujoCorregir(db, chatId);
+  }
+  if (comando === '/incidencia' || comando === '/falta') {
+    const tipoNota = comando === '/incidencia' ? 'incidencia' : 'falta';
+    return argumentos.trim()
+      ? crearNotaTurno(db, req, empleado, cfg, chatId, tipoNota, argumentos)
+      : iniciarFlujoNota(db, chatId, tipoNota);
+  }
   if (comando === '/fichar') return iniciarFichaje(db, empleado, chatId, cfg);
 
   return enviarAyuda(chatId, empleado);
@@ -838,9 +1021,19 @@ async function manejarCallback(db, req, callbackQuery) {
   }
 
   const datos = String(callbackQuery.data || '');
-  const [accion, idTexto] = datos.split(':');
+  const partes = datos.split(':');
+  const accion = partes[0];
+
+  if (accion === 'tgflujo') {
+    await responderCallbackEmpleado(callbackQuery.id);
+    await avanzarFlujoCallback(db, empleado, chatId, partes[1], partes[2]);
+    return;
+  }
+
+  const idTexto = partes[1];
 
   if (accion === 'tgfichar') {
+    await limpiarFlujo(db, chatId);
     await responderCallbackEmpleado(callbackQuery.id);
     await pedirUbicacionParaFichaje(db, chatId, idTexto);
     return;
@@ -853,11 +1046,13 @@ async function manejarCallback(db, req, callbackQuery) {
   }
 
   if (accion === 'tgcompletar') {
+    await limpiarFlujo(db, chatId);
     const r = await completarTarea(db, req, empleado, instanciaId, {});
     await responderCallbackEmpleado(callbackQuery.id, r.error ? `❌ ${r.error}` : '✅ Hecho');
     return;
   }
   if (accion === 'tgnumero' || accion === 'tgtexto') {
+    await limpiarFlujo(db, chatId);
     await guardarPendiente(db, chatId, instanciaId, accion === 'tgnumero' ? 'numero' : 'texto');
     await responderCallbackEmpleado(callbackQuery.id, accion === 'tgnumero' ? 'Mándame el número' : 'Mándame el texto');
     await avisarEmpleado(chatId, accion === 'tgnumero' ? '✏️ Escribe el número para esa tarea.' : '✏️ Escribe la anotación para esa tarea.');
