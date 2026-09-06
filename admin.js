@@ -138,7 +138,7 @@ async function renderEmpleados(intento = 0) {
             `<option value="${r.value}"${r.value === (sel || '') ? ' selected' : ''}>${r.label}</option>`
         ).join('');
 
-        contenedor.innerHTML = lista.map(({ nombre, centro, rol, tiene_pin, horario_habitual }) => {
+        contenedor.innerHTML = lista.map(({ nombre, centro, rol, tiene_pin, tiene_telegram, horario_habitual }) => {
             const nEsc = nombre.replace(/"/g, '&quot;');
             const nJs = nombre.replace(/'/g, "\\'");
             return `
@@ -162,6 +162,11 @@ async function renderEmpleados(intento = 0) {
                 </button>${tiene_pin ? `
                 <button type="button" class="btn-pin sin-pin" title="Quitarle el PIN a ${nombre}"
                         onclick="window.quitarPin('${nJs}')">✕ PIN</button>` : ''}
+                <span class="btn-pin ${tiene_telegram ? 'con-pin' : 'sin-pin'}"
+                      title="${tiene_telegram ? `${nombre} ya está en el bot de Telegram` : `${nombre} todavía no ha escrito su PIN al bot de Telegram`}"
+                      style="cursor:default">
+                    ${tiene_telegram ? 'Telegram ✓' : 'Sin Telegram'}
+                </span>
                 <button type="button" title="Eliminar ${nombre}" onclick="window.confirmarEliminarEmpleado('${nJs}')">✕</button>
             </div>`;
         }).join('');

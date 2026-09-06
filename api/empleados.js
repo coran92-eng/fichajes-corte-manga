@@ -102,8 +102,12 @@ export default async function handler(req, res) {
       res.setHeader('Cache-Control', 'no-store');
       const { centro } = req.query;
       let result;
-      // Nunca se devuelve el hash del PIN: solo si lo tiene puesto o no.
-      const COLS = "nombre, centro, rol, horario_habitual, CASE WHEN COALESCE(pin_hash,'') = '' THEN 0 ELSE 1 END AS tiene_pin";
+      // Nunca se devuelve el hash del PIN ni el chat_id de Telegram: solo si
+      // los tiene puestos o no. El propio chat_id no pinta nada aquí —es un
+      // identificador de Telegram, no algo que el panel necesite mostrar—.
+      const COLS = "nombre, centro, rol, horario_habitual, "
+        + "CASE WHEN COALESCE(pin_hash,'') = '' THEN 0 ELSE 1 END AS tiene_pin, "
+        + "CASE WHEN COALESCE(telegram_chat_id,'') = '' THEN 0 ELSE 1 END AS tiene_telegram";
 
       if (centro) {
         // Empleados del centro + los que no tengan centro asignado.
@@ -136,6 +140,7 @@ export default async function handler(req, res) {
         rol: r.rol || '',
         horario_habitual: r.horario_habitual || '',
         tiene_pin: Number(r.tiene_pin) === 1,
+        tiene_telegram: Number(r.tiene_telegram) === 1,
       })));
     }
     else if (req.method === "POST") {
