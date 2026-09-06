@@ -54,8 +54,13 @@ import {
   initSchema, getCentroCfg, fechaOperativaDe, epochDesdeLocal, auditar,
   identificarPorPin, identificarPorTelegramChatId, vincularTelegram, desvincularTelegram,
   minutosTrabajados, esDelRol, generarInstancias, marcarVencidas, turnoAbierto, estaEnDescanso,
-  hayUbicacionConfigurada, distanciaMetros,
+  hayUbicacionConfigurada, distanciaMetros, centroDeEmpleado, DENOMINACIONES,
 } from "./_tareas-lib.js";
+import {
+  turnoActivo as cajaTurnoActivo, progresoHoy as cajaProgresoHoy,
+  crearApertura as cajaCrearApertura, confirmarApertura as cajaConfirmarApertura,
+  guardarCierre as cajaGuardarCierre,
+} from "./caja.js";
 import { avisarEmpleado, hayBotEmpleadosConfigurado, responderCallbackEmpleado } from "./_telegram-empleados.js";
 import { avisarTelegram, escTelegram, conEnlacePanel } from "./_telegram.js";
 
@@ -73,6 +78,7 @@ const AYUDA_TEXTO =
   '/horas — las horas que llevas esta semana y este mes\n' +
   '/tareas — las de hoy de tu turno, con botones para completar las que no llevan foto\n' +
   '/fichar — fichar compartiendo tu ubicación (si tu centro lo tiene activado)\n' +
+  '/caja — abrir o cerrar la caja del turno (el botón te guía paso a paso)\n' +
   '/corregir — pedir corregir un fichaje (el botón te guía paso a paso)\n' +
   '/incidencia — avisar de algo roto o averiado (el botón te pregunta qué pasa)\n' +
   '/falta — avisar de que se ha acabado algo (el botón te pregunta qué)\n' +
@@ -92,6 +98,7 @@ const BOTON_A_COMANDO = {
   '🕐 Mis horas': '/horas',
   '📋 Tareas de hoy': '/tareas',
   '📍 Fichar': '/fichar',
+  '💰 Caja': '/caja',
   '✏️ Corregir fichaje': '/corregir',
   '🔧 Incidencia': '/incidencia',
   '📦 Falta de producto': '/falta',
@@ -876,6 +883,10 @@ async function intentarContinuarFlujo(db, req, empleado, chatId, texto) {
     return true;
   }
 
+  if (flujo.flujo === 'caja') {
+    return await continuarFlujoCaja(db, req, chatId, flujo, valor);
+  }
+
   return false;
 }
 
@@ -937,6 +948,198 @@ async function crearNotaTurno(db, req, empleado, cfg, chatId, tipo, argumentos) 
   await avisarEmpleado(chatId, '✅ Anotado. Gracias.');
 }
 
+// ── Cierre de caja desde el chat ────────────────────────────────
+// Asistente guiado (misma maquinaria de telegram_flujo_pendiente que
+// /corregir): pedir los 15 tramos de billete/moneda uno a uno sería
+// tedioso, así que se piden en una sola línea con un orden fijo — igual
+// que /corregir admite "todo en una línea" para quien no quiere ir paso a
+// paso. Todas las escrituras van por las mismas funciones que usa
+// api/caja.js (crearApertura, confirmarApertura, guardarCierre), así que
+// da igual si el turno se abre o se cierra desde el panel o desde aquí:
+// es el mismo camino, las mismas fórmulas y el mismo aviso al dueño.
+const ETIQUETA_TURNO_CAJA = { manana: 'Turno 1 (mañana)', tarde: 'Turno 2 (tarde)' };
+const EMOJI_SEMAFORO_CAJA = { verde: '🟢', naranja: '🟠', rojo: '🔴' };
+
+function eurosTexto(n) {
+  if (n === null || n === undefined) return '—';
+  return `${(Math.round(Number(n) * 100) / 100).toFixed(2).replace('.', ',')} €`;
+}
+function firmadoTexto(n) {
+  const v = Number(n) || 0;
+  return (v > 0 ? '+' : '') + eurosTexto(v);
+}
+
+function plantillaDesglose() {
+  return DENOMINACIONES.map(d => (d.valor >= 1 ? String(d.valor) : d.valor.toFixed(2))).join(' ');
+}
+
+/** 15 números en el orden fijo de DENOMINACIONES, separados por espacio. Cuentas, no importes: enteros ≥ 0. */
+function parseDesgloseTexto(texto) {
+  const partes = String(texto || '').trim().split(/\s+/).filter(Boolean);
+  if (partes.length !== DENOMINACIONES.length) {
+    return { ok: false, error: `Tienen que ser ${DENOMINACIONES.length} números separados por espacio, en este orden (de 500€ a 1 céntimo):\n<code>${plantillaDesglose()}</code>` };
+  }
+  const desglose = {};
+  for (let i = 0; i < DENOMINACIONES.length; i++) {
+    const n = Number(String(partes[i]).replace(',', '.'));
+    if (!Number.isFinite(n) || n < 0 || !Number.isInteger(n)) {
+      return { ok: false, error: `"${escTelegram(partes[i])}" no es un número entero válido — son cuántos billetes/monedas hay, no un importe.` };
+    }
+    desglose[DENOMINACIONES[i].clave] = n;
+  }
+  return { ok: true, desglose };
+}
+
+/** Un número suelto, en euros, ≥ 0. */
+function parseImporteTexto(texto) {
+  const n = Number(String(texto || '').trim().replace(',', '.'));
+  return Number.isFinite(n) && n >= 0 ? n : null;
+}
+
+async function pedirDesgloseApertura(db, chatId, turno, centro) {
+  const cabecera = `💰 Abriendo <b>${escTelegram(ETIQUETA_TURNO_CAJA[turno.turno] || turno.turno)}</b> (${turno.fecha}).`;
+  if (turno.apertura_fondo_editable) {
+    await guardarFlujo(db, chatId, 'caja', 'apertura_fondo', { centro, turnoId: turno.id });
+    await avisarEmpleado(chatId, `${cabecera}\nNo se encontró el fondo del turno anterior. ¿Cuánto fondo de caja inicial pones? Escribe solo el número, en euros.`);
+    return;
+  }
+  await guardarFlujo(db, chatId, 'caja', 'apertura_desglose', { centro, turnoId: turno.id, fondoManual: null });
+  await avisarEmpleado(chatId, `${cabecera}\nFondo heredado: <b>${eurosTexto(turno.apertura_fondo_heredado)}</b>.\nEnvíame el desglose del cajón: ${DENOMINACIONES.length} números en este orden, separados por espacio.\n\n<code>${plantillaDesglose()}</code>`);
+}
+
+async function iniciarFlujoCaja(db, req, empleado, chatId) {
+  const centro = await centroDeEmpleado(db, empleado.nombre, empleado.centro || '');
+  const activo = await cajaTurnoActivo(db, centro);
+
+  if (!activo || activo.estado === 'cerrado') {
+    await guardarFlujo(db, chatId, 'caja', 'elegir_turno', { centro });
+    await avisarEmpleado(chatId, '💰 ¿Qué turno vas a abrir?', {
+      reply_markup: { inline_keyboard: [[
+        { text: '🌅 Turno 1 (mañana)', callback_data: 'tgcaja:manana' },
+        { text: '🌆 Turno 2 (tarde)', callback_data: 'tgcaja:tarde' },
+      ]] },
+    });
+    return;
+  }
+
+  if (String(activo.empleado).trim().toLowerCase() !== empleado.nombre.trim().toLowerCase()) {
+    const verbo = activo.estado === 'pendiente' ? 'la apertura de' : 'este turno de caja de';
+    await avisarEmpleado(chatId, `${escTelegram(activo.empleado)} ha empezado ${verbo} ${escTelegram(ETIQUETA_TURNO_CAJA[activo.turno] || activo.turno)} y no lo he terminado con nadie más. Que lo continúe ella, o pide a gerencia que lo revise.`);
+    return;
+  }
+
+  if (activo.estado === 'pendiente') {
+    await pedirDesgloseApertura(db, chatId, activo, centro);
+    return;
+  }
+
+  // apertura_ok | reabierto
+  await guardarFlujo(db, chatId, 'caja', 'cierre_desglose', { centro, turnoId: activo.id, turno: activo.turno, fecha: activo.fecha });
+  await avisarEmpleado(chatId, `💰 Cerrando <b>${escTelegram(ETIQUETA_TURNO_CAJA[activo.turno] || activo.turno)}</b> (${activo.fecha}).\nEnvíame el desglose del cajón: ${DENOMINACIONES.length} números en este orden, separados por espacio.\n\n<code>${plantillaDesglose()}</code>`);
+}
+
+/** Botón de "Turno 1"/"Turno 2" al elegir qué apertura empezar. */
+async function avanzarFlujoCajaTurno(db, req, empleado, chatId, turno) {
+  const flujo = await leerFlujo(db, chatId);
+  if (!flujo || flujo.flujo !== 'caja' || flujo.paso !== 'elegir_turno') return;
+  const centro = flujo.datos.centro;
+
+  const r = await cajaCrearApertura(db, req, { centro, turno, empleado: empleado.nombre });
+  if (!r.ok) {
+    await limpiarFlujo(db, chatId);
+    await avisarEmpleado(chatId, `❌ ${r.error}`);
+    return;
+  }
+  const activo = await cajaTurnoActivo(db, centro);
+  await pedirDesgloseApertura(db, chatId, activo, centro);
+}
+
+/** Continúa el asistente de caja a partir de un mensaje de texto (siempre devuelve true: el texto ya se ha usado). */
+async function continuarFlujoCaja(db, req, chatId, flujo, valor) {
+  if (flujo.paso === 'apertura_fondo') {
+    const n = parseImporteTexto(valor);
+    if (n === null) { await avisarEmpleado(chatId, '❌ Escribe solo el número del fondo, en euros (ej. 100).'); return true; }
+    await guardarFlujo(db, chatId, 'caja', 'apertura_desglose', { ...flujo.datos, fondoManual: n });
+    await avisarEmpleado(chatId, `Envíame el desglose del cajón: ${DENOMINACIONES.length} números en este orden, separados por espacio.\n\n<code>${plantillaDesglose()}</code>`);
+    return true;
+  }
+
+  if (flujo.paso === 'apertura_desglose') {
+    const p = parseDesgloseTexto(valor);
+    if (!p.ok) { await avisarEmpleado(chatId, `❌ ${p.error}`); return true; }
+    await limpiarFlujo(db, chatId);
+    const r = await cajaConfirmarApertura(db, req, { id: flujo.datos.turnoId, desglose: p.desglose, fondoManual: flujo.datos.fondoManual });
+    if (!r.ok) { await avisarEmpleado(chatId, `❌ ${r.error}`); return true; }
+    await avisarEmpleado(chatId, `✅ Apertura confirmada. Total contado: ${eurosTexto(r.total_contado)}. Diferencia: ${firmadoTexto(r.diferencia)}.`);
+    return true;
+  }
+
+  if (flujo.paso === 'cierre_desglose') {
+    const p = parseDesgloseTexto(valor);
+    if (!p.ok) { await avisarEmpleado(chatId, `❌ ${p.error}`); return true; }
+    await guardarFlujo(db, chatId, 'caja', 'cierre_fondo', { ...flujo.datos, desglose: p.desglose });
+    await avisarEmpleado(chatId, '¿Cuánto fondo dejas para el siguiente turno? Escribe solo el número, en euros.');
+    return true;
+  }
+
+  if (flujo.paso === 'cierre_fondo') {
+    const n = parseImporteTexto(valor);
+    if (n === null) { await avisarEmpleado(chatId, '❌ Escribe solo el número del fondo, en euros.'); return true; }
+    await guardarFlujo(db, chatId, 'caja', 'cierre_tpv', { ...flujo.datos, fondoDefinido: n });
+    await avisarEmpleado(chatId, 'Ahora el TPV: 3 números separados por espacio — efectivo, tarjeta y voids (pon 0 si no hay).\nEjemplo: 100 30 0');
+    return true;
+  }
+
+  if (flujo.paso === 'cierre_tpv') {
+    const partes = valor.trim().split(/\s+/).map(x => Number(String(x).replace(',', '.')));
+    if (partes.length !== 3 || partes.some(n => !Number.isFinite(n) || n < 0)) {
+      await avisarEmpleado(chatId, '❌ Tienen que ser 3 números (efectivo tarjeta voids), separados por espacio. Ejemplo: 100 30 0');
+      return true;
+    }
+    await guardarFlujo(db, chatId, 'caja', 'cierre_tickets', {
+      ...flujo.datos, tpvEfectivo: partes[0], tpvTarjeta: partes[1], tpvVoids: partes[2],
+    });
+    await avisarEmpleado(chatId, '¿Cuántos tickets? Escribe el número, o "-" si no lo llevas.');
+    return true;
+  }
+
+  if (flujo.paso === 'cierre_tickets') {
+    let tickets = null;
+    const limpio = valor.trim();
+    if (limpio !== '-' && limpio !== '') {
+      const n = Number(limpio);
+      if (!Number.isInteger(n) || n < 0) { await avisarEmpleado(chatId, '❌ Escribe un número entero, o "-" si no llevas tickets.'); return true; }
+      tickets = n;
+    }
+    await guardarFlujo(db, chatId, 'caja', 'cierre_datafonos', { ...flujo.datos, numTickets: tickets });
+    await avisarEmpleado(chatId, 'Por último, los importes de los datáfonos separados por espacio (normalmente 2). Ejemplo: 20 10');
+    return true;
+  }
+
+  if (flujo.paso === 'cierre_datafonos') {
+    const partes = valor.trim().split(/\s+/).map(x => Number(String(x).replace(',', '.')));
+    if (!partes.length || partes.some(n => !Number.isFinite(n) || n < 0)) {
+      await avisarEmpleado(chatId, '❌ Escribe uno o más importes separados por espacio. Ejemplo: 20 10');
+      return true;
+    }
+    await limpiarFlujo(db, chatId);
+    const datafonos = partes.map((importe, i) => ({ nombre: `Datáfono ${i + 1}`, importe }));
+    const r = await cajaGuardarCierre(db, req, {
+      id: flujo.datos.turnoId, desglose: flujo.datos.desglose, fondoDefinido: flujo.datos.fondoDefinido,
+      tpvEfectivo: flujo.datos.tpvEfectivo, tpvTarjeta: flujo.datos.tpvTarjeta, tpvVoids: flujo.datos.tpvVoids,
+      numTickets: flujo.datos.numTickets, datafonos,
+    });
+    if (!r.ok) { await avisarEmpleado(chatId, `❌ ${r.error}`); return true; }
+    await avisarEmpleado(chatId,
+      `${EMOJI_SEMAFORO_CAJA[r.semaforo] || ''} Cierre guardado.\n`
+      + `Diferencia efectivo: ${firmadoTexto(r.dif_efectivo)}. Diferencia tarjeta: ${firmadoTexto(r.dif_tarjeta)}.`
+    );
+    return true;
+  }
+
+  return false;
+}
+
 // ── Dispatch ────────────────────────────────────────────────────
 
 async function manejarMensaje(db, req, message) {
@@ -996,6 +1199,7 @@ async function manejarMensaje(db, req, message) {
       : iniciarFlujoNota(db, chatId, tipoNota);
   }
   if (comando === '/fichar') return iniciarFichaje(db, empleado, chatId, cfg);
+  if (comando === '/caja') return iniciarFlujoCaja(db, req, empleado, chatId);
 
   return enviarAyuda(chatId, empleado);
 }
@@ -1017,6 +1221,11 @@ async function manejarCallback(db, req, callbackQuery) {
   if (accion === 'tgflujo') {
     await responderCallbackEmpleado(callbackQuery.id);
     await avanzarFlujoCallback(db, empleado, chatId, partes[1], partes[2]);
+    return;
+  }
+  if (accion === 'tgcaja') {
+    await responderCallbackEmpleado(callbackQuery.id);
+    await avanzarFlujoCajaTurno(db, req, empleado, chatId, partes[1]);
     return;
   }
 

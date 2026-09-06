@@ -996,6 +996,24 @@
             font-weight: 800;
         }
 
+        .btn-caja {
+            width: 100%;
+            background: #b45309;
+            color: white;
+            margin-bottom: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            padding: 12px 20px;
+            font-size: 13px;
+        }
+        .btn-caja:hover {
+            background: #92400e;
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(180, 83, 9, 0.3);
+        }
+
         .sol-modal {
             display: none;
             position: fixed;
@@ -1243,6 +1261,11 @@
             <i data-lucide="clipboard-check" aria-hidden="true" style="width:16px;height:16px"></i>
             Tareas
             <span class="tareas-badge" id="tareasBadge" style="display:none"></span>
+        </button>
+
+        <button class="btn-caja" id="btnVerCaja" type="button">
+            <i data-lucide="banknote" aria-hidden="true" style="width:16px;height:16px"></i>
+            Caja
         </button>
 
         <div class="admin-sep"></div>

@@ -1,0 +1,560 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#b45309">
+    <title>Caja · Fichaje</title>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100dvh;
+            padding: 16px;
+        }
+        .container {
+            background: white; border-radius: 12px; box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            padding: 20px; max-width: 780px; margin: 0 auto;
+        }
+        .header {
+            display: flex; justify-content: space-between; align-items: center;
+            flex-wrap: wrap; gap: 10px; margin-bottom: 14px;
+        }
+        .header h1 { color: #1f2937; font-size: 21px; }
+        .chip {
+            display: inline-block; background: #b45309; color: white;
+            padding: 3px 10px; border-radius: 12px; font-size: 12px; font-weight: 600;
+        }
+        button { font-family: inherit; cursor: pointer; border: none; font-weight: 600; }
+        .btn-volver {
+            background: #6b7280; color: white; padding: 9px 14px; border-radius: 8px;
+            font-size: 13px; display: inline-flex; align-items: center; gap: 6px;
+        }
+        .btn-volver:hover { background: #4b5563; }
+
+        .aviso {
+            background: #fef3c7; color: #92400e; padding: 12px 14px;
+            border-radius: 8px; font-size: 14px; margin-bottom: 14px;
+        }
+        .aviso.error { background: #fee2e2; color: #7f1d1d; }
+        .aviso.ok { background: #d1fae5; color: #065f46; }
+        .aviso.info { background: #dbeafe; color: #1e40af; }
+
+        label.campo { display: block; font-size: 12px; font-weight: 700; color: #6b7280; margin-bottom: 6px; }
+
+        .emp-grid {
+            display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+            gap: 8px; margin-bottom: 14px;
+        }
+        .btn-emp {
+            background: #f3f4f6; color: #374151; border: 2px solid #e5e7eb;
+            border-radius: 10px; padding: 12px 8px; font-size: 15px;
+        }
+        .btn-emp.selected { background: #b45309; color: white; border-color: #b45309; }
+        .btn-nosoyyo {
+            background: none; border: none; color: #9ca3af; font-size: 12px;
+            text-decoration: underline; cursor: pointer; margin: -6px 0 14px; padding: 4px 0;
+            font-weight: 600; display: block;
+        }
+
+        .turno-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 10px 0 16px; }
+        .btn-turno {
+            background: #fffbeb; border: 2px solid #fde68a; border-radius: 12px;
+            padding: 18px 10px; font-size: 15px; color: #92400e; text-align: center;
+        }
+        .btn-turno:disabled { opacity: .4; cursor: not-allowed; }
+        .btn-turno:not(:disabled):hover { background: #fef3c7; }
+
+        .seccion-titulo { font-size: 13px; font-weight: 800; color: #92400e; text-transform: uppercase; letter-spacing: .5px; margin: 18px 0 10px; }
+        .caja-info { background: #f9fafb; border-radius: 8px; padding: 12px 14px; margin-bottom: 14px; font-size: 14px; color: #374151; }
+        .caja-info b { color: #1f2937; }
+
+        .desglose-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 10px; margin-bottom: 14px; }
+        .desglose-item label { display: block; font-size: 13px; color: #6b7280; margin-bottom: 4px; font-weight: 600; }
+        .desglose-item input {
+            width: 100%; padding: 10px; border: 2px solid #e5e7eb; border-radius: 8px;
+            font-size: 16px; font-family: inherit; text-align: right;
+        }
+
+        .campo-num label { display: block; font-size: 13px; color: #6b7280; margin-bottom: 4px; font-weight: 600; }
+        .campo-num input {
+            width: 100%; padding: 11px; border: 2px solid #e5e7eb; border-radius: 8px;
+            font-size: 16px; font-family: inherit;
+        }
+        .fila-campos { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; margin-bottom: 12px; }
+
+        .resumen-caja { background: #f9fafb; border-radius: 10px; padding: 14px; margin: 14px 0; font-size: 14px; }
+        .resumen-linea { display: flex; justify-content: space-between; padding: 4px 0; color: #374151; }
+        .resumen-linea b { color: #1f2937; }
+        .semaforo-pill { display: inline-flex; align-items: center; gap: 6px; padding: 4px 12px; border-radius: 12px; font-size: 13px; font-weight: 700; margin-top: 8px; }
+        .semaforo-verde { background: #d1fae5; color: #065f46; }
+        .semaforo-naranja { background: #ffedd5; color: #9a3412; }
+        .semaforo-rojo { background: #fee2e2; color: #991b1b; }
+
+        .datafono-fila { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; }
+        .datafono-fila input[type="text"] { flex: 1; padding: 9px; border: 2px solid #e5e7eb; border-radius: 8px; font-size: 14px; font-family: inherit; }
+        .datafono-fila input[type="number"] { width: 110px; padding: 9px; border: 2px solid #e5e7eb; border-radius: 8px; font-size: 14px; font-family: inherit; text-align: right; }
+        .toggle-3er { display: flex; align-items: center; gap: 8px; font-size: 13px; color: #6b7280; margin: 6px 0 14px; }
+
+        .btn-confirmar {
+            width: 100%; background: #b45309; color: white; padding: 14px; border-radius: 10px;
+            font-size: 16px; margin-top: 8px;
+        }
+        .btn-confirmar:hover { background: #92400e; }
+        .btn-confirmar:disabled { background: #d1d5db; color: #6b7280; cursor: not-allowed; }
+
+        .vacio { text-align: center; padding: 40px 20px; color: #9ca3af; font-size: 14px; }
+
+        /* Modal PIN — mismo patrón que tareas.html */
+        .modal {
+            position: fixed; inset: 0; background: rgba(0,0,0,.55);
+            display: none; align-items: center; justify-content: center; padding: 20px; z-index: 50;
+        }
+        .modal.visible { display: flex; }
+        .modal-card { background: white; border-radius: 14px; padding: 22px; width: 100%; max-width: 340px; }
+        .modal-card h2 { font-size: 18px; color: #1f2937; margin-bottom: 6px; }
+        .modal-card p { font-size: 13px; color: #6b7280; margin-bottom: 14px; }
+        .pin-display {
+            font-size: 30px; letter-spacing: 10px; text-align: center; font-weight: 800;
+            color: #1f2937; margin-bottom: 14px; min-height: 40px; font-family: 'Courier New', monospace;
+        }
+        .pin-teclado { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+        .pin-teclado button { background: #f3f4f6; color: #1f2937; padding: 16px 0; border-radius: 10px; font-size: 19px; }
+        .pin-teclado button:hover { background: #e5e7eb; }
+        .pin-error { color: #b91c1c; font-size: 13px; margin-top: 10px; min-height: 18px; }
+        .modal-acciones { display: flex; gap: 8px; margin-top: 14px; }
+        .modal-acciones button { flex: 1; padding: 11px; border-radius: 8px; font-size: 14px; }
+        .btn-cancelar { background: #f3f4f6; color: #374151; }
+
+        @media (prefers-color-scheme: dark) {
+            body { background: #111827; }
+            .container { background: #1f2937; color: #e5e7eb; }
+            .header h1 { color: #e5e7eb; }
+            .btn-emp { background: #374151; color: #e5e7eb; border-color: #4b5563; }
+            .caja-info, .resumen-caja { background: #374151; color: #e5e7eb; }
+            .caja-info b, .resumen-linea b { color: #e5e7eb; }
+            .desglose-item input, .campo-num input, .datafono-fila input { background: #374151; color: #e5e7eb; border-color: #4b5563; }
+            .modal-card { background: #1f2937; }
+            .modal-card h2 { color: #e5e7eb; }
+            .pin-display { color: #e5e7eb; }
+            .pin-teclado button { background: #374151; color: #e5e7eb; }
+            .btn-cancelar { background: #374151; color: #e5e7eb; }
+        }
+    </style>
+</head>
+<body>
+<div class="container">
+    <div class="header">
+        <h1>
+            <i data-lucide="banknote" style="width:21px;height:21px;vertical-align:middle;margin-right:6px"></i>
+            Caja <span class="chip" id="centroChip"></span>
+        </h1>
+        <button class="btn-volver" onclick="volver()">
+            <i data-lucide="arrow-left" style="width:14px;height:14px"></i> Volver
+        </button>
+    </div>
+
+    <div id="aviso" class="aviso" style="display:none"></div>
+
+    <label class="campo">¿Quién eres?</label>
+    <div class="emp-grid" id="empGrid"><span style="color:#9ca3af;font-size:13px">Cargando...</span></div>
+
+    <div id="cuerpo"><div class="vacio">Selecciona tu nombre para continuar.</div></div>
+</div>
+
+<!-- Modal PIN -->
+<div class="modal" id="pinModal" role="dialog" aria-modal="true">
+    <div class="modal-card">
+        <h2>Confirma con tu PIN</h2>
+        <p id="pinSub">Introduce tu PIN.</p>
+        <div class="pin-display" id="pinDisplay"></div>
+        <div class="pin-teclado">
+            <button type="button" data-k="1">1</button><button type="button" data-k="2">2</button><button type="button" data-k="3">3</button>
+            <button type="button" data-k="4">4</button><button type="button" data-k="5">5</button><button type="button" data-k="6">6</button>
+            <button type="button" data-k="7">7</button><button type="button" data-k="8">8</button><button type="button" data-k="9">9</button>
+            <button type="button" data-k="del">←</button><button type="button" data-k="0">0</button><button type="button" data-k="ok">OK</button>
+        </div>
+        <div class="pin-error" id="pinError"></div>
+        <div class="modal-acciones">
+            <button class="btn-cancelar" type="button" onclick="cerrarPin()">Cancelar</button>
+        </div>
+    </div>
+</div>
+
+<script>
+(function () {
+    const $ = id => document.getElementById(id);
+    const params = new URLSearchParams(location.search);
+    const centro = params.get('centro');
+    $('centroChip').textContent = centro || '';
+
+    const DENOMINACIONES = [
+        { clave: 'b500', label: '500 €' }, { clave: 'b200', label: '200 €' }, { clave: 'b100', label: '100 €' },
+        { clave: 'b50', label: '50 €' }, { clave: 'b20', label: '20 €' }, { clave: 'b10', label: '10 €' }, { clave: 'b5', label: '5 €' },
+        { clave: 'c200', label: '2 €' }, { clave: 'c100', label: '1 €' }, { clave: 'c050', label: '0,50 €' },
+        { clave: 'c020', label: '0,20 €' }, { clave: 'c010', label: '0,10 €' }, { clave: 'c005', label: '0,05 €' },
+        { clave: 'c002', label: '0,02 €' }, { clave: 'c001', label: '0,01 €' },
+    ];
+    const VALOR = { b500:500,b200:200,b100:100,b50:50,b20:20,b10:10,b5:5,c200:2,c100:1,c050:.5,c020:.2,c010:.1,c005:.05,c002:.02,c001:.01 };
+    const ETIQUETA_TURNO = { manana: 'Turno 1 (mañana)', tarde: 'Turno 2 (tarde)' };
+
+    let empleados = [];
+    let empleadoSel = '';
+    let turnoActivo = null;
+
+    const PIN_TTL = 90 * 1000;
+    let pinCache = { valor: '', ts: 0, empleado: '' };
+    let pinResolver = null;
+
+    window.volver = () => { location.href = centro ? `/?centro=${encodeURIComponent(centro)}` : '/'; };
+
+    function aviso(txt, tipo = 'info', ms = 4000) {
+        const el = $('aviso');
+        if (!txt) { el.style.display = 'none'; return; }
+        el.className = 'aviso ' + tipo;
+        el.textContent = txt;
+        el.style.display = 'block';
+        if (ms) setTimeout(() => { if (el.textContent === txt) el.style.display = 'none'; }, ms);
+    }
+    const esc = s => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    const euros = n => (Number(n) || 0).toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €';
+
+    // ── PIN (mismo patrón que tareas.html) ──────────────────────
+    function pinVigente() {
+        return pinCache.valor && pinCache.empleado === empleadoSel && (Date.now() - pinCache.ts) < PIN_TTL;
+    }
+    function pedirPin(subtitulo) {
+        if (pinVigente()) { pinCache.ts = Date.now(); return Promise.resolve(pinCache.valor); }
+        $('pinSub').textContent = subtitulo || `Introduce tu PIN, ${empleadoSel}.`;
+        $('pinDisplay').textContent = '';
+        $('pinError').textContent = '';
+        $('pinModal').classList.add('visible');
+        return new Promise(resolve => { pinResolver = resolve; });
+    }
+    window.cerrarPin = () => {
+        $('pinModal').classList.remove('visible');
+        if (pinResolver) { pinResolver(null); pinResolver = null; }
+    };
+    let pinBuffer = '';
+    document.querySelectorAll('.pin-teclado button').forEach(b => {
+        b.addEventListener('click', () => {
+            const k = b.dataset.k;
+            if (k === 'del') pinBuffer = pinBuffer.slice(0, -1);
+            else if (k === 'ok') {
+                if (pinBuffer.length < 4) { $('pinError').textContent = 'El PIN tiene al menos 4 dígitos'; return; }
+                const v = pinBuffer;
+                pinBuffer = '';
+                $('pinModal').classList.remove('visible');
+                pinCache = { valor: v, ts: Date.now(), empleado: empleadoSel };
+                if (pinResolver) { pinResolver(v); pinResolver = null; }
+                return;
+            } else if (pinBuffer.length < 6) pinBuffer += k;
+            $('pinDisplay').textContent = '•'.repeat(pinBuffer.length);
+        });
+    });
+
+    // ── Empleados ────────────────────────────────────────────────
+    async function cargarEmpleados() {
+        try {
+            const r = await fetch(`/api/empleados?centro=${encodeURIComponent(centro)}`);
+            empleados = await r.json();
+        } catch { empleados = []; }
+        const cont = $('empGrid');
+        if (!empleados.length) { cont.innerHTML = '<span style="color:#9ca3af;font-size:13px">Sin empleados</span>'; return; }
+        cont.innerHTML = '';
+        empleados.forEach(e => {
+            const b = document.createElement('button');
+            b.className = 'btn-emp'; b.type = 'button'; b.textContent = e.nombre;
+            b.addEventListener('click', () => seleccionar(e, b));
+            cont.appendChild(b);
+        });
+        const preseleccion = params.get('empleado');
+        if (preseleccion) {
+            const btn = [...cont.querySelectorAll('.btn-emp')].find(b => b.textContent === preseleccion);
+            if (btn) seleccionar(empleados.find(e => e.nombre === preseleccion), btn);
+        }
+    }
+
+    function seleccionar(e, btn) {
+        if (!e) return;
+        document.querySelectorAll('.btn-emp').forEach(x => x.classList.remove('selected'));
+        btn.classList.add('selected');
+        empleadoSel = e.nombre;
+        pinCache = { valor: '', ts: 0, empleado: '' };
+        if (!e.tiene_pin) {
+            aviso(`${e.nombre} todavía no tiene PIN. Pídeselo a gerencia para poder usar la caja.`, 'error', 8000);
+        }
+        cargarEstado();
+    }
+
+    // ── Estado / enrutado de pantalla ───────────────────────────
+    async function cargarEstado() {
+        $('cuerpo').innerHTML = '<div class="vacio">Cargando…</div>';
+        try {
+            const r = await fetch(`/api/caja?accion=activo&centro=${encodeURIComponent(centro)}&empleado=${encodeURIComponent(empleadoSel)}`, { cache: 'no-store' });
+            const d = await r.json();
+            turnoActivo = d.turno_activo;
+            render(d);
+        } catch {
+            $('cuerpo').innerHTML = '<div class="vacio">No se ha podido cargar. Recarga la página.</div>';
+        }
+    }
+
+    function render(d) {
+        const t = turnoActivo;
+        if (!t || t.estado === 'cerrado') {
+            renderElegirTurno(d.progreso_hoy || []);
+        } else if (t.estado === 'pendiente') {
+            if (String(t.empleado).trim().toLowerCase() !== empleadoSel.trim().toLowerCase()) {
+                $('cuerpo').innerHTML = `<div class="vacio">${esc(t.empleado)} ha empezado la apertura de ${esc(ETIQUETA_TURNO[t.turno] || t.turno)} y todavía no la ha confirmado. Que la termine ella, o pide a gerencia que la revise.</div>`;
+                return;
+            }
+            renderApertura(t);
+        } else {
+            // apertura_ok | reabierto
+            if (String(t.empleado).trim().toLowerCase() !== empleadoSel.trim().toLowerCase()) {
+                $('cuerpo').innerHTML = `<div class="vacio">El turno abierto ahora mismo (${esc(ETIQUETA_TURNO[t.turno] || t.turno)}) lo empezó ${esc(t.empleado)}. Solo ella puede cerrarlo.</div>`;
+                return;
+            }
+            renderCierre(t);
+        }
+    }
+
+    function renderElegirTurno(progresoHoy) {
+        const ocupado = new Set(progresoHoy.map(p => p.turno));
+        $('cuerpo').innerHTML = `
+            <div class="seccion-titulo">¿Qué turno vas a abrir?</div>
+            <div class="turno-grid">
+                <button class="btn-turno" data-turno="manana" ${ocupado.has('manana') ? 'disabled' : ''}>🌅 Turno 1<br><small>Mañana</small></button>
+                <button class="btn-turno" data-turno="tarde" ${ocupado.has('tarde') ? 'disabled' : ''}>🌆 Turno 2<br><small>Tarde</small></button>
+            </div>
+            ${ocupado.size ? '<p style="font-size:12px;color:#9ca3af">El turno ya hecho hoy sale deshabilitado — si hace falta repetirlo, se abrirá fechado a mañana.</p>' : ''}
+        `;
+        $('cuerpo').querySelectorAll('.btn-turno').forEach(b => {
+            b.addEventListener('click', () => iniciarApertura(b.dataset.turno));
+        });
+    }
+
+    async function iniciarApertura(turno) {
+        const pin = await pedirPin(`Confirma con tu PIN para abrir ${ETIQUETA_TURNO[turno]}.`);
+        if (!pin) return;
+        try {
+            const r = await fetch('/api/caja?accion=crear-apertura', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ empleado: empleadoSel, pin, turno, centro }),
+            });
+            const d = await r.json().catch(() => ({}));
+            if (!r.ok) {
+                if (r.status === 403 && /PIN/i.test(d.error || '')) pinCache = { valor: '', ts: 0, empleado: '' };
+                aviso(`✗ ${d.error || 'No se ha podido empezar la apertura'}`, 'error', 7000);
+                return;
+            }
+            aviso('✓ Apertura iniciada', 'ok');
+            cargarEstado();
+        } catch { aviso('✗ Error de conexión', 'error'); }
+    }
+
+    function desgloseInputsHtml(prefijo) {
+        return `<div class="desglose-grid">` + DENOMINACIONES.map(d => `
+            <div class="desglose-item">
+                <label>${d.label}</label>
+                <input type="number" min="0" step="1" inputmode="numeric" id="${prefijo}_${d.clave}" value="0">
+            </div>`).join('') + `</div>`;
+    }
+
+    function leerDesglose(prefijo) {
+        const d = {};
+        DENOMINACIONES.forEach(x => { d[x.clave] = Math.max(0, parseInt($(`${prefijo}_${x.clave}`)?.value, 10) || 0); });
+        return d;
+    }
+
+    function totalDesglose(d) {
+        return Math.round(DENOMINACIONES.reduce((acc, x) => acc + (d[x.clave] || 0) * VALOR[x.clave], 0) * 100) / 100;
+    }
+
+    function renderApertura(t) {
+        $('cuerpo').innerHTML = `
+            <div class="caja-info">
+                <b>${esc(ETIQUETA_TURNO[t.turno] || t.turno)}</b> · ${esc(t.fecha)}<br>
+                ${t.apertura_fondo_editable
+                    ? `<label class="campo" style="margin-top:10px">No se encontró el fondo del turno anterior. Fondo de caja inicial:</label>
+                       <div class="fila-campos"><div class="campo-num"><input type="number" min="0" step="0.01" id="fondoManual" value="0"></div></div>`
+                    : `Fondo heredado del turno anterior: <b>${euros(t.apertura_fondo_heredado)}</b>`}
+            </div>
+            <div class="seccion-titulo">Cuenta el cajón</div>
+            ${desgloseInputsHtml('ap')}
+            <div class="resumen-caja">
+                <div class="resumen-linea">Total contado: <b id="apTotal">0,00 €</b></div>
+                <div class="resumen-linea">Diferencia: <b id="apDif">0,00 €</b></div>
+            </div>
+            <button class="btn-confirmar" id="btnConfirmarApertura">Confirmar apertura</button>
+        `;
+        const actualizar = () => {
+            const desglose = leerDesglose('ap');
+            const total = totalDesglose(desglose);
+            const fondo = t.apertura_fondo_editable ? (parseFloat($('fondoManual')?.value) || 0) : (Number(t.apertura_fondo_heredado) || 0);
+            const dif = Math.round((total - fondo) * 100) / 100;
+            $('apTotal').textContent = euros(total);
+            $('apDif').textContent = (dif > 0 ? '+' : '') + euros(dif);
+        };
+        document.querySelectorAll('[id^="ap_"]').forEach(inp => inp.addEventListener('input', actualizar));
+        $('fondoManual')?.addEventListener('input', actualizar);
+        actualizar();
+
+        $('btnConfirmarApertura').addEventListener('click', async () => {
+            const desglose = leerDesglose('ap');
+            const total = totalDesglose(desglose);
+            if (total === 0 && !confirm('El cajón cuenta 0 €. ¿Es correcto?')) return;
+            const fondoManual = t.apertura_fondo_editable ? (parseFloat($('fondoManual')?.value) || 0) : undefined;
+            const fondoBase = t.apertura_fondo_editable ? (fondoManual || 0) : (Number(t.apertura_fondo_heredado) || 0);
+            const dif = Math.round((total - fondoBase) * 100) / 100;
+            if (dif !== 0 && !confirm(`${dif > 0 ? 'Sobran' : 'Faltan'} ${euros(Math.abs(dif))} respecto al fondo. ¿Confirmar de todas formas?`)) return;
+
+            const pin = await pedirPin();
+            if (!pin) return;
+            const btn = $('btnConfirmarApertura'); btn.disabled = true;
+            try {
+                const r = await fetch('/api/caja?accion=confirmar-apertura', {
+                    method: 'PUT', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ empleado: empleadoSel, pin, id: t.id, desglose, fondo_manual: fondoManual }),
+                });
+                const d = await r.json().catch(() => ({}));
+                if (!r.ok) { aviso(`✗ ${d.error || 'No se ha podido confirmar'}`, 'error', 7000); btn.disabled = false; return; }
+                aviso('✓ Apertura confirmada', 'ok');
+                cargarEstado();
+            } catch { aviso('✗ Error de conexión', 'error'); btn.disabled = false; }
+        });
+    }
+
+    function renderCierre(t) {
+        $('cuerpo').innerHTML = `
+            <div class="caja-info"><b>${esc(ETIQUETA_TURNO[t.turno] || t.turno)}</b> · ${esc(t.fecha)}</div>
+
+            <div class="seccion-titulo">Desglose de cajón</div>
+            ${desgloseInputsHtml('ci')}
+            <div class="fila-campos">
+                <div class="campo-num"><label>Fondo que dejas</label><input type="number" min="0" step="0.01" id="fondoDejas" value="0"></div>
+            </div>
+            <div class="resumen-caja"><div class="resumen-linea">Efectivo neto (para el sobre): <b id="ciEfectivoNeto">0,00 €</b></div></div>
+
+            <div class="seccion-titulo">Datáfonos</div>
+            <div id="datafonos"></div>
+            <div class="toggle-3er"><input type="checkbox" id="chk3er"> Añadir 3er datáfono</div>
+
+            <div class="seccion-titulo">Datos TPV</div>
+            <div class="fila-campos">
+                <div class="campo-num"><label>Efectivo TPV</label><input type="number" min="0" step="0.01" id="tpvEfectivo" value="0"></div>
+                <div class="campo-num"><label>Tarjeta TPV</label><input type="number" min="0" step="0.01" id="tpvTarjeta" value="0"></div>
+                <div class="campo-num"><label>Voids</label><input type="number" min="0" step="0.01" id="tpvVoids" value="0"></div>
+                <div class="campo-num"><label>Nº tickets (opcional)</label><input type="number" min="0" step="1" id="numTickets"></div>
+            </div>
+
+            <div class="seccion-titulo">Resumen de diferencias</div>
+            <div class="resumen-caja">
+                <div class="resumen-linea">Efectivo: cajón − fondo − TPV = <b id="ciDifEfectivo">0,00 €</b></div>
+                <div class="resumen-linea">Tarjeta: datáfonos − TPV = <b id="ciDifTarjeta">0,00 €</b></div>
+                <span class="semaforo-pill semaforo-verde" id="semaforoPill">Cuadrado</span>
+            </div>
+            <button class="btn-confirmar" id="btnConfirmarCierre">Confirmar cierre</button>
+        `;
+
+        let datafonos = [{ nombre: 'Datáfono 1', importe: 0 }, { nombre: 'Datáfono 2', importe: 0 }];
+        function renderDatafonos() {
+            $('datafonos').innerHTML = datafonos.map((d, i) => `
+                <div class="datafono-fila">
+                    ${i < 2
+                        ? `<span style="flex:1;font-size:14px;color:#374151">${esc(d.nombre)}</span>`
+                        : `<input type="text" data-df-nombre="${i}" placeholder="Nombre datáfono" value="${esc(d.nombre)}">`}
+                    <input type="number" min="0" step="0.01" data-df-importe="${i}" value="${d.importe}">
+                </div>`).join('');
+            $('datafonos').querySelectorAll('[data-df-importe]').forEach(inp => {
+                inp.addEventListener('input', () => { datafonos[+inp.dataset.dfImporte].importe = parseFloat(inp.value) || 0; actualizar(); });
+            });
+            $('datafonos').querySelectorAll('[data-df-nombre]').forEach(inp => {
+                inp.addEventListener('input', () => { datafonos[+inp.dataset.dfNombre].nombre = inp.value; });
+            });
+        }
+        renderDatafonos();
+        $('chk3er').addEventListener('change', (e) => {
+            if (e.target.checked) datafonos.push({ nombre: '', importe: 0 });
+            else datafonos = datafonos.slice(0, 2);
+            renderDatafonos(); actualizar();
+        });
+
+        function semaforoDe(difEf, difTa) {
+            const aEf = Math.abs(difEf), aTa = Math.abs(difTa);
+            if (aEf === 0 && aTa === 0) return 'verde';
+            if (aEf <= 10 && aTa <= 5) return 'naranja';
+            return 'rojo';
+        }
+        function actualizar() {
+            const desglose = leerDesglose('ci');
+            const totalCaja = totalDesglose(desglose);
+            const fondo = parseFloat($('fondoDejas').value) || 0;
+            const efectivoNeto = Math.round((totalCaja - fondo) * 100) / 100;
+            const tpvEf = parseFloat($('tpvEfectivo').value) || 0;
+            const tpvTa = parseFloat($('tpvTarjeta').value) || 0;
+            const totalDatafonos = Math.round(datafonos.reduce((a, d) => a + (Number(d.importe) || 0), 0) * 100) / 100;
+            const difEf = Math.round((efectivoNeto - tpvEf) * 100) / 100;
+            const difTa = Math.round((totalDatafonos - tpvTa) * 100) / 100;
+            const sem = semaforoDe(difEf, difTa);
+            $('ciEfectivoNeto').textContent = euros(efectivoNeto);
+            $('ciDifEfectivo').textContent = (difEf > 0 ? '+' : '') + euros(difEf);
+            $('ciDifTarjeta').textContent = (difTa > 0 ? '+' : '') + euros(difTa);
+            const pill = $('semaforoPill');
+            pill.className = 'semaforo-pill semaforo-' + sem;
+            pill.textContent = sem === 'verde' ? 'Cuadrado' : sem === 'naranja' ? 'Diferencia leve' : 'Descuadre';
+        }
+        document.querySelectorAll('[id^="ci_"]').forEach(inp => inp.addEventListener('input', actualizar));
+        ['fondoDejas', 'tpvEfectivo', 'tpvTarjeta'].forEach(id => $(id).addEventListener('input', actualizar));
+        actualizar();
+
+        $('btnConfirmarCierre').addEventListener('click', async () => {
+            const desglose = leerDesglose('ci');
+            const totalCaja = totalDesglose(desglose);
+            if (totalCaja === 0 && !confirm('El cajón cuenta 0 €. ¿Es correcto?')) return;
+
+            const fondo = parseFloat($('fondoDejas').value) || 0;
+            const efectivoNeto = Math.round((totalCaja - fondo) * 100) / 100;
+            const tpvEf = parseFloat($('tpvEfectivo').value) || 0;
+            const tpvTa = parseFloat($('tpvTarjeta').value) || 0;
+            const totalDatafonos = Math.round(datafonos.reduce((a, d) => a + (Number(d.importe) || 0), 0) * 100) / 100;
+            const difEf = Math.round((efectivoNeto - tpvEf) * 100) / 100;
+            const difTa = Math.round((totalDatafonos - tpvTa) * 100) / 100;
+            if ((difEf !== 0 || difTa !== 0) && !confirm(
+                `${difEf !== 0 ? `${difEf > 0 ? 'Sobran' : 'Faltan'} ${euros(Math.abs(difEf))} en efectivo. ` : ''}`
+                + `${difTa !== 0 ? `${difTa > 0 ? 'Sobran' : 'Faltan'} ${euros(Math.abs(difTa))} en tarjeta.` : ''}\n¿Confirmar de todas formas?`
+            )) return;
+
+            const pin = await pedirPin();
+            if (!pin) return;
+            const btn = $('btnConfirmarCierre'); btn.disabled = true;
+            try {
+                const r = await fetch('/api/caja?accion=guardar-cierre', {
+                    method: 'PUT', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        empleado: empleadoSel, pin, id: t.id, desglose,
+                        fondo_definido: fondo, tpv_efectivo: tpvEf, tpv_tarjeta: tpvTa,
+                        tpv_voids: parseFloat($('tpvVoids').value) || 0,
+                        num_tickets: $('numTickets').value ? parseInt($('numTickets').value, 10) : null,
+                        datafonos,
+                    }),
+                });
+                const d = await r.json().catch(() => ({}));
+                if (!r.ok) { aviso(`✗ ${d.error || 'No se ha podido guardar el cierre'}`, 'error', 7000); btn.disabled = false; return; }
+                aviso(`✓ Cierre guardado (${d.semaforo})`, 'ok');
+                cargarEstado();
+            } catch { aviso('✗ Error de conexión', 'error'); btn.disabled = false; }
+        });
+    }
+
+    document.addEventListener('DOMContentLoaded', () => {
+        if (typeof lucide !== 'undefined') lucide.createIcons();
+        cargarEmpleados();
+    });
+})();
+</script>
+</body>
+</html>

@@ -67,6 +67,7 @@ export const TECLADO_DUENO = {
     ['📋 Resumen de hoy', '📅 Horarios'],
     ['✏️ Solicitudes', '🔧 Incidencias'],
     ['🚪 Turnos abiertos', '📱 Móviles compartidos'],
+    ['💰 Caja'],
   ],
   resize_keyboard: true,
   is_persistent: true,

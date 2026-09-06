@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#b45309">
+    <title>Cierre de caja</title>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <script src="auth-cliente.js"></script>
+    <script>
+        exigirSesion('login.html');
+        const TOKEN = sessionStorage.getItem('adminToken') || sessionStorage.getItem('encargadoToken') || '';
+    </script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100dvh; padding: 20px;
+        }
+        .container {
+            background: white; border-radius: 12px; padding: 26px;
+            box-shadow: 0 20px 60px rgba(0,0,0,.3); max-width: 1100px; margin: 0 auto;
+        }
+        .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 18px; flex-wrap: wrap; gap: 12px; }
+        .header h1 { color: #1f2937; font-size: 22px; }
+        button { padding: 9px 16px; border: none; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; font-family: inherit; }
+        .btn-volver { background: #6b7280; color: white; display: inline-flex; align-items: center; gap: 6px; }
+        .msg { padding: 12px 14px; border-radius: 8px; margin-bottom: 16px; font-weight: 600; font-size: 14px; display: none; }
+        .msg.ok { background: #d1fae5; color: #065f46; display: block; }
+        .msg.error { background: #fee2e2; color: #7f1d1d; display: block; }
+
+        .filtros { display: flex; gap: 10px; flex-wrap: wrap; align-items: flex-end; margin-bottom: 18px; background: #f9fafb; border-radius: 10px; padding: 14px; }
+        .campo { display: flex; flex-direction: column; gap: 4px; }
+        .campo label { font-size: 11px; color: #6b7280; font-weight: 700; text-transform: uppercase; }
+        .campo input, .campo select {
+            padding: 8px 10px; border: 1px solid #d1d5db; border-radius: 6px; font-size: 13px; font-family: inherit;
+        }
+        .btn-limpiar { background: white; color: #6b7280; border: 1px solid #d1d5db; }
+
+        .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; margin-bottom: 20px; }
+        .stat { background: #f9fafb; border-radius: 8px; padding: 12px 14px; }
+        .stat-label { font-size: 11px; color: #6b7280; font-weight: 700; text-transform: uppercase; }
+        .stat-valor { font-size: 19px; font-weight: 800; color: #1f2937; margin-top: 2px; }
+
+        table { width: 100%; border-collapse: collapse; font-size: 13px; }
+        th { text-align: left; color: #6b7280; font-size: 11px; text-transform: uppercase; padding: 8px 10px; border-bottom: 2px solid #e5e7eb; }
+        td { padding: 9px 10px; border-bottom: 1px solid #f3f4f6; color: #1f2937; white-space: nowrap; }
+        .tabla-wrap { overflow-x: auto; }
+        .pos { color: #059669; }
+        .neg { color: #b91c1c; }
+        .badge { padding: 2px 9px; border-radius: 10px; font-size: 11px; font-weight: 700; }
+        .badge-pendiente { background: #e5e7eb; color: #374151; }
+        .badge-apertura_ok { background: #dbeafe; color: #1e40af; }
+        .badge-cerrado { background: #d1fae5; color: #065f46; }
+        .badge-reabierto { background: #ffedd5; color: #9a3412; }
+        .semaforo-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 5px; }
+        .sf-verde { background: #10b981; }
+        .sf-naranja { background: #f59e0b; }
+        .sf-rojo { background: #ef4444; }
+        .btn-mini { background: white; border: 1px solid #d1d5db; color: #374151; padding: 5px 10px; border-radius: 6px; font-size: 12px; margin-right: 4px; }
+        .btn-mini:hover { background: #f3f4f6; }
+        .btn-reabrir { background: none; border: 1px solid #fca5a5; color: #b91c1c; padding: 5px 10px; border-radius: 6px; font-size: 12px; }
+        .btn-reabrir:hover { background: #fee2e2; }
+        .vacio { text-align: center; padding: 40px 20px; color: #9ca3af; font-size: 14px; }
+
+        .modal { position: fixed; inset: 0; background: rgba(0,0,0,.55); display: none; align-items: center; justify-content: center; padding: 20px; z-index: 60; }
+        .modal.visible { display: flex; }
+        .modal-card { background: white; border-radius: 14px; padding: 22px; width: 100%; max-width: 480px; max-height: 85vh; overflow-y: auto; }
+        .modal-card h2 { font-size: 17px; color: #1f2937; margin-bottom: 14px; }
+        .det-linea { display: flex; justify-content: space-between; padding: 5px 0; font-size: 13px; border-bottom: 1px solid #f3f4f6; }
+        .det-linea b { color: #1f2937; }
+        .det-titulo { font-size: 12px; font-weight: 800; color: #92400e; text-transform: uppercase; margin: 16px 0 6px; }
+        .modal-acciones { display: flex; gap: 8px; margin-top: 16px; }
+        .modal-acciones button { flex: 1; }
+        .btn-cancelar { background: #f3f4f6; color: #374151; }
+        .btn-confirmar-modal { background: #b45309; color: white; }
+        textarea { width: 100%; padding: 10px; border: 2px solid #e5e7eb; border-radius: 8px; font-size: 14px; font-family: inherit; min-height: 80px; resize: vertical; }
+        .contador { font-size: 12px; color: #9ca3af; margin-top: 4px; }
+    </style>
+</head>
+<body>
+<div class="container">
+    <div class="header">
+        <h1><i data-lucide="banknote" style="width:22px;height:22px;vertical-align:middle;margin-right:6px"></i>Cierre de caja</h1>
+        <button class="btn-volver" onclick="location.href='admin.html'"><i data-lucide="arrow-left" style="width:14px;height:14px"></i> Volver</button>
+    </div>
+
+    <div class="msg" id="msg"></div>
+
+    <div class="filtros">
+        <div class="campo"><label>Desde</label><input type="date" id="fDesde"></div>
+        <div class="campo"><label>Hasta</label><input type="date" id="fHasta"></div>
+        <div class="campo"><label>Turno</label><select id="fTurno"><option value="">Todos</option><option value="manana">Mañana</option><option value="tarde">Tarde</option></select></div>
+        <div class="campo"><label>Semáforo</label><select id="fSemaforo"><option value="">Todos</option><option value="verde">Verde</option><option value="naranja">Naranja</option><option value="rojo">Rojo</option></select></div>
+        <div class="campo"><label>Empleado</label><input type="text" id="fEmpleado" placeholder="Nombre"></div>
+        <button class="btn-limpiar" id="btnLimpiar">Limpiar filtros</button>
+    </div>
+
+    <div class="stats" id="stats"></div>
+
+    <div class="tabla-wrap"><div id="tabla"><div class="vacio">Cargando…</div></div></div>
+</div>
+
+<!-- Modal detalle -->
+<div class="modal" id="modalDetalle">
+    <div class="modal-card">
+        <h2 id="detTitulo">Detalle</h2>
+        <div id="detCuerpo"></div>
+        <div class="modal-acciones"><button class="btn-cancelar" onclick="cerrarDetalle()">Cerrar</button></div>
+    </div>
+</div>
+
+<!-- Modal reabrir -->
+<div class="modal" id="modalReabrir">
+    <div class="modal-card">
+        <h2>Reabrir cierre</h2>
+        <p id="reabrirInfo" style="font-size:13px;color:#6b7280;margin-bottom:10px"></p>
+        <textarea id="motivoReabrir" placeholder="Explica el motivo de la reapertura (mínimo 10 caracteres)"></textarea>
+        <div class="contador" id="contadorMotivo">0 / 10 caracteres mínimos</div>
+        <div class="modal-acciones">
+            <button class="btn-cancelar" onclick="cerrarReabrir()">Cancelar</button>
+            <button class="btn-confirmar-modal" id="btnConfirmarReabrir" disabled>Reabrir</button>
+        </div>
+    </div>
+</div>
+
+<script>
+    const params = new URLSearchParams(location.search);
+    const centro = params.get('centro') || '';
+    let turnos = [];
+    let idAReabrir = null;
+
+    const ETIQUETA_TURNO = { manana: 'Mañana', tarde: 'Tarde' };
+    const ETIQUETA_ESTADO = { pendiente: 'Pendiente', apertura_ok: 'Apertura ok', cerrado: 'Cerrado', reabierto: 'Reabierto' };
+    const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+    const euros = n => n === null || n === undefined ? '—' : (Number(n) || 0).toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €';
+    const firmado = n => n === null || n === undefined ? '—' : (Number(n) > 0 ? '+' : '') + euros(n);
+
+    function mostrar(texto, tipo) {
+        const el = document.getElementById('msg');
+        el.textContent = texto; el.className = `msg ${tipo}`;
+        if (tipo === 'ok') setTimeout(() => { el.className = 'msg'; }, 5000);
+    }
+
+    function queryFiltros() {
+        const q = new URLSearchParams();
+        if (centro) q.set('centro', centro);
+        const desde = document.getElementById('fDesde').value; if (desde) q.set('fecha_desde', desde);
+        const hasta = document.getElementById('fHasta').value; if (hasta) q.set('fecha_hasta', hasta);
+        const turno = document.getElementById('fTurno').value; if (turno) q.set('turno', turno);
+        const sem = document.getElementById('fSemaforo').value; if (sem) q.set('semaforo', sem);
+        const emp = document.getElementById('fEmpleado').value.trim(); if (emp) q.set('empleado', emp);
+        return q.toString();
+    }
+
+    async function cargar() {
+        document.getElementById('tabla').innerHTML = '<div class="vacio">Cargando…</div>';
+        try {
+            const r = await fetch(`/api/caja?accion=listado&${queryFiltros()}`, { headers: { 'X-Auth-Token': TOKEN } });
+            if (siNoAutorizado(r, 'login.html')) return;
+            if (!r.ok) throw new Error();
+            turnos = await r.json();
+        } catch { turnos = null; }
+        if (turnos === null) { document.getElementById('tabla').innerHTML = '<div class="vacio">No se ha podido consultar. Recarga la página.</div>'; return; }
+        renderStats();
+        renderTabla();
+    }
+
+    function renderStats() {
+        const cerrados = turnos.filter(t => ['cerrado', 'reabierto'].includes(t.estado) || t.cierre_total_caja !== null);
+        const totalCierres = turnos.filter(t => t.estado === 'cerrado').length;
+        const enRojo = turnos.filter(t => t.cierre_semaforo === 'rojo').length;
+        const difEfectivo = cerrados.reduce((a, t) => a + Math.abs(Number(t.cierre_dif_efectivo) || 0), 0);
+        const difTarjeta = cerrados.reduce((a, t) => a + Math.abs(Number(t.cierre_dif_tarjeta) || 0), 0);
+        const efectivoTotal = cerrados.reduce((a, t) => a + (Number(t.cierre_efectivo_neto) || 0), 0);
+        const tarjetaTotal = cerrados.reduce((a, t) => a + (Number(t.cierre_tpv_tarjeta) || 0), 0);
+        const stats = [
+            ['Total cierres', totalCierres],
+            ['Cierres en rojo', enRojo],
+            ['Dif. total efectivo', euros(difEfectivo)],
+            ['Dif. total tarjeta', euros(difTarjeta)],
+            ['Efectivo total', euros(efectivoTotal)],
+            ['Tarjeta total', euros(tarjetaTotal)],
+            ['Total recaudado', euros(efectivoTotal + tarjetaTotal)],
+        ];
+        document.getElementById('stats').innerHTML = stats.map(([l, v]) => `
+            <div class="stat"><div class="stat-label">${l}</div><div class="stat-valor">${v}</div></div>`).join('');
+    }
+
+    function renderTabla() {
+        const cont = document.getElementById('tabla');
+        if (!turnos.length) { cont.innerHTML = '<div class="vacio">No hay turnos para estos filtros.</div>'; return; }
+        cont.innerHTML = `<table><thead><tr>
+            <th>Fecha</th><th>Turno</th><th>Empleado</th><th>Apertura</th><th>Dif. apertura</th>
+            <th>Efectivo neto</th><th>Tarjeta</th><th>Dif. efvo</th><th>Dif. tarj.</th><th>Semáforo</th><th>Estado</th><th></th>
+        </tr></thead><tbody>` + turnos.map(t => `
+            <tr>
+                <td>${esc(t.fecha)}</td>
+                <td>${ETIQUETA_TURNO[t.turno] || esc(t.turno)}</td>
+                <td>${esc(t.empleado)}</td>
+                <td>${euros(t.apertura_total_contado)}</td>
+                <td class="${Number(t.apertura_diferencia) === 0 ? '' : (Number(t.apertura_diferencia) < 0 ? 'neg' : 'pos')}">${firmado(t.apertura_diferencia)}</td>
+                <td>${euros(t.cierre_efectivo_neto)}</td>
+                <td>${euros(t.cierre_tpv_tarjeta)}</td>
+                <td class="${Number(t.cierre_dif_efectivo) === 0 ? '' : (Number(t.cierre_dif_efectivo) < 0 ? 'neg' : 'pos')}">${firmado(t.cierre_dif_efectivo)}</td>
+                <td class="${Number(t.cierre_dif_tarjeta) === 0 ? '' : (Number(t.cierre_dif_tarjeta) < 0 ? 'neg' : 'pos')}">${firmado(t.cierre_dif_tarjeta)}</td>
+                <td>${t.cierre_semaforo ? `<span class="semaforo-dot sf-${t.cierre_semaforo}"></span>${t.cierre_semaforo}` : '—'}</td>
+                <td><span class="badge badge-${t.estado}">${ETIQUETA_ESTADO[t.estado] || esc(t.estado)}</span></td>
+                <td>
+                    <button class="btn-mini" data-detalle="${t.id}">Ver</button>
+                    ${t.estado === 'cerrado' ? `<button class="btn-reabrir" data-reabrir="${t.id}">Reabrir</button>` : ''}
+                </td>
+            </tr>`).join('') + '</tbody></table>';
+
+        cont.querySelectorAll('[data-detalle]').forEach(b => b.addEventListener('click', () => verDetalle(b.dataset.detalle)));
+        cont.querySelectorAll('[data-reabrir]').forEach(b => b.addEventListener('click', () => abrirReabrir(b.dataset.reabrir)));
+    }
+
+    async function verDetalle(id) {
+        try {
+            const r = await fetch(`/api/caja?accion=detalle&id=${id}`, { headers: { 'X-Auth-Token': TOKEN } });
+            if (siNoAutorizado(r, 'login.html')) return;
+            const d = await r.json();
+            if (!r.ok) { mostrar(d.error || 'No se pudo cargar el detalle', 'error'); return; }
+
+            document.getElementById('detTitulo').textContent = `${ETIQUETA_TURNO[d.turno] || d.turno} · ${d.fecha} · ${d.empleado}`;
+            const datafonosHtml = (d.datafonos || []).map(df => `<div class="det-linea">${esc(df.nombre)}<b>${euros(df.importe)}</b></div>`).join('');
+            const reaperturasHtml = (d.reaperturas || []).map(rp => `<div class="det-linea" style="display:block"><b>${new Date(rp.creado_en).toLocaleString('es-ES')}</b> (${rp.nivel})<br>${esc(rp.motivo)}</div>`).join('');
+            document.getElementById('detCuerpo').innerHTML = `
+                <div class="det-titulo">Apertura</div>
+                <div class="det-linea">Fondo heredado<b>${euros(d.apertura_fondo_heredado)}</b></div>
+                <div class="det-linea">Total contado<b>${euros(d.apertura_total_contado)}</b></div>
+                <div class="det-linea">Diferencia<b>${firmado(d.apertura_diferencia)}</b></div>
+
+                <div class="det-titulo">Cierre</div>
+                <div class="det-linea">Total cajón<b>${euros(d.cierre_total_caja)}</b></div>
+                <div class="det-linea">Fondo dejado<b>${euros(d.cierre_fondo_definido)}</b></div>
+                <div class="det-linea">Efectivo neto (sobre)<b>${euros(d.cierre_efectivo_neto)}</b></div>
+                <div class="det-linea">TPV efectivo<b>${euros(d.cierre_tpv_efectivo)}</b></div>
+                <div class="det-linea">TPV tarjeta<b>${euros(d.cierre_tpv_tarjeta)}</b></div>
+                <div class="det-linea">Voids<b>${euros(d.cierre_tpv_voids)}</b></div>
+                <div class="det-linea">Nº tickets<b>${d.cierre_num_tickets ?? '—'}</b></div>
+                <div class="det-linea">Diferencia efectivo<b>${firmado(d.cierre_dif_efectivo)}</b></div>
+                <div class="det-linea">Diferencia tarjeta<b>${firmado(d.cierre_dif_tarjeta)}</b></div>
+                <div class="det-linea">Semáforo<b>${d.cierre_semaforo || '—'}</b></div>
+
+                ${datafonosHtml ? `<div class="det-titulo">Datáfonos</div>${datafonosHtml}` : ''}
+                ${reaperturasHtml ? `<div class="det-titulo">Reaperturas</div>${reaperturasHtml}` : ''}
+            `;
+            document.getElementById('modalDetalle').classList.add('visible');
+        } catch { mostrar('Error de conexión', 'error'); }
+    }
+    function cerrarDetalle() { document.getElementById('modalDetalle').classList.remove('visible'); }
+
+    function abrirReabrir(id) {
+        idAReabrir = id;
+        const t = turnos.find(x => String(x.id) === String(id));
+        document.getElementById('reabrirInfo').textContent = t ? `${ETIQUETA_TURNO[t.turno] || t.turno} · ${t.fecha} · ${t.empleado}` : '';
+        document.getElementById('motivoReabrir').value = '';
+        document.getElementById('contadorMotivo').textContent = '0 / 10 caracteres mínimos';
+        document.getElementById('btnConfirmarReabrir').disabled = true;
+        document.getElementById('modalReabrir').classList.add('visible');
+    }
+    function cerrarReabrir() { document.getElementById('modalReabrir').classList.remove('visible'); idAReabrir = null; }
+
+    document.getElementById('motivoReabrir').addEventListener('input', (e) => {
+        const n = e.target.value.trim().length;
+        document.getElementById('contadorMotivo').textContent = `${n} / 10 caracteres mínimos`;
+        document.getElementById('btnConfirmarReabrir').disabled = n < 10;
+    });
+
+    document.getElementById('btnConfirmarReabrir').addEventListener('click', async () => {
+        const motivo = document.getElementById('motivoReabrir').value.trim();
+        if (motivo.length < 10 || !idAReabrir) return;
+        const btn = document.getElementById('btnConfirmarReabrir');
+        btn.disabled = true;
+        try {
+            const r = await fetch('/api/caja?accion=reabrir', {
+                method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Auth-Token': TOKEN },
+                body: JSON.stringify({ id: idAReabrir, motivo }),
+            });
+            if (siNoAutorizado(r, 'login.html')) return;
+            const d = await r.json().catch(() => ({}));
+            if (!r.ok) { mostrar(d.error || 'No se ha podido reabrir', 'error'); btn.disabled = false; return; }
+            mostrar('✓ Cierre reabierto', 'ok');
+            cerrarReabrir();
+            cargar();
+        } catch { mostrar('Error de conexión', 'error'); btn.disabled = false; }
+    });
+
+    document.getElementById('btnLimpiar').addEventListener('click', () => {
+        document.getElementById('fDesde').value = '';
+        document.getElementById('fHasta').value = '';
+        document.getElementById('fTurno').value = '';
+        document.getElementById('fSemaforo').value = '';
+        document.getElementById('fEmpleado').value = '';
+        cargar();
+    });
+    ['fDesde','fHasta','fTurno','fSemaforo'].forEach(id => document.getElementById(id).addEventListener('change', cargar));
+    let debounceEmpleado;
+    document.getElementById('fEmpleado').addEventListener('input', () => {
+        clearTimeout(debounceEmpleado);
+        debounceEmpleado = setTimeout(cargar, 300);
+    });
+
+    document.addEventListener('DOMContentLoaded', () => {
+        if (typeof lucide !== 'undefined') lucide.createIcons();
+        cargar();
+    });
+</script>
+</body>
+</html>
