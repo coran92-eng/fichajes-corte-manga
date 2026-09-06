@@ -17,6 +17,86 @@ function calcularTimestamp(fecha, hora) {
   return Number.isNaN(ms) ? Date.now() : ms;
 }
 
+/**
+ * Aplica una decisión sobre una solicitud pendiente: aprobarla inserta,
+ * modifica o borra el fichaje real que pedía; rechazarla no toca fichajes.
+ * En los dos casos, queda resuelta y se avisa a quien la pidió. Usado tanto
+ * por el PUT de abajo (desde el panel) como por el botón aprobar/rechazar
+ * del bot de gerencia en Telegram (§ telegram-webhook.js) — mismo camino,
+ * para no mantener la lógica de "aprobar" en dos sitios distintos.
+ *
+ * Devuelve { ok: true } o { ok: false, status, error }.
+ */
+export async function resolverSolicitud(db, id, estado, notaAdmin = '') {
+  if (estado !== 'aprobada' && estado !== 'rechazada') {
+    return { ok: false, status: 400, error: "El estado debe ser 'aprobada' o 'rechazada'" };
+  }
+
+  const solRes = await db.execute({ sql: "SELECT * FROM solicitudes WHERE id = ?", args: [id] });
+  const sol = solRes.rows[0];
+  if (!sol) return { ok: false, status: 404, error: "Solicitud no encontrada" };
+  if (sol.estado !== 'pendiente') return { ok: false, status: 409, error: "La solicitud ya fue resuelta" };
+
+  if (estado === 'aprobada') {
+    const hora = horaCompleta(sol.hora_propuesta || sol.hora_original);
+    const ts = calcularTimestamp(sol.fecha, hora);
+
+    if (sol.tipo_solicitud === 'crear') {
+      await db.execute({
+        sql: "INSERT INTO fichajes (empleado, tipo, fecha, hora, timestamp, centro, corregido) VALUES (?, ?, ?, ?, ?, ?, 1)",
+        args: [sol.empleado, sol.tipo_fichaje, sol.fecha, hora, ts, sol.centro || ''],
+      });
+    } else if (sol.tipo_solicitud === 'modificar') {
+      let targetId = sol.fichaje_id;
+      if (!targetId) {
+        const f = await db.execute({
+          sql: "SELECT id FROM fichajes WHERE empleado = ? AND fecha = ? AND tipo = ? ORDER BY timestamp DESC LIMIT 1",
+          args: [sol.empleado, sol.fecha, sol.tipo_fichaje],
+        });
+        targetId = f.rows[0]?.id ?? null;
+      }
+      if (targetId) {
+        await db.execute({
+          sql: "UPDATE fichajes SET hora = ?, timestamp = ?, corregido = 1 WHERE id = ?",
+          args: [hora, ts, targetId],
+        });
+      } else {
+        await db.execute({
+          sql: "INSERT INTO fichajes (empleado, tipo, fecha, hora, timestamp, centro, corregido) VALUES (?, ?, ?, ?, ?, ?, 1)",
+          args: [sol.empleado, sol.tipo_fichaje, sol.fecha, hora, ts, sol.centro || ''],
+        });
+      }
+    } else if (sol.tipo_solicitud === 'eliminar') {
+      if (sol.fichaje_id) {
+        await db.execute({ sql: "DELETE FROM fichajes WHERE id = ?", args: [sol.fichaje_id] });
+      } else {
+        await db.execute({
+          sql: "DELETE FROM fichajes WHERE id = (SELECT id FROM fichajes WHERE empleado = ? AND fecha = ? AND tipo = ? ORDER BY timestamp DESC LIMIT 1)",
+          args: [sol.empleado, sol.fecha, sol.tipo_fichaje],
+        });
+      }
+    }
+  }
+
+  await db.execute({
+    sql: "UPDATE solicitudes SET estado = ?, nota_admin = ?, resuelto_en = ? WHERE id = ?",
+    args: [estado, notaAdmin, Date.now(), id],
+  });
+
+  // Quien la pidió se entera de si se aprobó o se rechazó, en vez de tener
+  // que volver a mirar si ya se resolvió.
+  const chatId = await telegramChatDeEmpleado(db, sol.empleado);
+  if (chatId) {
+    const emoji = estado === 'aprobada' ? '✅' : '❌';
+    await avisarEmpleado(chatId,
+      `${emoji} Tu solicitud del ${sol.fecha} ha sido ${estado === 'aprobada' ? 'aprobada' : 'rechazada'}.`
+      + (notaAdmin ? `\n${escTelegram(notaAdmin)}` : '')
+    );
+  }
+
+  return { ok: true, sol };
+}
+
 export default async function handler(req, res) {
   try {
     const db = getDbClient();
@@ -135,86 +215,12 @@ export default async function handler(req, res) {
         return res.status(403).json({ error: "No autorizado" });
       }
       const { id, estado, nota_admin = '' } = req.body;
-
       if (!id) {
         return res.status(400).json({ error: "Falta el id de la solicitud" });
       }
-      if (estado !== 'aprobada' && estado !== 'rechazada') {
-        return res.status(400).json({ error: "El estado debe ser 'aprobada' o 'rechazada'" });
-      }
 
-      const solRes = await db.execute({
-        sql: "SELECT * FROM solicitudes WHERE id = ?",
-        args: [id],
-      });
-      const sol = solRes.rows[0];
-      if (!sol) {
-        return res.status(404).json({ error: "Solicitud no encontrada" });
-      }
-      if (sol.estado !== 'pendiente') {
-        return res.status(409).json({ error: "La solicitud ya fue resuelta" });
-      }
-
-      if (estado === 'aprobada') {
-        const hora = horaCompleta(sol.hora_propuesta || sol.hora_original);
-        const ts = calcularTimestamp(sol.fecha, hora);
-
-        if (sol.tipo_solicitud === 'crear') {
-          await db.execute({
-            sql: "INSERT INTO fichajes (empleado, tipo, fecha, hora, timestamp, centro, corregido) VALUES (?, ?, ?, ?, ?, ?, 1)",
-            args: [sol.empleado, sol.tipo_fichaje, sol.fecha, hora, ts, sol.centro || ''],
-          });
-        } else if (sol.tipo_solicitud === 'modificar') {
-          let targetId = sol.fichaje_id;
-          if (!targetId) {
-            const f = await db.execute({
-              sql: "SELECT id FROM fichajes WHERE empleado = ? AND fecha = ? AND tipo = ? ORDER BY timestamp DESC LIMIT 1",
-              args: [sol.empleado, sol.fecha, sol.tipo_fichaje],
-            });
-            targetId = f.rows[0]?.id ?? null;
-          }
-          if (targetId) {
-            await db.execute({
-              sql: "UPDATE fichajes SET hora = ?, timestamp = ?, corregido = 1 WHERE id = ?",
-              args: [hora, ts, targetId],
-            });
-          } else {
-            await db.execute({
-              sql: "INSERT INTO fichajes (empleado, tipo, fecha, hora, timestamp, centro, corregido) VALUES (?, ?, ?, ?, ?, ?, 1)",
-              args: [sol.empleado, sol.tipo_fichaje, sol.fecha, hora, ts, sol.centro || ''],
-            });
-          }
-        } else if (sol.tipo_solicitud === 'eliminar') {
-          if (sol.fichaje_id) {
-            await db.execute({
-              sql: "DELETE FROM fichajes WHERE id = ?",
-              args: [sol.fichaje_id],
-            });
-          } else {
-            await db.execute({
-              sql: "DELETE FROM fichajes WHERE id = (SELECT id FROM fichajes WHERE empleado = ? AND fecha = ? AND tipo = ? ORDER BY timestamp DESC LIMIT 1)",
-              args: [sol.empleado, sol.fecha, sol.tipo_fichaje],
-            });
-          }
-        }
-      }
-
-      await db.execute({
-        sql: "UPDATE solicitudes SET estado = ?, nota_admin = ?, resuelto_en = ? WHERE id = ?",
-        args: [estado, nota_admin, Date.now(), id],
-      });
-
-      // Quien la pidió se entera de si se aprobó o se rechazó, en vez de
-      // tener que volver a mirar si ya se resolvió.
-      const chatId = await telegramChatDeEmpleado(db, sol.empleado);
-      if (chatId) {
-        const emoji = estado === 'aprobada' ? '✅' : '❌';
-        await avisarEmpleado(chatId,
-          `${emoji} Tu solicitud del ${sol.fecha} ha sido ${estado === 'aprobada' ? 'aprobada' : 'rechazada'}.`
-          + (nota_admin ? `\n${escTelegram(nota_admin)}` : '')
-        );
-      }
-
+      const r = await resolverSolicitud(db, id, estado, nota_admin);
+      if (!r.ok) return res.status(r.status).json({ error: r.error });
       return res.status(200).json({ success: true });
     }
     else {

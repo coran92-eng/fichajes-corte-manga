@@ -49,13 +49,25 @@ export function escTelegram(s) {
  * escribir el comando. A diferencia del bot de empleados, aquí no hay un
  * paso de "vincular" donde mandarlo la primera vez —el dueño es un chat fijo,
  * no alguien que se da de alta—, así que se cuelga de los dos sitios donde ya
- * se le escribe de todas formas: la respuesta a /hoy y el resumen diario del
- * cron, que le llega solo cada mañana sin que el dueño tenga que hacer nada.
- * Vive aquí (no en telegram-webhook.js ni en aviso-diario.js) porque lo usan
- * las dos rutas y no hay que duplicarlo entre ellas.
+ * se le escribe de todas formas: la respuesta a cualquier comando y el
+ * resumen diario del cron, que le llega solo cada mañana sin que el dueño
+ * tenga que hacer nada. Vive aquí (no en telegram-webhook.js ni en
+ * aviso-diario.js) porque lo usan las dos rutas y no hay que duplicarlo.
+ *
+ * Deliberadamente NO están aquí las acciones que ya tienen su propio
+ * formulario en el panel (dar de alta o borrar empleados, cambiar un PIN,
+ * configurar la red o la ubicación del centro): son operaciones con más de
+ * un campo y consecuencias que conviene ver bien antes de confirmar, así que
+ * se quedan en la app. Lo que hay aquí es todo lo que es "consultar algo" o
+ * "aprobar/rechazar con un toque" — lo que de verdad gana con ser un botón
+ * de chat en vez de abrir el panel.
  */
 export const TECLADO_DUENO = {
-  keyboard: [['📋 Resumen de hoy']],
+  keyboard: [
+    ['📋 Resumen de hoy', '📅 Horarios'],
+    ['✏️ Solicitudes', '🔧 Incidencias'],
+    ['🚪 Turnos abiertos', '📱 Móviles compartidos'],
+  ],
   resize_keyboard: true,
   is_persistent: true,
 };
@@ -94,15 +106,23 @@ async function llamarApiTelegram(metodo, payload) {
  * `opciones.reply_markup` permite adjuntar botones (inline_keyboard) sin
  * tener que montar el payload a mano en cada sitio que quiera mandar uno —
  * ver `marcarVencidas` en tareas.js para un ejemplo real.
+ *
+ * Si no se pasa `reply_markup`, se adjunta TECLADO_DUENO por defecto: así el
+ * teclado fijo del dueño se pone al día solo con recibir CUALQUIER aviso
+ * (una tarea completada, un móvil compartido, el resumen del cron...), sin
+ * depender de que escriba /hoy o toque un botón para "refrescarlo" — mismo
+ * criterio que avisarEmpleado en _telegram-empleados.js. Para no tocar el
+ * teclado (dejar el que ya hubiera puesto), se pasa `{ reply_markup: null }`.
  */
 export async function avisarTelegram(texto, opciones = {}) {
   if (!hayTelegramConfigurado()) return;
   const chatId = process.env.TELEGRAM_CHAT_ID;
+  const reply_markup = 'reply_markup' in opciones ? opciones.reply_markup : TECLADO_DUENO;
   await llamarApiTelegram('sendMessage', {
     chat_id: chatId,
     text: texto,
     parse_mode: 'HTML',
-    ...(opciones.reply_markup ? { reply_markup: opciones.reply_markup } : {}),
+    ...(reply_markup ? { reply_markup } : {}),
   });
 }
 
