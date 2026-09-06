@@ -21,6 +21,11 @@
  *   - /incidencias → lo que está roto o agotado y sigue sin resolverse.
  *   - /abiertos → quién sigue fichado como presente sin haber salido.
  *   - /dispositivos → móviles usados por más de una persona.
+ *   - /caja → estado de hoy de la caja (apertura/cierre de cada turno, con
+ *     el semáforo), por centro. Solo lectura: cada cierre y cada reapertura
+ *     ya avisan solos (§ api/caja.js), y reabrir un cierre se hace desde el
+ *     panel, no desde aquí — necesita un motivo escrito de verdad y el bot
+ *     del dueño no tiene ninguna maquinaria para pedir texto libre.
  *   - el botón "Marcar como no aplica" del aviso de tarea vencida.
  *
  * Lo que NO está aquí a propósito: dar de alta o borrar empleados, cambiar
@@ -39,6 +44,7 @@ import {
 } from "./_telegram.js";
 import { turnosAbiertos, dispositivosCompartidos } from "./mantenimiento.js";
 import { resolverSolicitud } from "./solicitudes.js";
+import { listarTurnos as cajaListarTurnos, hoyEnCentro } from "./caja.js";
 
 const MOTIVO_TELEGRAM = 'Marcado desde Telegram por el dueño';
 
@@ -108,6 +114,7 @@ const BOTON_A_COMANDO = {
   '🔧 Incidencias': '/incidencias',
   '🚪 Turnos abiertos': '/abiertos',
   '📱 Móviles compartidos': '/dispositivos',
+  '💰 Caja': '/caja',
 };
 
 /**
@@ -419,6 +426,45 @@ async function resumenDispositivosCompartidos() {
   return trocear(lineas);
 }
 
+const ETIQUETA_TURNO_CAJA = { manana: 'Turno 1 (mañana)', tarde: 'Turno 2 (tarde)' };
+const EMOJI_ESTADO_CAJA = { pendiente: '⏳', apertura_ok: '🔓', cerrado: '✅', reabierto: '♻️' };
+const EMOJI_SEMAFORO_CAJA = { verde: '🟢', naranja: '🟠', rojo: '🔴' };
+
+/** Estado de hoy de la caja (apertura/cierre de cada turno), por centro. Solo lectura: reabrir se hace desde el panel. */
+async function resumenCaja() {
+  const db = getDbClient();
+  await initSchema(db);
+  const centros = await db.execute("SELECT centro FROM centros_cfg");
+  const bloques = [];
+
+  for (const { centro } of centros.rows) {
+    const cfg = await getCentroCfg(db, centro);
+    const hoy = hoyEnCentro(cfg);
+    const turnos = await cajaListarTurnos(db, { centro, fecha_desde: hoy, fecha_hasta: hoy });
+    if (!turnos.length) continue;
+
+    const lineas = [`💰 <b>Caja de hoy</b> (${hoy}) — ${escTelegram(centro)}`];
+    for (const t of turnos.slice().reverse()) {
+      const emoji = EMOJI_ESTADO_CAJA[t.estado] || '•';
+      let linea = `${emoji} ${escTelegram(ETIQUETA_TURNO_CAJA[t.turno] || t.turno)} — ${escTelegram(t.empleado)}: ${t.estado}`;
+      if (t.cierre_semaforo) {
+        linea += ` ${EMOJI_SEMAFORO_CAJA[t.cierre_semaforo] || ''} (dif. efvo ${firmadoTexto(t.cierre_dif_efectivo)}, tarj. ${firmadoTexto(t.cierre_dif_tarjeta)})`;
+      }
+      lineas.push(linea);
+    }
+    bloques.push(...trocear(lineas));
+  }
+
+  if (!bloques.length) return ['💰 Ningún turno de caja movido hoy todavía.'];
+  return bloques;
+}
+
+function firmadoTexto(n) {
+  const v = Number(n) || 0;
+  const euros = (Math.round(Math.abs(v) * 100) / 100).toFixed(2).replace('.', ',');
+  return `${v > 0 ? '+' : v < 0 ? '-' : ''}${euros} €`;
+}
+
 async function manejarMensaje(message) {
   if (!esDelDueno(message.chat?.id)) return;
   const texto = String(message.text || '').trim();
@@ -432,6 +478,7 @@ async function manejarMensaje(message) {
     '/incidencias': resumenIncidencias,
     '/abiertos': resumenTurnosAbiertos,
     '/dispositivos': resumenDispositivosCompartidos,
+    '/caja': resumenCaja,
   };
   const productor = PRODUCTORES[comando];
   if (!productor) return;

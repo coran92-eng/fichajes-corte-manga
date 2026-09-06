@@ -30,7 +30,8 @@ export const TECLADO_PRINCIPAL = {
   keyboard: [
     ['📅 Mi horario', '🕐 Mis horas'],
     ['📋 Tareas de hoy', '📍 Fichar'],
-    ['✏️ Corregir fichaje', '🔧 Incidencia', '📦 Falta de producto'],
+    ['💰 Caja', '✏️ Corregir fichaje'],
+    ['🔧 Incidencia', '📦 Falta de producto'],
     ['❓ Ayuda', '🚪 Salir'],
   ],
   resize_keyboard: true, // botones del tamaño del texto, no ocupando media pantalla

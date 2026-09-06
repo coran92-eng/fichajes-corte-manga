@@ -18,6 +18,43 @@ export const RAFAGA_MIN = 3;
 // Fotos duplicadas: se compara el hash contra las últimas N de la misma plantilla.
 export const HASH_LOOKBACK = 30;
 
+// ── Cierre de caja (§ api/caja.js) ─────────────────────────────
+// Los 15 tramos fijos de billetes y monedas en euros, en el orden en que se
+// enseñan y se piden — igual que en la app de la que viene esto (cierrecaja).
+export const DENOMINACIONES = [
+  { clave: 'b500', valor: 500 }, { clave: 'b200', valor: 200 }, { clave: 'b100', valor: 100 },
+  { clave: 'b50', valor: 50 }, { clave: 'b20', valor: 20 }, { clave: 'b10', valor: 10 }, { clave: 'b5', valor: 5 },
+  { clave: 'c200', valor: 2 }, { clave: 'c100', valor: 1 }, { clave: 'c050', valor: 0.5 },
+  { clave: 'c020', valor: 0.2 }, { clave: 'c010', valor: 0.1 }, { clave: 'c005', valor: 0.05 },
+  { clave: 'c002', valor: 0.02 }, { clave: 'c001', valor: 0.01 },
+];
+
+export function desgloseVacio() {
+  const d = {};
+  for (const { clave } of DENOMINACIONES) d[clave] = 0;
+  return d;
+}
+
+/** Suma el valor de un desglose {clave: cantidad}. Cantidades negativas o no numéricas cuentan como 0. */
+export function totalDesglose(desglose) {
+  if (!desglose) return 0;
+  let total = 0;
+  for (const { clave, valor } of DENOMINACIONES) {
+    const n = Number(desglose[clave]);
+    total += (Number.isFinite(n) && n > 0 ? n : 0) * valor;
+  }
+  return Math.round(total * 100) / 100;
+}
+
+/** verde: cuadra a 0 en los dos. naranja: dentro de margen. rojo: fuera de margen en cualquiera de los dos. */
+export function semaforoCaja(difEfectivo, difTarjeta) {
+  const absEf = Math.abs(difEfectivo);
+  const absTa = Math.abs(difTarjeta);
+  if (absEf === 0 && absTa === 0) return 'verde';
+  if (absEf <= 10 && absTa <= 5) return 'naranja';
+  return 'rojo';
+}
+
 // ── Esquema ───────────────────────────────────────────────────
 // Las sentencias son idempotentes, pero ejecutarlas en cada petición añade
 // latencia al fichaje. Se hacen una vez por instancia (Vercel reutiliza la
@@ -177,6 +214,79 @@ export async function initSchema(db) {
   // pertenece a ningún centro ni a la lista de empleados.
   try { await db.execute("ALTER TABLE mantenimiento ADD COLUMN valor TEXT NOT NULL DEFAULT ''"); } catch {}
 
+  // Cierre de caja — migrado de la app aparte "cierrecaja" (React+Supabase),
+  // que queda fuera. Un turno de caja (apertura + cierre) por centro+turno+
+  // fecha; el desglose de billetes/monedas viaja como JSON en TEXT (mismo
+  // criterio que evidencia_config/payload en otras tablas), sin CHECK en la
+  // definición (en todo este proyecto se valida en el código de la API, no
+  // en el esquema — ver api/caja.js).
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS caja_turnos (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      centro TEXT NOT NULL DEFAULT '',
+      turno TEXT NOT NULL,
+      fecha TEXT NOT NULL,
+      empleado TEXT NOT NULL,
+      estado TEXT NOT NULL DEFAULT 'pendiente',
+
+      apertura_fondo_heredado REAL,
+      apertura_fondo_editable INTEGER NOT NULL DEFAULT 0,
+      apertura_desglose TEXT,
+      apertura_total_contado REAL,
+      apertura_diferencia REAL,
+      apertura_confirmada_en INTEGER,
+
+      cierre_desglose TEXT,
+      cierre_total_caja REAL,
+      cierre_fondo_definido REAL,
+      cierre_efectivo_neto REAL,
+      cierre_tpv_efectivo REAL,
+      cierre_tpv_tarjeta REAL,
+      cierre_tpv_voids REAL,
+      cierre_num_tickets INTEGER,
+      cierre_dif_efectivo REAL,
+      cierre_dif_tarjeta REAL,
+      cierre_semaforo TEXT,
+      cierre_confirmado_en INTEGER,
+
+      creado_en INTEGER NOT NULL,
+      actualizado_en INTEGER NOT NULL
+    )
+  `);
+  try {
+    await db.execute(
+      "CREATE UNIQUE INDEX IF NOT EXISTS idx_caja_turnos_unico ON caja_turnos (centro, turno, fecha)"
+    );
+  } catch {}
+  try { await db.execute("CREATE INDEX IF NOT EXISTS idx_caja_turnos_centro_fecha ON caja_turnos (centro, fecha)"); } catch {}
+
+  // Datáfonos de un cierre: se borran todos y se reinsertan en cada guardado
+  // (igual que hacía cierrecaja), nunca un upsert fila a fila.
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS caja_datafonos (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      turno_id INTEGER NOT NULL,
+      nombre TEXT NOT NULL,
+      importe REAL NOT NULL,
+      orden INTEGER
+    )
+  `);
+  try { await db.execute("CREATE INDEX IF NOT EXISTS idx_caja_datafonos_turno ON caja_datafonos (turno_id)"); } catch {}
+
+  // Log de reaperturas. "nivel" (ADMIN/ENCARGADO) en vez de un usuario
+  // concreto: aquí gerencia no tiene cuentas por persona, a diferencia de
+  // cierrecaja — es una pérdida de detalle asumida a propósito.
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS caja_reaperturas (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      turno_id INTEGER NOT NULL,
+      motivo TEXT NOT NULL,
+      nivel TEXT NOT NULL,
+      creado_en INTEGER NOT NULL
+    )
+  `);
+  try { await db.execute("CREATE INDEX IF NOT EXISTS idx_caja_reaperturas_turno ON caja_reaperturas (turno_id)"); } catch {}
+
   schemaListo = true;
 }
 
@@ -214,7 +324,7 @@ export async function purgarFotosCaducadas(db) {
 // ── Jornada operativa (§3) ────────────────────────────────────
 
 /** Partes de fecha/hora de un instante en una zona horaria concreta. */
-function partesEnZona(ts, tz) {
+export function partesEnZona(ts, tz) {
   const dtf = new Intl.DateTimeFormat('en-US', {
     timeZone: tz, hour12: false,
     year: 'numeric', month: '2-digit', day: '2-digit',
@@ -275,7 +385,7 @@ export function minutosTrabajados(eventos) {
   return minutos;
 }
 
-function sumarDias(fecha, dias) {
+export function sumarDias(fecha, dias) {
   const [Y, M, D] = String(fecha).split('-').map(Number);
   const d = new Date(Date.UTC(Y, M - 1, D));
   d.setUTCDate(d.getUTCDate() + dias);

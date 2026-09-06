@@ -481,6 +481,7 @@ function configurarBotones() {
     });
 
     document.getElementById('btnVerTareas')?.addEventListener('click', () => irATareas());
+    document.getElementById('btnVerCaja')?.addEventListener('click', () => irACaja());
 
     // "Antes que tú" arranca plegado y se despliega al tocarlo.
     document.getElementById('ayerToggle')?.addEventListener('click', () => {
@@ -1466,6 +1467,14 @@ function irATareas() {
     if (!centroActual) return;
     const empleado = document.getElementById('empleado')?.value || '';
     let url = `/tareas.html?centro=${encodeURIComponent(centroActual)}`;
+    if (empleado) url += `&empleado=${encodeURIComponent(empleado)}`;
+    window.location.href = url;
+}
+
+function irACaja() {
+    if (!centroActual) return;
+    const empleado = document.getElementById('empleado')?.value || '';
+    let url = `/caja.html?centro=${encodeURIComponent(centroActual)}`;
     if (empleado) url += `&empleado=${encodeURIComponent(empleado)}`;
     window.location.href = url;
 }

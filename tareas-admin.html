@@ -298,7 +298,7 @@
     async function cargarPlantillas() {
         if (!centro) return;
         try {
-            const r = await fetch(`/api/tarea-plantillas?centro=${encodeURIComponent(centro)}`, { cache: 'no-store' });
+            const r = await fetch(`/api/tareas?modulo=plantillas&centro=${encodeURIComponent(centro)}`, { cache: 'no-store' });
             plantillas = await r.json();
         } catch { plantillas = []; }
         renderPlantillas();
@@ -384,7 +384,7 @@
         if (!body.recurrencia) { msg('Marca al menos un día de la semana', 'error'); return; }
 
         try {
-            const r = await fetch('/api/tarea-plantillas', {
+            const r = await fetch('/api/tareas?modulo=plantillas', {
                 method: familiaId ? 'PUT' : 'POST', headers: H, body: JSON.stringify(body),
             });
             if (siNoAutorizado(r, 'login.html')) return;
@@ -399,7 +399,7 @@
     async function darBaja(familiaId) {
         if (!confirm('¿Dar de baja esta tarea? Dejará de generarse, pero el histórico se conserva.')) return;
         try {
-            const r = await fetch(`/api/tarea-plantillas?familia_id=${encodeURIComponent(familiaId)}`, { method: 'DELETE', headers: H });
+            const r = await fetch(`/api/tareas?modulo=plantillas&familia_id=${encodeURIComponent(familiaId)}`, { method: 'DELETE', headers: H });
             if (siNoAutorizado(r, 'login.html')) return;
             if (!r.ok) { msg('No se pudo dar de baja', 'error'); return; }
             msg('✓ Tarea dada de baja', 'ok');
@@ -411,7 +411,7 @@
         if (!centro) { msg('Elige un centro primero', 'error'); return; }
         if (!confirm(`¿Cargar el catálogo inicial de 11 tareas en "${centro}"?`)) return;
         try {
-            const r = await fetch('/api/tarea-plantillas?accion=seed', { method: 'POST', headers: H, body: JSON.stringify({ centro }) });
+            const r = await fetch('/api/tareas?modulo=plantillas&accion=seed', { method: 'POST', headers: H, body: JSON.stringify({ centro }) });
             if (siNoAutorizado(r, 'login.html')) return;
             const data = await r.json().catch(() => ({}));
             if (!r.ok) { msg(data.error || 'No se pudo cargar el catálogo', 'error', 7000); return; }

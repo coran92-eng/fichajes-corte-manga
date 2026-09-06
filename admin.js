@@ -986,6 +986,11 @@ function configurarBotones() {
         window.location.href = 'mantenimiento.html' + (centro ? `?centro=${encodeURIComponent(centro)}` : '');
     });
 
+    document.getElementById('btnCajaAdmin')?.addEventListener('click', () => {
+        const centro = document.getElementById('filtroCentro')?.value || '';
+        window.location.href = 'caja-admin.html' + (centro ? `?centro=${encodeURIComponent(centro)}` : '');
+    });
+
     document.getElementById('btnRedLocal')?.addEventListener('click', window.abrirRedLocal);
     document.getElementById('btnRedCerrar')?.addEventListener('click', () => {
         document.getElementById('modalRed').style.display = 'none';
