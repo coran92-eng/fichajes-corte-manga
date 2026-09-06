@@ -47,12 +47,14 @@ async function intentarLogin() {
             body: JSON.stringify({ password })
         });
 
+        const data = await response.json().catch(() => ({}));
+
         if (!response.ok) {
-            throw new Error('Credenciales incorrectas');
+            // 503 = el servidor no tiene configurado este acceso (no una contraseña
+            // mala): decirlo tal cual evita que parezca "se me olvidó la clave".
+            throw new Error(data.error || 'Credenciales incorrectas');
         }
 
-        const data = await response.json();
-        
         // Guardar token en sesión
         sessionStorage.setItem('adminToken', data.token);
 
@@ -60,10 +62,10 @@ async function intentarLogin() {
         setTimeout(() => {
             window.location.href = 'panel.html';
         }, 500);
-        
+
     } catch (error) {
         console.error("Error en login:", error);
-        mostrarMensaje('✗ Contraseña incorrecta o error de conexión', 'error');
+        mostrarMensaje(`✗ ${error.message || 'Contraseña incorrecta o error de conexión'}`, 'error');
         deshabilitarBotones(false);
     }
 }

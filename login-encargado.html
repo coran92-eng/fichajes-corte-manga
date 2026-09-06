@@ -207,8 +207,9 @@
         document.addEventListener('DOMContentLoaded', () => {
             if (typeof lucide !== 'undefined') lucide.createIcons();
 
-            // Si ya tiene sesión de encargado, redirigir directamente
-            if (sessionStorage.getItem('encargadoToken') === 'auth-token-fichaje-encargado') {
+            // Si ya tiene algo guardado, redirigir directamente — si no vale de
+            // verdad, la propia pantalla de encargado lo detectará y volverá aquí.
+            if (sessionStorage.getItem('encargadoToken')) {
                 window.location.href = 'horario-encargado.html';
                 return;
             }

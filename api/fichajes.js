@@ -4,6 +4,7 @@ import {
   emitirTokenQr, validarTokenQr, hayQrConfigurado, exigirQr,
   idDispositivo, esEncargadoOSuperior, verificarPin,
   esDispositivoConfianza, hayDispositivosDeConfianza, centroDeEmpleado,
+  claveAdmin, claveEncargado, claveCoincide,
 } from "./_tareas-lib.js";
 import { avisarTelegram, escTelegram, conEnlacePanel } from "./_telegram.js";
 
@@ -136,9 +137,7 @@ async function handlerRed(req, res, db) {
 /** Contraseña de gerencia o de encargado, para autorizar excepciones. */
 function claveResponsableValida(clave) {
   if (!clave) return false;
-  const admin = process.env.ADMIN_PASSWORD || "123456";
-  const encargado = process.env.ENCARGADO_PASSWORD || "123456";
-  return clave === admin || clave === encargado;
+  return claveCoincide(clave, claveAdmin()) || claveCoincide(clave, claveEncargado());
 }
 
 // El esquema se prepara una vez por instancia, no en cada petición. Eran seis
@@ -721,6 +720,11 @@ export default async function handler(req, res) {
       });
     } 
     else if (req.method === "DELETE") {
+      // Sin esto, cualquiera con la URL podía borrar un fichaje ajeno o —sin
+      // pasar ni un parámetro— la tabla de fichajes entera.
+      if (!esEncargadoOSuperior(req)) {
+        return res.status(403).json({ error: "No autorizado" });
+      }
       const { id, empleado } = req.query;
       if (id && empleado) {
         await db.execute({

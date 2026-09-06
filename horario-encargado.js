@@ -7,6 +7,10 @@ let centroActual = '';
 let semanaActual = '';
 let empleadosList = []; // [{ nombre, rol }]
 
+// El servidor ahora exige sesión de verdad para dar de alta/validar/borrar
+// horarios (antes no comprobaba nada). Encargado o gerencia, cualquiera vale.
+const tokenAuth = () => sessionStorage.getItem('adminToken') || sessionStorage.getItem('encargadoToken') || '';
+
 // ── Rango operativo (07:30 → 03:00 día siguiente) ─────────────
 const APERTURA_MIN = 7 * 60 + 30;   // 07:30 en minutos absolutos
 const DURACION_OP = 19.5 * 60;      // 1170 min
@@ -230,7 +234,7 @@ function configurarEventos() {
     document.getElementById('selectSemana').addEventListener('change', onSemanaChange);
     document.getElementById('btnVolver').addEventListener('click', () => {
         // Si es admin vuelve a admin.html; si es encargado vuelve al fichaje
-        if (sessionStorage.getItem('adminToken') === 'auth-token-fichaje-admin') {
+        if (sessionStorage.getItem('adminToken')) {
             window.location.href = 'admin.html';
         } else {
             window.location.href = 'index.html';
@@ -821,7 +825,10 @@ async function onLibreToggle(e) {
         const id = cell.dataset.id;
         if (id) {
             try {
-                await fetch(`/api/horarios?id=${encodeURIComponent(id)}`, { method: 'DELETE' });
+                const r = await fetch(`/api/horarios?id=${encodeURIComponent(id)}`, {
+                    method: 'DELETE', headers: { 'X-Auth-Token': tokenAuth() },
+                });
+                if (siNoAutorizado(r, 'login-encargado.html')) return;
                 cell.dataset.id = '';
             } catch {
                 mostrarMensaje('No se pudo borrar el turno existente de este día; inténtalo de nuevo.', 'error');
@@ -958,10 +965,11 @@ async function enviarHorario() {
         try {
             const res = await fetch('/api/horarios', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: { 'Content-Type': 'application/json', 'X-Auth-Token': tokenAuth() },
                 body: JSON.stringify(turno),
             });
 
+            if (siNoAutorizado(res, 'login-encargado.html')) return;
             if (!res.ok) {
                 const data = await res.json().catch(() => ({}));
                 const msg = data.error || `Error HTTP ${res.status}`;
@@ -1217,9 +1225,10 @@ async function confirmarImportacion() {
         try {
             const res = await fetch('/api/horarios', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: { 'Content-Type': 'application/json', 'X-Auth-Token': tokenAuth() },
                 body: JSON.stringify(turno),
             });
+            if (siNoAutorizado(res, 'login-encargado.html')) return;
             if (res.ok) hechos++;
             else {
                 const d = await res.json().catch(() => ({}));

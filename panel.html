@@ -6,9 +6,10 @@
     <meta name="theme-color" content="#111827">
     <title>Cómo va el bar</title>
     <script src="https://unpkg.com/lucide@latest"></script>
+    <script src="auth-cliente.js"></script>
     <script>
         const TOKEN = sessionStorage.getItem('adminToken') || '';
-        if (TOKEN !== 'auth-token-fichaje-admin') window.location.href = 'login.html';
+        exigirSesion('login.html');
     </script>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -262,6 +263,7 @@ async function pedir(url, ms = 20000) {
     try {
         const r = await fetch(url, { headers: H, signal: c.signal, cache: 'no-store' });
         clearTimeout(t);
+        if (siNoAutorizado(r, 'login.html')) return { datos: null, fallo: 'sesión caducada', tardo: 0, servidor: null };
         const tardo = Date.now() - t0;
         const servidor = r.headers.get('X-Ms-Total');
         if (!r.ok) return { datos: null, fallo: `HTTP ${r.status}`, tardo, servidor };
@@ -672,6 +674,7 @@ async function urlDeFoto(id) {
     let resultado;
     try {
         const r = await fetch(`/api/tareas?recurso=evidencia&id=${id}`, { headers: H, cache: 'no-store' });
+        if (siNoAutorizado(r, 'login.html')) return { url: null, error: 'sesión caducada' };
         if (!r.ok) {
             const data = await r.json().catch(() => ({}));
             resultado = { url: null, error: data.error || `El servidor respondió ${r.status}` };
