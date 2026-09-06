@@ -129,7 +129,7 @@ async function normalizarCentros(db, req) {
 }
 
 /** Turnos abiertos: la última marca de la persona no es una salida. */
-async function turnosAbiertos(db, centro) {
+export async function turnosAbiertos(db, centro) {
   // Se mira solo la última semana: un turno "abierto" de hace un mes es un
   // registro olvidado, no alguien que siga dentro.
   const desde = Date.now() - 8 * 24 * 60 * 60 * 1000;
@@ -187,7 +187,7 @@ async function turnosAbiertos(db, centro) {
  * Los aparatos de confianza del centro (el iPad del bar) quedan fuera: a ese
  * lo usa todo el mundo a propósito, no es una señal de nada raro.
  */
-async function dispositivosCompartidos(db, centro) {
+export async function dispositivosCompartidos(db, centro) {
   const cond = ["TRIM(COALESCE(device_id, '')) <> ''"];
   const args = [];
   if (centro) {

@@ -9,11 +9,24 @@
  *
  *   https://api.telegram.org/bot<TOKEN>/setWebhook?url=https://fichaje-corte-manga.vercel.app/api/telegram-webhook&secret_token=<TELEGRAM_WEBHOOK_SECRET>
  *
- * Soporta:
+ * Soporta, todo con su botón fijo debajo del chat, para no tener que
+ * escribir ni recordar ningún comando:
  *   - /hoy → resumen del día en curso por centro: recuento, quién está
  *     fichado dentro, fichajes de hoy y detalle tarea a tarea (quién la hizo,
  *     o quién de su rol está dentro si sigue sin hacerse).
+ *   - /horarios → el cuadrante subido, turno a turno, con lo que aún está
+ *     sin validar marcado aparte.
+ *   - /solicitudes → las correcciones de fichaje pendientes, una por
+ *     mensaje, con botones para aprobar o rechazar sin salir del chat.
+ *   - /incidencias → lo que está roto o agotado y sigue sin resolverse.
+ *   - /abiertos → quién sigue fichado como presente sin haber salido.
+ *   - /dispositivos → móviles usados por más de una persona.
  *   - el botón "Marcar como no aplica" del aviso de tarea vencida.
+ *
+ * Lo que NO está aquí a propósito: dar de alta o borrar empleados, cambiar
+ * un PIN, configurar la red o la ubicación del centro. Son formularios con
+ * varios campos y consecuencias que conviene ver bien antes de confirmar —
+ * se quedan en el panel, no se fuerzan a caber en un botón de chat.
  */
 import { getDbClient } from "./_db.js";
 import {
@@ -22,8 +35,10 @@ import {
 } from "./_tareas-lib.js";
 import {
   avisarTelegram, escTelegram, hayTelegramConfigurado,
-  responderCallbackTelegram, editarBotonesTelegram, TECLADO_DUENO,
+  responderCallbackTelegram, editarBotonesTelegram,
 } from "./_telegram.js";
+import { turnosAbiertos, dispositivosCompartidos } from "./mantenimiento.js";
+import { resolverSolicitud } from "./solicitudes.js";
 
 const MOTIVO_TELEGRAM = 'Marcado desde Telegram por el dueño';
 
@@ -88,7 +103,32 @@ function comandoDe(texto) {
 // tal cual, como si se hubiera escrito el comando a mano.
 const BOTON_A_COMANDO = {
   '📋 Resumen de hoy': '/hoy',
+  '📅 Horarios': '/horarios',
+  '✏️ Solicitudes': '/solicitudes',
+  '🔧 Incidencias': '/incidencias',
+  '🚪 Turnos abiertos': '/abiertos',
+  '📱 Móviles compartidos': '/dispositivos',
 };
+
+/**
+ * Trocea líneas en mensajes de como mucho `maxLen` caracteres (Telegram
+ * corta a los 4096), sin partir ninguna línea por la mitad.
+ */
+function trocear(lineas, maxLen = 3500) {
+  const bloques = [];
+  let actual = '';
+  for (const linea of lineas) {
+    const candidato = actual ? `${actual}\n${linea}` : linea;
+    if (candidato.length > maxLen && actual) {
+      bloques.push(actual);
+      actual = linea;
+    } else {
+      actual = candidato;
+    }
+  }
+  if (actual) bloques.push(actual);
+  return bloques;
+}
 
 /** Un texto por centro: Telegram corta los mensajes a 4096 caracteres, y
  * juntar todos los centros en uno solo hacía que a partir de dos o tres el
@@ -162,26 +202,249 @@ async function resumenHoy() {
   return bloques;
 }
 
+// Tope defensivo por centro: en la práctica nunca hay tantos turnos subidos
+// de golpe, pero sin límite una tabla que crece acaba colgando el mensaje
+// (y pasándose de los 4096 caracteres que admite Telegram).
+const TOPE_HORARIOS_POR_CENTRO = 150;
+
+/**
+ * El cuadrante subido, turno a turno, agrupado por día — lo que hoy solo se
+ * ve abriendo "Horario de Turno" en el panel. Marca aparte lo que sigue sin
+ * validar, para que se note de un vistazo si hace falta pasar por el panel a
+ * validar la semana.
+ */
+async function resumenHorarios() {
+  const db = getDbClient();
+  await initSchema(db);
+
+  const centros = await db.execute("SELECT centro FROM centros_cfg");
+  const bloques = [];
+
+  for (const { centro } of centros.rows) {
+    const cfg = await getCentroCfg(db, centro);
+    const hoy = fechaOperativaDe(Date.now(), cfg);
+
+    const r = await db.execute({
+      sql: `SELECT empleado, fecha, hora_entrada, hora_salida, estado, rol_primera
+            FROM horarios
+            WHERE LOWER(TRIM(COALESCE(centro,''))) = LOWER(TRIM(?)) AND fecha >= ?
+            ORDER BY fecha ASC, hora_entrada ASC
+            LIMIT ?`,
+      args: [centro, hoy, TOPE_HORARIOS_POR_CENTRO + 1],
+    });
+    if (!r.rows.length) continue;
+
+    const filas = r.rows.slice(0, TOPE_HORARIOS_POR_CENTRO);
+    const hayMas = r.rows.length > TOPE_HORARIOS_POR_CENTRO;
+    const pendientes = filas.filter(f => f.estado === 'pendiente').length;
+
+    const lineas = [`📅 <b>Horarios</b> — ${escTelegram(centro)}`];
+    if (pendientes) lineas.push(`⏳ ${pendientes} turno${pendientes !== 1 ? 's' : ''} todavía sin validar.`);
+
+    let diaActual = '';
+    for (const f of filas) {
+      if (f.fecha !== diaActual) {
+        diaActual = f.fecha;
+        lineas.push(`\n<b>${f.fecha}</b>`);
+      }
+      const marca = f.estado === 'pendiente' ? ' ⏳' : f.estado === 'rechazado' ? ' ❌' : '';
+      const rol = f.rol_primera ? ` (${escTelegram(f.rol_primera)})` : '';
+      lineas.push(
+        `${String(f.hora_entrada).slice(0, 5)}–${String(f.hora_salida).slice(0, 5)} `
+        + `${escTelegram(f.empleado)}${rol}${marca}`
+      );
+    }
+    if (hayMas) lineas.push('\n… y más turnos a partir de ahí. Ábrelo en el panel para verlos todos.');
+
+    bloques.push(...trocear(lineas));
+  }
+
+  return bloques;
+}
+
+const TIPOS_FICHAJE_LARGO = {
+  entrada: 'entrada', salida: 'salida', inicio_descanso: 'inicio de descanso', fin_descanso: 'fin de descanso',
+};
+
+/**
+ * Solicitudes de corrección pendientes, una por mensaje —cada una necesita
+ * sus propios botones de aprobar/rechazar, atados a su id— con el mismo
+ * camino de aprobación que ya usa el panel (§ resolverSolicitud en
+ * solicitudes.js), para no mantener esa lógica en dos sitios.
+ */
+async function responderSolicitudesPendientes() {
+  const db = getDbClient();
+  await initSchema(db);
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS solicitudes (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      empleado TEXT NOT NULL,
+      centro TEXT NOT NULL DEFAULT '',
+      tipo_solicitud TEXT NOT NULL,
+      fichaje_id INTEGER,
+      tipo_fichaje TEXT NOT NULL,
+      fecha TEXT NOT NULL,
+      hora_original TEXT NOT NULL DEFAULT '',
+      hora_propuesta TEXT NOT NULL DEFAULT '',
+      motivo TEXT NOT NULL,
+      estado TEXT NOT NULL DEFAULT 'pendiente',
+      nota_admin TEXT NOT NULL DEFAULT '',
+      creado_en INTEGER NOT NULL,
+      resuelto_en INTEGER
+    )
+  `);
+
+  const r = await db.execute("SELECT * FROM solicitudes WHERE estado = 'pendiente' ORDER BY creado_en ASC LIMIT 30");
+  if (!r.rows.length) {
+    await avisarTelegram('✏️ No hay solicitudes de corrección pendientes.');
+    return;
+  }
+
+  for (const s of r.rows) {
+    const campo = TIPOS_FICHAJE_LARGO[s.tipo_fichaje] || s.tipo_fichaje;
+    const verbo = s.tipo_solicitud === 'crear' ? `crear un fichaje de ${campo}`
+      : s.tipo_solicitud === 'eliminar' ? `eliminar su ${campo}`
+      : `corregir su ${campo}`;
+    const horaTxt = s.hora_original
+      ? `${String(s.hora_original).slice(0, 5)} → ${String(s.hora_propuesta).slice(0, 5)}`
+      : String(s.hora_propuesta || '').slice(0, 5);
+
+    const texto = `✏️ <b>${escTelegram(s.empleado)}</b> pide ${escTelegram(verbo)} del ${s.fecha}`
+      + (horaTxt ? ` (${escTelegram(horaTxt)})` : '')
+      + ` en ${escTelegram(s.centro || '')}.\nMotivo: ${escTelegram(s.motivo)}`;
+
+    await avisarTelegram(texto, {
+      reply_markup: {
+        inline_keyboard: [[
+          { text: '✅ Aprobar', callback_data: `sol_aprobar:${s.id}` },
+          { text: '❌ Rechazar', callback_data: `sol_rechazar:${s.id}` },
+        ]],
+      },
+    });
+  }
+}
+
+/** Copia exacta del esquema de turno-notas.js: cualquiera de las dos rutas puede llegar primero. */
+async function initTurnoNotasLocal(db) {
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS turno_notas (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      centro TEXT NOT NULL DEFAULT '',
+      fecha_operativa TEXT NOT NULL,
+      tipo TEXT NOT NULL DEFAULT 'nota',
+      texto TEXT NOT NULL,
+      autor TEXT NOT NULL DEFAULT '',
+      prioridad TEXT NOT NULL DEFAULT 'normal',
+      estado TEXT NOT NULL DEFAULT '',
+      resuelto_por TEXT NOT NULL DEFAULT '',
+      resuelto_en INTEGER,
+      resolucion TEXT NOT NULL DEFAULT '',
+      foto_b64 TEXT,
+      hash_sha256 TEXT NOT NULL DEFAULT '',
+      device_id TEXT NOT NULL DEFAULT '',
+      creado_en INTEGER NOT NULL
+    )
+  `);
+}
+
+/** Incidencias (roto/averiado) y faltas (agotado) sin resolver, por centro. */
+async function resumenIncidencias() {
+  const db = getDbClient();
+  await initSchema(db);
+  await initTurnoNotasLocal(db);
+
+  const centros = await db.execute("SELECT centro FROM centros_cfg");
+  const bloques = [];
+  const EMOJI_TIPO = { incidencia: '🔧', falta: '📦' };
+
+  for (const { centro } of centros.rows) {
+    const r = await db.execute({
+      sql: `SELECT tipo, texto, autor, prioridad, fecha_operativa
+            FROM turno_notas
+            WHERE LOWER(TRIM(COALESCE(centro,''))) = LOWER(TRIM(?))
+              AND tipo IN ('incidencia','falta') AND estado IN ('abierta','en_curso')
+            ORDER BY CASE prioridad WHEN 'alta' THEN 0 WHEN 'normal' THEN 1 ELSE 2 END, creado_en DESC
+            LIMIT 60`,
+      args: [centro],
+    });
+    if (!r.rows.length) continue;
+
+    const lineas = [`🔧 <b>Incidencias y faltas abiertas</b> — ${escTelegram(centro)}`];
+    for (const n of r.rows) {
+      const emoji = EMOJI_TIPO[n.tipo] || '•';
+      const prioridad = n.prioridad === 'alta' ? ' 🔴' : '';
+      lineas.push(`${emoji} ${escTelegram(n.texto)}${prioridad} — ${escTelegram(n.autor || 'sin autor')} (${n.fecha_operativa})`);
+    }
+    bloques.push(...trocear(lineas));
+  }
+
+  if (!bloques.length) return ['🔧 Ninguna incidencia ni falta abierta ahora mismo.'];
+  return bloques;
+}
+
+/** Quién sigue fichado como presente sin haber salido, en todos los centros. */
+async function resumenTurnosAbiertos() {
+  const db = getDbClient();
+  await initSchema(db);
+  const abiertos = await turnosAbiertos(db, '');
+  if (!abiertos.length) return ['🚪 Ningún turno sin cerrar. Todo en orden.'];
+
+  const lineas = ['🚪 <b>Turnos sin cerrar</b>'];
+  for (const t of abiertos) {
+    lineas.push(
+      `${escTelegram(t.empleado)} (${escTelegram(t.centro)}): entró el ${t.fecha} a las ${String(t.hora).slice(0, 5)} `
+      + `— lleva ${t.horas_abierto} h marcado como presente`
+    );
+  }
+  lineas.push('\nCiérralos desde "Arreglar fichajes" en el panel, con la hora real de salida.');
+  return trocear(lineas);
+}
+
+/** Móviles con fichajes de más de una persona, en todos los centros. */
+async function resumenDispositivosCompartidos() {
+  const db = getDbClient();
+  await initSchema(db);
+  const datos = await dispositivosCompartidos(db, '');
+  if (!datos.length) return ['📱 Ningún móvil compartido entre dos personas ahora mismo.'];
+
+  const lineas = ['📱 <b>Móviles compartidos</b>'];
+  for (const d of datos) {
+    lineas.push(`\n<b>${escTelegram(d.propietario)}</b> (${escTelegram(d.centro)}) — ${d.total_propietario} fichajes suyos con este aparato`);
+    for (const p of d.prestados.slice(0, 5)) {
+      const verbo = VERBO_FICHAJE[p.tipo] || p.tipo;
+      lineas.push(`  ${escTelegram(p.empleado)} fichó ${verbo} el ${p.fecha} a las ${p.hora}`);
+    }
+    if (d.prestados.length > 5) lineas.push(`  … y ${d.prestados.length - 5} vez${d.prestados.length - 5 !== 1 ? 'es' : ''} más. Verlo entero en "Arreglar fichajes".`);
+  }
+  return trocear(lineas);
+}
+
 async function manejarMensaje(message) {
   if (!esDelDueno(message.chat?.id)) return;
   const texto = String(message.text || '').trim();
   const comando = BOTON_A_COMANDO[texto] || comandoDe(texto);
-  if (comando !== '/hoy') return;
 
-  const bloques = await resumenHoy();
-  // Aunque no haya nada que contar hay que contestar algo: si el dueño escribe
-  // /hoy y no le llega nada, no sabe si es que no hay tareas o si el bot está
-  // roto.
+  if (comando === '/solicitudes') { await responderSolicitudesPendientes(); return; }
+
+  const PRODUCTORES = {
+    '/hoy': resumenHoy,
+    '/horarios': resumenHorarios,
+    '/incidencias': resumenIncidencias,
+    '/abiertos': resumenTurnosAbiertos,
+    '/dispositivos': resumenDispositivosCompartidos,
+  };
+  const productor = PRODUCTORES[comando];
+  if (!productor) return;
+
+  const bloques = await productor();
+  // Aunque no haya nada que contar hay que contestar algo: si el dueño toca
+  // un botón y no le llega nada, no sabe si es que no hay nada o si el bot
+  // está roto.
   if (!bloques.length) {
-    await avisarTelegram('Ningún centro tiene tareas ni fichajes para hoy todavía.', { reply_markup: TECLADO_DUENO });
+    await avisarTelegram('Nada que enseñar ahora mismo.');
     return;
   }
-  // El teclado va solo en el último mensaje: es el que queda "puesto" en el
-  // chat, así que no hace falta repetirlo en cada bloque.
-  for (let i = 0; i < bloques.length; i++) {
-    const esUltimo = i === bloques.length - 1;
-    await avisarTelegram(bloques[i], esUltimo ? { reply_markup: TECLADO_DUENO } : {});
-  }
+  for (const bloque of bloques) await avisarTelegram(bloque);
 }
 
 /**
@@ -239,12 +502,52 @@ async function marcarNoAplica(req, callbackQuery) {
   await avisarTelegram(`✅ Marcada como no aplica: <b>${escTelegram(nombre)}</b>`);
 }
 
+/**
+ * Aprueba o rechaza una solicitud de corrección desde sus botones, por el
+ * mismo camino que el panel (§ resolverSolicitud en solicitudes.js): así
+ * aprobarla desde Telegram inserta o modifica el fichaje real exactamente
+ * igual que aprobarla desde ahí, sin duplicar esa lógica aquí.
+ */
+async function resolverSolicitudCallback(callbackQuery, estado) {
+  const [, idTexto] = String(callbackQuery.data || '').split(':');
+  const id = Number(idTexto);
+  const chatId = callbackQuery.message?.chat?.id;
+  const messageId = callbackQuery.message?.message_id;
+
+  if (!Number.isFinite(id)) {
+    await responderCallbackTelegram(callbackQuery.id, 'Solicitud no válida');
+    return;
+  }
+
+  const db = getDbClient();
+  await initSchema(db);
+
+  const r = await resolverSolicitud(db, id, estado, 'Resuelta desde Telegram');
+  if (chatId && messageId) await editarBotonesTelegram(chatId, messageId, { inline_keyboard: [] });
+
+  if (!r.ok) {
+    await responderCallbackTelegram(callbackQuery.id, r.error || 'No se pudo resolver');
+    return;
+  }
+
+  await responderCallbackTelegram(callbackQuery.id, estado === 'aprobada' ? 'Aprobada' : 'Rechazada');
+  const emoji = estado === 'aprobada' ? '✅' : '❌';
+  await avisarTelegram(
+    `${emoji} Solicitud de <b>${escTelegram(r.sol.empleado)}</b> (${r.sol.fecha}) `
+    + `${estado === 'aprobada' ? 'aprobada' : 'rechazada'} desde Telegram.`
+  );
+}
+
 async function manejarCallback(req, callbackQuery) {
   if (!esDelDueno(callbackQuery.message?.chat?.id)) return;
 
   const datos = String(callbackQuery.data || '');
   if (datos.startsWith('no_aplica:')) {
     await marcarNoAplica(req, callbackQuery);
+  } else if (datos.startsWith('sol_aprobar:')) {
+    await resolverSolicitudCallback(callbackQuery, 'aprobada');
+  } else if (datos.startsWith('sol_rechazar:')) {
+    await resolverSolicitudCallback(callbackQuery, 'rechazada');
   } else {
     // Callback que no reconocemos: se contesta igual para que no se quede
     // "cargando" en el móvil, aunque no haya nada que hacer con él.
