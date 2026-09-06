@@ -99,16 +99,8 @@ const BOTON_A_COMANDO = {
   '🚪 Salir': '/salir',
 };
 
-const TECLADO_PRINCIPAL = {
-  keyboard: [
-    ['📅 Mi horario', '🕐 Mis horas'],
-    ['📋 Tareas de hoy', '📍 Fichar'],
-    ['✏️ Corregir fichaje', '🔧 Incidencia', '📦 Falta de producto'],
-    ['❓ Ayuda', '🚪 Salir'],
-  ],
-  resize_keyboard: true, // botones del tamaño del texto, no ocupando media pantalla
-  is_persistent: true,   // se queda puesto; no hace falta reabrirlo en cada mensaje
-};
+// El teclado (TECLADO_PRINCIPAL) vive en _telegram-empleados.js y se aplica
+// solo con recibir cualquier aviso — ver el comentario de avisarEmpleado ahí.
 
 /** La traza no debe tumbar el mensaje que la disparó. */
 async function auditarSuave(db, req, datos) {
@@ -174,8 +166,7 @@ function etiquetaDiaLargo(fechaISO) {
 
 async function enviarAyuda(chatId, empleado) {
   await avisarEmpleado(
-    chatId, `Hola, <b>${escTelegram(empleado.nombre)}</b>. Puedo con esto (o toca uno de los botones de abajo):\n\n${AYUDA_TEXTO}`,
-    { reply_markup: TECLADO_PRINCIPAL }
+    chatId, `Hola, <b>${escTelegram(empleado.nombre)}</b>. Puedo con esto (o toca uno de los botones de abajo):\n\n${AYUDA_TEXTO}`
   );
 }
 
@@ -201,8 +192,7 @@ async function intentarVincular(db, req, chatId, pin) {
   });
 
   await avisarEmpleado(
-    chatId, `✅ Listo, <b>${escTelegram(empleado.nombre)}</b>. Usa los botones de abajo, o escríbeme:\n\n${AYUDA_TEXTO}`,
-    { reply_markup: TECLADO_PRINCIPAL }
+    chatId, `✅ Listo, <b>${escTelegram(empleado.nombre)}</b>. Usa los botones de abajo, o escríbeme:\n\n${AYUDA_TEXTO}`
   );
 }
 
