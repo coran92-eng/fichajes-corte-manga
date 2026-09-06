@@ -169,6 +169,17 @@
         </div>
 
         <div class="bloque">
+            <h2><i data-lucide="smartphone" style="width:17px;height:17px"></i>Mismo móvil, más de una persona</h2>
+            <p class="ayuda">
+                Cuando dos personas fichan desde el mismo aparato, Telegram avisa la primera
+                vez que pasa — esto es el historial completo: con quién ha pasado, cuántas
+                veces y cuándo fue la primera y la última. El iPad del bar no sale aquí: a
+                ese lo usa todo el mundo a propósito.
+            </p>
+            <div id="listaDispositivos"><div class="vacio">Comprobando…</div></div>
+        </div>
+
+        <div class="bloque">
             <h2><i data-lucide="spell-check" style="width:17px;height:17px"></i>Centros escritos de forma distinta</h2>
             <p class="ayuda">
                 El mismo centro guardado unas veces como "Corte de Manga" y otras como
@@ -504,6 +515,52 @@
             }
         }
 
+        function fechaHora(ts) {
+            return new Date(ts).toLocaleString('es-ES', { dateStyle: 'medium', timeStyle: 'short' });
+        }
+
+        async function cargarDispositivosCompartidos() {
+            const cont = document.getElementById('listaDispositivos');
+            cont.innerHTML = '<div class="vacio">Comprobando…</div>';
+            let datos = [];
+            try {
+                const r = await fetch(
+                    `/api/mantenimiento?accion=dispositivos-compartidos&centro=${encodeURIComponent(centro)}`,
+                    { headers: { 'X-Auth-Token': TOKEN_ADMIN } }
+                );
+                if (siNoAutorizado(r, 'login.html')) return;
+                if (!r.ok) throw new Error();
+                datos = await r.json();
+            } catch {
+                cont.innerHTML = '<div class="vacio">No se ha podido comprobar. Recarga la página.</div>';
+                return;
+            }
+
+            if (!datos.length) {
+                cont.innerHTML = '<div class="vacio">Ningún aparato compartido entre dos personas.</div>';
+                return;
+            }
+
+            cont.innerHTML = datos.map(d => {
+                const total = d.empleados.reduce((s, e) => s + e.veces, 0);
+                return `
+                <div class="turno-dia" style="align-items:flex-start">
+                    <div style="flex:1">
+                        <div class="turno-dia-nombre">${esc(d.empleados.map(e => e.empleado).join(' y '))}</div>
+                        <div style="font-size:12px;color:#9ca3af;margin:2px 0 6px">
+                            ${esc(d.centro)} · ${total} fichaje${total !== 1 ? 's' : ''} en total con este aparato
+                        </div>
+                        <div style="font-size:13px;color:#4b5563;line-height:1.7">
+                            ${d.empleados.map(e => `
+                                <div><strong>${esc(e.empleado)}</strong>: ${e.veces} fichaje${e.veces !== 1 ? 's' : ''}
+                                    — desde el ${esc(fechaHora(e.primero))} hasta el ${esc(fechaHora(e.ultimo))}
+                                </div>`).join('')}
+                        </div>
+                    </div>
+                </div>`;
+            }).join('');
+        }
+
         async function fusionar() {
             const origen = document.getElementById('fusionOrigen').value.trim();
             const destino = document.getElementById('fusionDestino').value;
@@ -553,6 +610,7 @@
             cargarEmpleados();
             cargarAbiertos();
             cargarCentrosSucios();
+            cargarDispositivosCompartidos();
 
             const hoy = new Date();
             const pad = n => String(n).padStart(2, '0');
