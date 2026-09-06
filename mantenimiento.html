@@ -515,9 +515,10 @@
             }
         }
 
-        function fechaHora(ts) {
-            return new Date(ts).toLocaleString('es-ES', { dateStyle: 'medium', timeStyle: 'short' });
-        }
+        const ETIQUETA_TIPO_DISPOSITIVO = {
+            entrada: 'entrada', salida: 'salida',
+            inicio_descanso: 'inicio de descanso', fin_descanso: 'fin de descanso',
+        };
 
         async function cargarDispositivosCompartidos() {
             const cont = document.getElementById('listaDispositivos');
@@ -542,18 +543,21 @@
             }
 
             cont.innerHTML = datos.map(d => {
-                const total = d.empleados.reduce((s, e) => s + e.veces, 0);
+                const prestamos = d.prestados.length;
                 return `
                 <div class="turno-dia" style="align-items:flex-start">
                     <div style="flex:1">
-                        <div class="turno-dia-nombre">${esc(d.empleados.map(e => e.empleado).join(' y '))}</div>
-                        <div style="font-size:12px;color:#9ca3af;margin:2px 0 6px">
-                            ${esc(d.centro)} · ${total} fichaje${total !== 1 ? 's' : ''} en total con este aparato
+                        <div class="turno-dia-nombre">📱 Móvil de ${esc(d.propietario)}</div>
+                        <div style="font-size:12px;color:#9ca3af;margin:2px 0 8px">
+                            ${esc(d.centro)} · ${d.total_propietario} fichaje${d.total_propietario !== 1 ? 's' : ''} de ${esc(d.propietario)}
+                            con este aparato · ${prestamos} usado${prestamos !== 1 ? 's' : ''} por otra persona
                         </div>
-                        <div style="font-size:13px;color:#4b5563;line-height:1.7">
-                            ${d.empleados.map(e => `
-                                <div><strong>${esc(e.empleado)}</strong>: ${e.veces} fichaje${e.veces !== 1 ? 's' : ''}
-                                    — desde el ${esc(fechaHora(e.primero))} hasta el ${esc(fechaHora(e.ultimo))}
+                        <div style="font-size:13px;color:#4b5563;line-height:2">
+                            ${d.prestados.map(e => `
+                                <div>
+                                    <strong>${esc(e.empleado)}</strong> fichó ${esc(ETIQUETA_TIPO_DISPOSITIVO[e.tipo] || e.tipo)}
+                                    el <strong>${esc(e.fecha)}</strong> a las <strong>${esc(e.hora)}</strong>
+                                    <span style="color:#9ca3af"> — con el móvil de ${esc(d.propietario)}</span>
                                 </div>`).join('')}
                         </div>
                     </div>
