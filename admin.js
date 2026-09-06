@@ -7,8 +7,7 @@ let fichajesGlobales = []; // Caché en memoria para filtros y exportación
 
 document.addEventListener('DOMContentLoaded', () => {
     // Proteger ruta con token de sessionStorage
-    const token = sessionStorage.getItem('adminToken');
-    if (!token) {
+    if (!sessionStorage.getItem('adminToken')) {
         window.location.href = 'login.html';
     } else {
         inicializarAdmin();
@@ -290,6 +289,7 @@ window.marcarConfianza = async function() {
             },
             body: JSON.stringify({ centro, device_id: idDispositivoAdmin() }),
         });
+        if (siNoAutorizado(res, 'login.html')) return;
         const d = await res.json();
         if (!res.ok) throw new Error(d.error || '');
         mostrarMensaje(d.ya_estaba ? 'Ya estaba marcado' : '✓ Aparato marcado como el del local', 'success');
@@ -303,13 +303,14 @@ window.quitarConfianza = async function() {
     const centro = document.getElementById('redCentro').value;
     if (!confirm('¿Quitar la confianza a este aparato? Pasará a necesitar el código del bar para fichar.')) return;
     try {
-        await fetch(`/api/red-local?recurso=dispositivo&centro=${encodeURIComponent(centro)}&id=${encodeURIComponent(idDispositivoAdmin())}`, {
+        const res = await fetch(`/api/red-local?recurso=dispositivo&centro=${encodeURIComponent(centro)}&id=${encodeURIComponent(idDispositivoAdmin())}`, {
             method: 'DELETE',
             headers: {
                 'X-Auth-Token': tokenAdmin(),
                 'X-Device-Id': idDispositivoAdmin(),
             },
         });
+        if (siNoAutorizado(res, 'login.html')) return;
         mostrarMensaje('Confianza retirada', 'success');
         window.cargarEstadoRed();
     } catch {
@@ -335,6 +336,7 @@ window.autorizarRed = async function() {
             },
             body: JSON.stringify({ centro }),
         });
+        if (siNoAutorizado(res, 'login.html')) return;
         const d = await res.json();
         if (!res.ok) throw new Error(d.error || '');
         mostrarMensaje(d.ya_estaba ? 'Esta red ya estaba autorizada' : '✓ Red autorizada', 'success');
@@ -348,10 +350,11 @@ window.quitarRed = async function(red) {
     const centro = document.getElementById('redCentro').value;
     if (!confirm(`¿Quitar la red ${red}? Desde ella ya no se podrá fichar.`)) return;
     try {
-        await fetch(`/api/red-local?centro=${encodeURIComponent(centro)}&red=${encodeURIComponent(red)}`, {
+        const res = await fetch(`/api/red-local?centro=${encodeURIComponent(centro)}&red=${encodeURIComponent(red)}`, {
             method: 'DELETE',
-            headers: { 'X-Auth-Token': sessionStorage.getItem('adminToken') || '' },
+            headers: { 'X-Auth-Token': tokenAdmin() },
         });
+        if (siNoAutorizado(res, 'login.html')) return;
         mostrarMensaje('Red retirada', 'success');
         window.cargarEstadoRed();
     } catch {
@@ -413,6 +416,7 @@ window.guardarHorarioHabitual = async function() {
                 horario_habitual: Object.keys(horario).length ? JSON.stringify(horario) : '',
             }),
         });
+        if (siNoAutorizado(res, 'login.html')) return;
         const data = await res.json().catch(() => ({}));
         if (!res.ok) throw new Error(data.error || '');
         mostrarMensaje(`✓ Horario habitual guardado para "${habEmpleadoActual}"`, 'success');
@@ -434,6 +438,7 @@ window.confirmarEliminarEmpleado = function(nombre) {
                     headers: { 'Content-Type': 'application/json', 'X-Auth-Token': tokenAdmin() },
                     body: JSON.stringify({ nombre })
                 });
+                if (siNoAutorizado(response, 'login.html')) return;
                 if (!response.ok) throw new Error();
                 renderEmpleados();
                 mostrarMensaje(`✓ "${nombre}" eliminado`, 'success');
@@ -451,6 +456,7 @@ window.asignarCentroEmpleado = async function(nombre, centro) {
             headers: { 'Content-Type': 'application/json', 'X-Auth-Token': tokenAdmin() },
             body: JSON.stringify({ nombre, centro })
         });
+        if (siNoAutorizado(response, 'login.html')) return;
         if (!response.ok) throw new Error();
         mostrarMensaje(`✓ "${nombre}" asignado a ${centro || 'sin centro'}`, 'success');
     } catch {
@@ -484,6 +490,7 @@ window.gestionarPin = async function(nombre, tienePin) {
             },
             body: JSON.stringify({ nombre, pin: 'generar' })
         });
+        if (siNoAutorizado(response, 'login.html')) return;
         const data = await response.json().catch(() => ({}));
         if (!response.ok) throw new Error(data.error || '');
         mostrarPinNuevo(nombre, data.pin);
@@ -500,6 +507,7 @@ window.gestionarPinAdmin = async function() {
     let configurado = false;
     try {
         const r = await fetch('/api/empleados?recurso=pin-admin', { headers: { 'X-Auth-Token': tokenAdmin() } });
+        if (siNoAutorizado(r, 'login.html')) return;
         configurado = (await r.json()).configurado;
     } catch {}
 
@@ -513,6 +521,7 @@ window.gestionarPinAdmin = async function() {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'X-Auth-Token': tokenAdmin() },
         });
+        if (siNoAutorizado(r, 'login.html')) return;
         const d = await r.json();
         if (!r.ok) throw new Error(d.error || '');
         mostrarPinNuevo('Gerencia', d.pin);
@@ -529,6 +538,7 @@ window.quitarPin = async function(nombre) {
             headers: { 'Content-Type': 'application/json', 'X-Auth-Token': tokenAdmin() },
             body: JSON.stringify({ nombre, pin: '' })
         });
+        if (siNoAutorizado(r, 'login.html')) return;
         if (!r.ok) throw new Error();
         mostrarMensaje(`✓ PIN retirado a "${nombre}"`, 'success');
         renderEmpleados();
@@ -583,6 +593,7 @@ window.asignarRolEmpleado = async function(nombre, rol) {
             headers: { 'Content-Type': 'application/json', 'X-Auth-Token': tokenAdmin() },
             body: JSON.stringify({ nombre, rol })
         });
+        if (siNoAutorizado(response, 'login.html')) return;
         if (!response.ok) throw new Error();
         const etiqueta = rol ? rol.charAt(0).toUpperCase() + rol.slice(1) : 'sin rol';
         mostrarMensaje(`✓ "${nombre}" · rol: ${etiqueta}`, 'success');
@@ -607,6 +618,7 @@ function configurarFormEmpleados() {
                 headers: { 'Content-Type': 'application/json', 'X-Auth-Token': tokenAdmin() },
                 body: JSON.stringify({ nombre, centro })
             });
+            if (siNoAutorizado(response, 'login.html')) return;
             if (!response.ok) {
                 const data = await response.json();
                 mostrarMensaje(`⚠ ${data.error || 'Error al añadir'}`, 'error');
@@ -1027,7 +1039,8 @@ async function limpiarDatosFirebase() {
     mostrarMensaje('⏳ Eliminando datos...', 'info');
     
     try {
-        const response = await fetch('/api/fichajes', { method: 'DELETE' });
+        const response = await fetch('/api/fichajes', { method: 'DELETE', headers: { 'X-Auth-Token': tokenAdmin() } });
+        if (siNoAutorizado(response, 'login.html')) return;
         if (!response.ok) throw new Error('No se pudieron eliminar');
         
         mostrarMensaje('✓ Todos los registros fueron eliminados', 'success');
@@ -1192,6 +1205,7 @@ window.validarHorario = async function(semana, centro, estado) {
             headers: { 'Content-Type': 'application/json', 'X-Auth-Token': tokenAdmin() },
             body: JSON.stringify({ semana, centro, estado })
         });
+        if (siNoAutorizado(res, 'login.html')) return;
         if (!res.ok) throw new Error();
         mostrarMensaje(`✓ Semana ${estado === 'validado' ? 'validada' : 'rechazada'} correctamente`, 'success');
         cargarHorarios();
@@ -1279,6 +1293,7 @@ window.resolverSolicitud = function(id, estado) {
                 headers: { 'Content-Type': 'application/json', 'X-Auth-Token': tokenAdmin() },
                 body: JSON.stringify({ id, estado, nota_admin })
             });
+            if (siNoAutorizado(res, 'login.html')) return;
             if (!res.ok) throw new Error();
             mostrarMensaje(`✓ Solicitud ${estado === 'aprobada' ? 'aprobada' : 'rechazada'} correctamente`, 'success');
             cargarSolicitudes();

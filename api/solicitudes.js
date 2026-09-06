@@ -1,6 +1,6 @@
 import { getDbClient } from "./_db.js";
 import { avisarTelegram, escTelegram, conEnlacePanel } from "./_telegram.js";
-import { centroDeEmpleado, telegramChatDeEmpleado } from "./_tareas-lib.js";
+import { centroDeEmpleado, telegramChatDeEmpleado, esEncargadoOSuperior } from "./_tareas-lib.js";
 import { avisarEmpleado } from "./_telegram-empleados.js";
 
 const TIPOS_SOLICITUD = ['modificar', 'crear', 'eliminar'];
@@ -128,6 +128,12 @@ export default async function handler(req, res) {
       return res.status(201).json({ success: true, id: result.lastInsertRowid.toString() });
     }
     else if (req.method === "PUT") {
+      // Aprobar o rechazar una solicitud inserta/modifica/borra fichajes de
+      // verdad: antes no había ninguna comprobación, así que cualquiera con
+      // la URL podía aprobarse su propia solicitud.
+      if (!esEncargadoOSuperior(req)) {
+        return res.status(403).json({ error: "No autorizado" });
+      }
       const { id, estado, nota_admin = '' } = req.body;
 
       if (!id) {

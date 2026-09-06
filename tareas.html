@@ -6,6 +6,7 @@
     <meta name="theme-color" content="#2563eb">
     <title>Tareas · Fichaje</title>
     <script src="https://unpkg.com/lucide@latest"></script>
+    <script src="auth-cliente.js"></script>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
@@ -298,8 +299,9 @@
     let datos = null;
     let filtro = 'mias';
     const deviceId = obtenerDeviceId();
-    const esEncargado = sessionStorage.getItem('encargadoToken') === 'auth-token-fichaje-encargado'
-                     || sessionStorage.getItem('adminToken') === 'auth-token-fichaje-admin';
+    // Pista de UI (qué acciones enseñar), no control de acceso: eso ya lo hace
+    // el servidor con el token real que se manda en cada petición.
+    const esEncargado = !!(sessionStorage.getItem('encargadoToken') || sessionStorage.getItem('adminToken'));
     const authToken = sessionStorage.getItem('adminToken') || sessionStorage.getItem('encargadoToken') || '';
 
     // Sesión de PIN corta (§7): 90 s de inactividad y se vuelve a pedir.
@@ -794,6 +796,7 @@
                 },
                 body: JSON.stringify({ instancia_id: id, empleado: empleadoSel, motivo, device_id: deviceId }),
             });
+            if (siNoAutorizado(r, 'login-encargado.html')) return;
             const data = await r.json().catch(() => ({}));
             if (!r.ok) { aviso(data.error || 'No se pudo aplicar el cambio', 'error', 6000); return; }
             aviso('✓ Hecho', 'ok');

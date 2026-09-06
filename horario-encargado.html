@@ -6,13 +6,10 @@
     <meta name="theme-color" content="#2563eb">
     <title>Horario de Turno - Fichaje</title>
     <script src="https://unpkg.com/lucide@latest"></script>
+    <script src="auth-cliente.js"></script>
     <script>
         // Auth check — encargado token O admin token (el dueño también puede acceder)
-        const _enc = sessionStorage.getItem('encargadoToken') === 'auth-token-fichaje-encargado';
-        const _adm = sessionStorage.getItem('adminToken') === 'auth-token-fichaje-admin';
-        if (!_enc && !_adm) {
-            window.location.href = 'login-encargado.html';
-        }
+        exigirSesion('login-encargado.html');
         // Modo oscuro
         const prefiereOscuro = window.matchMedia('(prefers-color-scheme: dark)').matches;
         if (prefiereOscuro) {

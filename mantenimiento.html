@@ -6,10 +6,12 @@
     <meta name="theme-color" content="#2563eb">
     <title>Arreglar fichajes</title>
     <script src="https://unpkg.com/lucide@latest"></script>
+    <script src="auth-cliente.js"></script>
     <script>
-        // La sesión de gerencia se guarda como 'adminToken' (ver login.js).
+        // La sesión de gerencia se guarda como 'adminToken' (ver login.js). Esta
+        // pantalla exige gerencia estricta, no basta encargado.
+        exigirSesionAdmin('login.html');
         const TOKEN_ADMIN = sessionStorage.getItem('adminToken') || '';
-        if (TOKEN_ADMIN !== 'auth-token-fichaje-admin') window.location.href = 'login.html';
     </script>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -215,6 +217,7 @@
                     `/api/mantenimiento?accion=turnos-abiertos&centro=${encodeURIComponent(centro)}`,
                     { headers: { 'X-Auth-Token': TOKEN_ADMIN } }
                 );
+                if (siNoAutorizado(r, 'login.html')) return;
                 if (!r.ok) throw new Error();
                 datos = await r.json();
             } catch {
@@ -298,6 +301,7 @@
                         fecha, hora,
                     }),
                 });
+                if (siNoAutorizado(r, 'login.html')) return;
                 const d = await r.json().catch(() => ({}));
                 if (!r.ok) {
                     // En la propia tarjeta, no solo arriba del todo: si hay
@@ -368,7 +372,10 @@
                     if (!confirm(`Borrar el turno de ${nombre} ese día. ¿Seguro?`)) return;
                     btn.disabled = true;
                     try {
-                        const r = await fetch(`/api/horarios?id=${encodeURIComponent(btn.dataset.id)}`, { method: 'DELETE' });
+                        const r = await fetch(`/api/horarios?id=${encodeURIComponent(btn.dataset.id)}`, {
+                            method: 'DELETE', headers: { 'X-Auth-Token': TOKEN_ADMIN },
+                        });
+                        if (siNoAutorizado(r, 'login.html')) return;
                         if (!r.ok) throw new Error();
                         fila.remove();
                         mostrar(`✓ Turno de ${nombre} borrado`, 'ok');
@@ -395,7 +402,10 @@
             for (const chk of marcados) {
                 const fila = chk.closest('.turno-dia');
                 try {
-                    const r = await fetch(`/api/horarios?id=${encodeURIComponent(chk.dataset.id)}`, { method: 'DELETE' });
+                    const r = await fetch(`/api/horarios?id=${encodeURIComponent(chk.dataset.id)}`, {
+                        method: 'DELETE', headers: { 'X-Auth-Token': TOKEN_ADMIN },
+                    });
+                    if (siNoAutorizado(r, 'login.html')) return;
                     if (!r.ok) throw new Error();
                     fila.remove();
                     hechos++;
@@ -425,6 +435,7 @@
                 const r = await fetch('/api/mantenimiento?accion=centros-sucios', {
                     headers: { 'X-Auth-Token': TOKEN_ADMIN },
                 });
+                if (siNoAutorizado(r, 'login.html')) return;
                 if (!r.ok) throw new Error();
                 datos = await r.json();
             } catch {
@@ -473,6 +484,7 @@
                     headers: { 'Content-Type': 'application/json', 'X-Auth-Token': TOKEN_ADMIN },
                     body: JSON.stringify({ accion: 'normalizar-centros' }),
                 });
+                if (siNoAutorizado(r, 'login.html')) return;
                 const d = await r.json().catch(() => ({}));
                 if (!r.ok) { mostrar(d.error || 'No se ha podido aplicar', 'error'); btn.disabled = false; return; }
 
@@ -512,6 +524,7 @@
                     headers: { 'Content-Type': 'application/json', 'X-Auth-Token': TOKEN_ADMIN },
                     body: JSON.stringify({ accion: 'renombrar', origen, destino, centro }),
                 });
+                if (siNoAutorizado(r, 'login.html')) return;
                 const d = await r.json().catch(() => ({}));
                 if (!r.ok) { mostrar(d.error || 'No se ha podido unir', 'error'); return; }
                 mostrar(`✓ ${d.total} registros movidos de "${origen}" a "${d.destino}"`, 'ok');

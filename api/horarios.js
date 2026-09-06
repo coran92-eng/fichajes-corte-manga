@@ -1,5 +1,5 @@
 import { getDbClient } from "./_db.js";
-import { centroDeEmpleado, centroCanonico, telegramChatDeEmpleado } from "./_tareas-lib.js";
+import { centroDeEmpleado, centroCanonico, telegramChatDeEmpleado, esEncargadoOSuperior } from "./_tareas-lib.js";
 import { avisarEmpleado } from "./_telegram-empleados.js";
 import { escTelegram } from "./_telegram.js";
 
@@ -152,7 +152,15 @@ export default async function handler(req, res) {
       res.setHeader('X-Ms-Total', String(Date.now() - t0));
       return res.status(200).json(result.rows);
     }
-    else if (req.method === "POST") {
+
+    // Dar de alta un turno, validar/rechazar el cuadrante o borrar un turno
+    // es cosa de encargado — antes no había ninguna comprobación aquí, así
+    // que cualquiera con la URL podía validar el cuadrante entero.
+    if (!esEncargadoOSuperior(req)) {
+      return res.status(403).json({ error: "No autorizado" });
+    }
+
+    if (req.method === "POST") {
       const {
         empleado, centro = '', fecha,
         hora_entrada, hora_salida, semana, notas = '',

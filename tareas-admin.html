@@ -6,10 +6,9 @@
     <meta name="theme-color" content="#2563eb">
     <title>Tareas · Gestión</title>
     <script src="https://unpkg.com/lucide@latest"></script>
+    <script src="auth-cliente.js"></script>
     <script>
-        const _adm = sessionStorage.getItem('adminToken') === 'auth-token-fichaje-admin';
-        const _enc = sessionStorage.getItem('encargadoToken') === 'auth-token-fichaje-encargado';
-        if (!_adm && !_enc) window.location.href = 'login.html';
+        exigirSesion('login.html');
     </script>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -222,7 +221,8 @@
 (function () {
     const $ = id => document.getElementById(id);
     const token = sessionStorage.getItem('adminToken') || sessionStorage.getItem('encargadoToken') || '';
-    const esAdmin = sessionStorage.getItem('adminToken') === 'auth-token-fichaje-admin';
+    // Pista de UI, no control de acceso — eso lo hace el servidor.
+    const esAdmin = !!sessionStorage.getItem('adminToken');
     const H = { 'Content-Type': 'application/json', 'X-Auth-Token': token };
 
     let centro = '';
@@ -387,6 +387,7 @@
             const r = await fetch('/api/tarea-plantillas', {
                 method: familiaId ? 'PUT' : 'POST', headers: H, body: JSON.stringify(body),
             });
+            if (siNoAutorizado(r, 'login.html')) return;
             const data = await r.json().catch(() => ({}));
             if (!r.ok) { msg(data.error || 'No se pudo guardar', 'error', 7000); return; }
             msg(familiaId ? '✓ Nueva versión guardada' : '✓ Tarea creada', 'ok');
@@ -399,6 +400,7 @@
         if (!confirm('¿Dar de baja esta tarea? Dejará de generarse, pero el histórico se conserva.')) return;
         try {
             const r = await fetch(`/api/tarea-plantillas?familia_id=${encodeURIComponent(familiaId)}`, { method: 'DELETE', headers: H });
+            if (siNoAutorizado(r, 'login.html')) return;
             if (!r.ok) { msg('No se pudo dar de baja', 'error'); return; }
             msg('✓ Tarea dada de baja', 'ok');
             cargarPlantillas();
@@ -410,6 +412,7 @@
         if (!confirm(`¿Cargar el catálogo inicial de 11 tareas en "${centro}"?`)) return;
         try {
             const r = await fetch('/api/tarea-plantillas?accion=seed', { method: 'POST', headers: H, body: JSON.stringify({ centro }) });
+            if (siNoAutorizado(r, 'login.html')) return;
             const data = await r.json().catch(() => ({}));
             if (!r.ok) { msg(data.error || 'No se pudo cargar el catálogo', 'error', 7000); return; }
             msg(`✓ ${data.creadas} tareas creadas`, 'ok');
@@ -484,6 +487,7 @@
         if (destino.dataset.cargada) { destino.innerHTML = ''; delete destino.dataset.cargada; return; }
         try {
             const r = await fetch(`/api/tareas?recurso=evidencia&id=${id}`, { headers: { 'X-Auth-Token': token } });
+            if (siNoAutorizado(r, 'login.html')) return;
             if (!r.ok) { const d = await r.json().catch(() => ({})); msg(d.error || 'No se pudo abrir la evidencia', 'error'); return; }
             const blob = await r.blob();
             destino.innerHTML = `<img class="foto-mini" src="${URL.createObjectURL(blob)}" alt="Evidencia">`;
@@ -499,6 +503,7 @@
                 method: 'POST', headers: H,
                 body: JSON.stringify({ instancia_id: Number(id), motivo: motivo.trim(), empleado: 'Encargado' }),
             });
+            if (siNoAutorizado(r, 'login.html')) return;
             const d = await r.json().catch(() => ({}));
             if (!r.ok) { msg(d.error || 'No se pudo aplicar', 'error', 6000); return; }
             msg('✓ Hecho', 'ok');

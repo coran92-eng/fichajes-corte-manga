@@ -804,13 +804,18 @@ export async function validarSesionEmpleado(db, testigo) {
 }
 
 /**
- * Fallos de PIN recientes desde esta red o este aparato.
+ * Fallos recientes (de PIN, o del tipo de evento que se indique) desde esta
+ * red o este aparato.
  *
  * Se cuenta por huella de red, no por IP exacta: en IPv6 cada móvil tiene su
  * propia dirección y limitar por IP no limitaría nada. El aparato se cuenta
  * también, pero como señal: el identificador lo genera el cliente.
+ *
+ * `tipoEvento` es parametrizable para reutilizar el mismo contador con el
+ * login de encargado/gerencia (`LOGIN_FALLIDO`), que antes no tenía ningún
+ * límite de intentos.
  */
-export async function fallosDePinRecientes(db, req) {
+export async function fallosDePinRecientes(db, req, tipoEvento = 'PIN_FALLIDO') {
   const desde = Date.now() - FALLOS_VENTANA_MS;
   const red = huellaRed(ipDeReq(req));
   const aparato = idDispositivo(req);
@@ -820,8 +825,8 @@ export async function fallosDePinRecientes(db, req) {
             SUM(CASE WHEN ? <> '' AND device_id = ? THEN 1 ELSE 0 END) AS aparato,
             SUM(CASE WHEN ? <> '' AND ip = ?        THEN 1 ELSE 0 END) AS red
           FROM evento_auditoria
-          WHERE tipo_evento = 'PIN_FALLIDO' AND ts_servidor >= ?`,
-    args: [aparato, aparato, red, red, desde],
+          WHERE tipo_evento = ? AND ts_servidor >= ?`,
+    args: [aparato, aparato, red, red, tipoEvento, desde],
   });
 
   const nAparato = Number(r.rows[0]?.aparato || 0);
@@ -1005,18 +1010,76 @@ export async function auditar(db, req, datos) {
 }
 
 // ── Permisos ──────────────────────────────────────────────────
-// Nota: el modelo de sesión actual de la app son tokens estáticos en
-// sessionStorage. Se validan aquí para que las acciones de encargado no se
-// puedan invocar desde la pantalla de empleado, pero NO es autenticación
-// fuerte: un token filtrado es reutilizable. Ver "Limitaciones" en el PR.
-export const TOKEN_ADMIN = 'auth-token-fichaje-admin';
-export const TOKEN_ENCARGADO = 'auth-token-fichaje-encargado';
+// Antes, "el nivel de la petición" era comparar el header contra dos cadenas
+// fijas ('auth-token-fichaje-admin'/'-encargado'). Cualquiera que hubiera
+// visto esa cadena una vez —y estaba escrita también en el HTML público de
+// más de diez pantallas— podía escribirla directamente en su sessionStorage
+// y entrar como gerencia sin contraseña. Ahora es una firma HMAC de verdad:
+// ver emitirSesionResponsable más abajo.
+
+export const claveAdmin = () => process.env.ADMIN_PASSWORD || '';
+export const claveEncargado = () => process.env.ENCARGADO_PASSWORD || '';
+export const usuarioEncargado = () => process.env.ENCARGADO_USER || '';
+
+// 30 días: sesión larga a propósito (equipo pequeño, móviles personales), no
+// hace falta escribir la contraseña cada día. Si algún día se quiere más
+// corta, es este número — el resto del mecanismo no depende de él.
+const SESSION_MAX_EDAD_MS = 30 * 24 * 60 * 60 * 1000;
+
+function hashClave(clave) {
+  return crypto.createHash('sha256').update(String(clave || '')).digest('hex');
+}
+
+/**
+ * ¿Coincide esta contraseña con la configurada? Se hashean las dos antes de
+ * comparar (tiempo constante de verdad, no solo `timingSafeEqual` con
+ * cadenas de longitud distinta —que ni siquiera llegaría a compararlas—).
+ * Si `real` está vacía (esa clave no está configurada), nunca coincide: sin
+ * configurar no es "cualquier cosa vale", es "nadie entra por aquí".
+ */
+export function claveCoincide(candidata, real) {
+  if (!real) return false;
+  return igualSeguro(hashClave(candidata), hashClave(real));
+}
+
+function firmaResponsable(nivel, claveHash, emitido) {
+  return crypto.createHmac('sha256', process.env.AUTH_SECRET || '')
+    .update(`resp|${nivel}|${claveHash}|${emitido}`)
+    .digest('base64url')
+    .slice(0, 24);
+}
+
+/** Sin esto configurado, gerencia y encargado no pueden entrar — nunca con una contraseña por defecto adivinable. */
+export function hayAuthConfigurado() {
+  return !!process.env.AUTH_SECRET;
+}
+
+/**
+ * Sesión firmada para encargado/gerencia: "NIVEL.emitido.firma". La
+ * contraseña actual entra en la firma (como hash, nunca en claro), así que
+ * cambiarla en Vercel invalida al instante todas las sesiones de ese nivel
+ * —el mismo efecto que ya tiene regenerar el PIN de un empleado— sin
+ * necesitar ninguna tabla ni lista de sesiones activas.
+ */
+export function emitirSesionResponsable(nivel, clave) {
+  if (!hayAuthConfigurado()) return '';
+  const emitido = Date.now();
+  return `${nivel}.${emitido}.${firmaResponsable(nivel, hashClave(clave), emitido)}`;
+}
 
 export function nivelDesdeReq(req) {
-  const t = (req.headers['x-auth-token'] || req.body?.token || '').toString();
-  if (t === TOKEN_ADMIN) return 'ADMIN';
-  if (t === TOKEN_ENCARGADO) return 'ENCARGADO';
-  return 'EMPLEADO';
+  if (!hayAuthConfigurado()) return 'EMPLEADO';
+  const testigo = (req.headers['x-auth-token'] || req.body?.token || '').toString();
+  const [nivel, emitidoStr, firma] = testigo.split('.');
+  if (nivel !== 'ADMIN' && nivel !== 'ENCARGADO') return 'EMPLEADO';
+
+  const emitido = Number(emitidoStr);
+  if (!Number.isFinite(emitido) || Date.now() - emitido > SESSION_MAX_EDAD_MS) return 'EMPLEADO';
+
+  const clave = nivel === 'ADMIN' ? claveAdmin() : claveEncargado();
+  if (!clave) return 'EMPLEADO'; // ese nivel ni siquiera está configurado hoy
+  if (!igualSeguro(firma || '', firmaResponsable(nivel, hashClave(clave), emitido))) return 'EMPLEADO';
+  return nivel;
 }
 
 export function esEncargadoOSuperior(req) {
