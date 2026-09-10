@@ -22,7 +22,7 @@
  *   /horario   → sus próximos turnos.
  *   /horas     → horas trabajadas esta semana y este mes.
  *   /tareas    → tareas de hoy de su rol, con botones para completar las que
- *                se pueden completar sin estar delante del código del bar.
+ *                no llevan foto (las que sí, hay que hacerlas desde la app).
  *   /fichar    → fichar compartiendo ubicación, si el centro lo tiene activado.
  *   /corregir  → pedir corregir un fichaje: el botón abre un asistente guiado
  *                (fecha, movimiento y hora con botones, motivo escrito) — para
@@ -33,11 +33,10 @@
  *   /salir     → desvincular esta conversación.
  *
  * Completar tareas por Telegram: SOLO las de tipo CHECK, NUMERO o TEXTO. Las
- * que llevan foto siguen exigiendo el código del bar (§ tareas.js) porque es
- * la única prueba de que quien la hace está delante — eso no se puede
- * replicar en un chat, así que no se intenta; se avisa de que hay que abrir
- * la app. Además, cualquier tarea —lleve foto o no— exige turno abierto: no
- * se puede completar nada sin haber fichado la entrada, igual que en la app.
+ * que llevan foto no se pueden completar desde aquí —el bot no sabe recibir
+ * ni adjuntar una foto a una tarea—, así que se avisa de que hay que abrir
+ * la app. Cualquier tarea —lleve foto o no— exige turno abierto: no se
+ * puede completar nada sin haber fichado la entrada, igual que en la app.
  *
  * Fichar por Telegram (/fichar): solo si gerencia ha activado la ubicación
  * del centro (panel → Redes y dispositivos). Se compara la ubicación que
@@ -297,7 +296,7 @@ function lineaTareaListado(t) {
   let linea = `${emoji} ${escTelegram(t.nombre)}${t.criticidad === 'BLOQUEANTE' ? ' (bloqueante)' : ''}`;
   const pendiente = t.estado === 'PENDIENTE' || t.estado === 'VENCIDA';
   const llevaFoto = t.tipo_evidencia === 'FOTO' || t.tipo_evidencia === 'FOTO+NUMERO';
-  if (pendiente && llevaFoto) linea += ' — requiere estar en el bar, complétala desde la app';
+  if (pendiente && llevaFoto) linea += ' — lleva foto, complétala desde la app';
   return linea;
 }
 
@@ -328,8 +327,7 @@ async function responderTareas(db, empleado, chatId, cfg) {
   const lineas = mias.map(lineaTareaListado);
 
   // Botón por tarea completable sin foto — las que llevan foto no lo tienen,
-  // porque completarlas exige el código del bar y eso no se puede hacer
-  // desde un chat.
+  // porque este bot no sabe recibir ni adjuntar una foto a una tarea.
   const botones = [];
   for (const t of mias) {
     if (t.estado !== 'PENDIENTE' && t.estado !== 'VENCIDA') continue;
@@ -408,7 +406,7 @@ async function completarTarea(db, req, empleado, instanciaId, extra = {}) {
   const t = insR.rows[0];
 
   if (t.tipo_evidencia === 'FOTO' || t.tipo_evidencia === 'FOTO+NUMERO') {
-    return { error: 'Esta tarea lleva foto: hace falta el código del bar, complétala desde la app.' };
+    return { error: 'Esta tarea lleva foto: complétala desde la app.' };
   }
   if (t.estado === 'COMPLETADA' || t.estado === 'COMPLETADA_TARDIA') return { error: 'Esa tarea ya estaba completada.' };
   if (t.estado === 'NO_APLICA') return { error: 'Esa tarea está marcada como no aplica.' };
