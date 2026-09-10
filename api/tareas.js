@@ -575,33 +575,21 @@ export default async function handler(req, res) {
     const val = validarEvidencia(t.tipo_evidencia, t.evidencia_config, b);
     if (val.error) return res.status(422).json({ error: val.error });
 
-    // Las tareas con foto exigen haber leído el código del bar: es lo único que
-    // demuestra de verdad que la persona está allí. El navegador no puede
-    // impedir que una foto salga de la galería —`capture` es una sugerencia, no
-    // una obligación—, así que la prueba de presencia la da el código, no la
-    // imagen. El iPad del local está exento por ser dispositivo de confianza.
-    //
-    // A diferencia de fichar entrada/salida (que usa `exigirQr`, más laxo
-    // mientras no haya ningún aparato de confianza, para no dejar a todo el
-    // bar sin poder fichar), aquí se exige en cuanto hay QR_SECRET puesto: una
-    // tarea con foto sin verificar no bloquea a nadie que necesite entrar a
-    // trabajar, así que no hace falta esa misma tolerancia.
+    // El código del bar ya no es obligatorio para completar una tarea con
+    // foto (a diferencia de fichar entrada/salida, que sí lo exige): la
+    // prueba de presencia que de verdad importa aquí es el turno abierto
+    // (arriba), no forzar a leer un código para cada foto. Si de todas
+    // formas llega uno válido —por ejemplo, quien lo hace justo después de
+    // fichar y todavía lo tiene guardado— se registra igual, es información
+    // extra y no cuesta nada guardarla.
     const llevaFoto = t.tipo_evidencia === 'FOTO' || t.tipo_evidencia === 'FOTO+NUMERO';
     const cfgCentro = await getCentroCfg(db, centro);
     const desdeElIpad = esDispositivoConfianza(req, cfgCentro);
 
     let ventanaQrTarea = null;
-    if (llevaFoto && hayQrConfigurado() && !desdeElIpad) {
+    if (llevaFoto && hayQrConfigurado() && !desdeElIpad && b.qr) {
       const v = validarTokenQr(centro, b.qr);
-      if (!v.ok) {
-        return res.status(403).json({
-          error: v.motivo === 'falta'
-            ? "Para hacer esta tarea desde el móvil, lee antes el código de la pantalla del bar"
-            : "Ese código ya ha caducado. Vuelve a leer el de la pantalla del bar",
-          motivo: "qr",
-        });
-      }
-      ventanaQrTarea = v.ventana;
+      if (v.ok) ventanaQrTarea = v.ventana;
     }
 
     let evidenciaId = null;
@@ -630,12 +618,13 @@ export default async function handler(req, res) {
         }
 
         // El origen lo fija el servidor con lo que puede comprobar, no con lo
-        // que declare el móvil: `lastModified` es trivial de falsear. Lo que
-        // cuenta es si la foto llegó con un código del bar recién leído.
+        // que declare el móvil: `lastModified` es trivial de falsear. Ya no
+        // es obligatorio traer un código para que cuente como normal —eso
+        // se quitó arriba—, así que "sin código" ya no se marca como
+        // sospechoso: es el camino esperado ahora, no una señal de nada raro.
         origen = ventanaQrTarea !== null ? 'camara_en_local'
           : desdeElIpad ? 'ipad_local'
-          : 'sin_verificar';
-        if (origen === 'sin_verificar') sospechosa = 1;
+          : 'movil';
       }
 
       const ev = await db.execute({
