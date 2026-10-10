@@ -49,6 +49,7 @@ async function handlerRed(req, res, db) {
       ubicacion_lat: cfg.ubicacion_lat || '',
       ubicacion_lng: cfg.ubicacion_lng || '',
       radio_fichaje_m: cfg.radio_fichaje_m,
+      fichaje_solo_confianza: !!cfg.fichaje_solo_confianza,
     });
   }
 
@@ -60,6 +61,34 @@ async function handlerRed(req, res, db) {
   const cfg = await getCentroCfg(db, centro);
   const actuales = listaCsv(cfg.ips_autorizadas);
   const aparatos = listaCsv(cfg.dispositivos_confianza);
+
+  // Modo estricto: solo el dispositivo de confianza puede fichar. Pensado
+  // para cuando gerencia detecta trampas fichando desde el móvil y quiere
+  // volver a que fichar sea solo en la tablet del bar — apaga a la vez el
+  // QR desde el móvil (abajo, en el POST principal) y el fichaje por
+  // Telegram con ubicación (§ api/telegram-empleados.js), sin tener que
+  // acordarse de desactivar esa ubicación aparte.
+  if (req.query.recurso === 'modo-fichaje') {
+    if (req.method === "POST") {
+      if (!hayDispositivosDeConfianza(cfg)) {
+        return res.status(409).json({ error: "Primero hay que marcar la tablet como dispositivo de confianza" });
+      }
+      await db.execute({
+        sql: `UPDATE centros_cfg SET fichaje_solo_confianza = 1 WHERE LOWER(TRIM(centro)) = LOWER(TRIM(?))`,
+        args: [centro],
+      });
+      await auditar(db, req, { tipo_evento: 'FICHAJE_SOLO_TABLET_ACTIVADO', entidad: 'centros_cfg', entidad_id: centro, centro });
+      return res.status(200).json({ success: true });
+    }
+    if (req.method === "DELETE") {
+      await db.execute({
+        sql: `UPDATE centros_cfg SET fichaje_solo_confianza = 0 WHERE LOWER(TRIM(centro)) = LOWER(TRIM(?))`,
+        args: [centro],
+      });
+      await auditar(db, req, { tipo_evento: 'FICHAJE_SOLO_TABLET_DESACTIVADO', entidad: 'centros_cfg', entidad_id: centro, centro });
+      return res.status(200).json({ success: true });
+    }
+  }
 
   // Coordenadas del local: activan el fichaje por Telegram compartiendo
   // ubicación (§ api/telegram-empleados.js). Sin esto puesto, esa vía sigue
@@ -653,6 +682,21 @@ export default async function handler(req, res) {
             });
           }
           sinPinAutorizado = true;
+        }
+
+        // Modo estricto (gerencia lo activa cuando detecta trampas fichando
+        // desde el móvil): nada de QR ni de red sirve ya para un aparato que
+        // no sea la tablet — ni siquiera leer el código vale. A propósito NO
+        // hay excepción con contraseña de responsable aquí, a diferencia de
+        // la identidad o la red: el código del bar tampoco la tiene, porque
+        // es justo la prueba de presencia que no debería poder saltarse ni
+        // gerencia — si la tablet se estropea, se arregla el fichaje después
+        // desde "Arreglar fichajes" en el panel, no fichando por otra vía.
+        if (cfg.fichaje_solo_confianza && !esDispositivoConfianza(req, cfg)) {
+          return res.status(403).json({
+            error: "Solo se puede fichar desde la tablet del bar",
+            motivo: "solo_tablet",
+          });
         }
 
         // Desde un móvil hay que haber leído el código del iPad. El iPad del
