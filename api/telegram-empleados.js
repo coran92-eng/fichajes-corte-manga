@@ -550,6 +550,10 @@ async function opcionesDeFichaje(db, empleado, centro) {
 }
 
 async function iniciarFichaje(db, empleado, chatId, cfg) {
+  if (cfg.fichaje_solo_confianza) {
+    await avisarEmpleado(chatId, 'El fichaje por Telegram está desactivado: ahora mismo solo se puede fichar desde la tablet del bar.');
+    return;
+  }
   if (!hayUbicacionConfigurada(cfg)) {
     await avisarEmpleado(chatId, 'El fichaje por Telegram no está activado para tu centro todavía. Sigue fichando desde el móvil o el iPad del bar.');
     return;
@@ -602,6 +606,11 @@ async function ficharPorUbicacion(db, req, empleado, chatId, message) {
 
   const centro = empleado.centro || '';
   const cfg = await getCentroCfg(db, centro);
+  if (cfg.fichaje_solo_confianza) {
+    await limpiarFichajePendiente(db, chatId);
+    await avisarEmpleado(chatId, 'El fichaje por Telegram está desactivado: ahora mismo solo se puede fichar desde la tablet del bar.');
+    return;
+  }
   if (!hayUbicacionConfigurada(cfg)) {
     await limpiarFichajePendiente(db, chatId);
     await avisarEmpleado(chatId, 'El fichaje por Telegram ya no está activado para tu centro.');

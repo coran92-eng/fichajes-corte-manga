@@ -274,6 +274,20 @@ window.cargarEstadoRed = async function() {
                     ? `<div style="font-size:12px;color:#9ca3af;margin-top:8px">${d.dispositivos.length} aparatos de confianza en este centro.</div>` : ''}
             </div>`;
 
+        // ── Fichar solo desde la tablet (modo estricto, apaga QR móvil + Telegram) ──
+        const soloTxt = d.fichaje_solo_confianza
+            ? '<span style="color:#b91c1c">⚠ Activado: nadie puede fichar desde el móvil ni por Telegram, solo desde la tablet.</span>'
+            : '<span style="color:#6b7280">Desactivado: también se puede fichar desde el móvil (con el código) o por Telegram.</span>';
+        lista.innerHTML += `
+            <div style="margin-top:16px;padding-top:14px;border-top:1px solid #e5e7eb">
+                <div style="font-size:12px;font-weight:700;color:#6b7280;margin-bottom:5px">FICHAR SOLO DESDE LA TABLET</div>
+                <div style="font-size:13px;line-height:1.5;margin-bottom:10px">${soloTxt}</div>
+                ${d.fichaje_solo_confianza
+                    ? `<button type="button" onclick="window.quitarSoloTablet()" style="border:1px solid #fca5a5;background:none;color:#b91c1c;border-radius:6px;padding:6px 12px;font-size:12px;cursor:pointer;font-weight:600">Permitir también desde el móvil</button>`
+                    : `<button type="button" onclick="window.activarSoloTablet()" style="border:none;background:#b91c1c;color:white;border-radius:6px;padding:6px 12px;font-size:12px;cursor:pointer;font-weight:600">Fichar solo desde la tablet</button>`}
+                <div style="font-size:12px;color:#9ca3af;margin-top:6px">Apaga a la vez el código desde el móvil y el fichaje por Telegram con ubicación. Hace falta tener ya marcado el aparato de confianza de arriba.</div>
+            </div>`;
+
         // ── Fichar por Telegram, compartiendo ubicación ──
         const ubiTxt = d.ubicacion_configurada
             ? `<span style="color:#059669">✓ Activado. Radio: ${d.radio_fichaje_m} m.</span>`
@@ -299,6 +313,42 @@ window.cargarEstadoRed = async function() {
             </div>`;
     } catch {
         estado.textContent = 'No se pudo comprobar la red';
+    }
+};
+
+window.activarSoloTablet = async function() {
+    const centro = document.getElementById('redCentro').value;
+    if (!confirm(
+        `¿Fichar solo desde la tablet en "${centro}"?\n\n` +
+        `A partir de ahora nadie podrá fichar entrada/salida desde su móvil (ni con el código, ni por Telegram) — ` +
+        `solo desde el aparato marcado como de confianza arriba.`
+    )) return;
+    try {
+        const res = await fetch(`/api/red-local?recurso=modo-fichaje&centro=${encodeURIComponent(centro)}`, {
+            method: 'POST', headers: { 'X-Auth-Token': tokenAdmin() },
+        });
+        if (siNoAutorizado(res, 'login.html')) return;
+        const d = await res.json().catch(() => ({}));
+        if (!res.ok) { mostrarMensaje(`✗ ${d.error || 'No se ha podido activar'}`, 'error'); return; }
+        mostrarMensaje('✓ Fichaje solo desde la tablet activado', 'success');
+        window.cargarEstadoRed();
+    } catch {
+        mostrarMensaje('✗ Error de conexión', 'error');
+    }
+};
+
+window.quitarSoloTablet = async function() {
+    const centro = document.getElementById('redCentro').value;
+    if (!confirm('¿Permitir de nuevo fichar también desde el móvil?')) return;
+    try {
+        const res = await fetch(`/api/red-local?recurso=modo-fichaje&centro=${encodeURIComponent(centro)}`, {
+            method: 'DELETE', headers: { 'X-Auth-Token': tokenAdmin() },
+        });
+        if (siNoAutorizado(res, 'login.html')) return;
+        mostrarMensaje('Fichaje desde el móvil permitido de nuevo', 'success');
+        window.cargarEstadoRed();
+    } catch {
+        mostrarMensaje('✗ Error de conexión', 'error');
     }
 };
 

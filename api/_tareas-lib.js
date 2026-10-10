@@ -82,6 +82,11 @@ export async function initSchema(db) {
   try { await db.execute("ALTER TABLE centros_cfg ADD COLUMN ubicacion_lat TEXT NOT NULL DEFAULT ''"); } catch {}
   try { await db.execute("ALTER TABLE centros_cfg ADD COLUMN ubicacion_lng TEXT NOT NULL DEFAULT ''"); } catch {}
   try { await db.execute("ALTER TABLE centros_cfg ADD COLUMN radio_fichaje_m INTEGER NOT NULL DEFAULT 150"); } catch {}
+  // Modo estricto: solo el dispositivo de confianza del centro puede fichar
+  // entrada/salida/descansos — ni el móvil con QR, ni Telegram con
+  // ubicación. Pensado para cuando gerencia detecta trampas desde el móvil
+  // y quiere volver, centro a centro, a que fichar sea solo en la tablet.
+  try { await db.execute("ALTER TABLE centros_cfg ADD COLUMN fichaje_solo_confianza INTEGER NOT NULL DEFAULT 0"); } catch {}
 
   // Catálogo. Editar crea una versión nueva: nunca se modifica en caliente (§4.2).
   await db.execute(`
@@ -424,7 +429,7 @@ export function resolverVentana(fechaOperativa, horaInicio, horaFin, cfg) {
 export async function getCentroCfg(db, centro) {
   const r = await db.execute({
     sql: `SELECT centro, inicio_jornada, zona_horaria, ips_autorizadas, dispositivos_confianza,
-                 ubicacion_lat, ubicacion_lng, radio_fichaje_m
+                 ubicacion_lat, ubicacion_lng, radio_fichaje_m, fichaje_solo_confianza
           FROM centros_cfg WHERE LOWER(TRIM(centro)) = LOWER(TRIM(?))`,
     args: [centro || ''],
   });
@@ -439,6 +444,7 @@ export async function getCentroCfg(db, centro) {
       ubicacion_lat: row.ubicacion_lat || '',
       ubicacion_lng: row.ubicacion_lng || '',
       radio_fichaje_m: Number(row.radio_fichaje_m) || 150,
+      fichaje_solo_confianza: !!Number(row.fichaje_solo_confianza),
     };
   }
   try {
@@ -451,6 +457,7 @@ export async function getCentroCfg(db, centro) {
     centro: centro || '', inicio_jornada: INICIO_JORNADA_DEFAULT,
     zona_horaria: TZ_DEFAULT, ips_autorizadas: '', dispositivos_confianza: '',
     ubicacion_lat: '', ubicacion_lng: '', radio_fichaje_m: 150,
+    fichaje_solo_confianza: false,
   };
 }
 
