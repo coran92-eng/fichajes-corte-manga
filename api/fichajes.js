@@ -672,8 +672,16 @@ export default async function handler(req, res) {
         // compañero te fiche la entrada o la salida desde ahí. Un empleado
         // que todavía no tiene PIN asignado sigue sin bloquearse (§ modo
         // simple), igual que ya pasa al completar tareas.
+        //
+        // Excepción: la tablet del bar (dispositivo de confianza) ficha sin
+        // pedir PIN ni contraseña. Gerencia lo pidió así: en la barra se ficha
+        // tocando el nombre y ya, delante de todos; lo que se quería evitar
+        // era fichar desde el móvil, no tener que teclear nada en la tablet.
         const sesionToken = req.body.sesion || req.headers['x-sesion'] || '';
-        const identidad = await verificarPin(db, empleado, pin, sesionToken);
+        const desdeTablet = esDispositivoConfianza(req, cfg);
+        const identidad = desdeTablet
+          ? { ok: true }
+          : await verificarPin(db, empleado, pin, sesionToken);
         if (!identidad.ok) {
           if (!claveResponsableValida(password_responsable)) {
             return res.status(403).json({
